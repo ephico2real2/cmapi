@@ -1,0 +1,24 @@
+# The eight #592 tests on origin/main 8a5b41c (code before the fix), PostgreSQL 16.15 on 127.0.0.1:55432, database cmapi_592_main, macOS, 2026-11-23.
+# Command, in an export of 8a5b41c's cmapi/ with tests/service/test_idempotency_caller_592.py copied in:
+#   CMAPI_TEST_DATABASE_URL=.../cmapi_592_main PYTHONPATH=src:tests/service python -m pytest tests/service/test_idempotency_caller_592.py -q -W ignore -p no:cacheprovider
+# The assertion lines and the summary, in order of the tests; the full output had 628 lines.
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/idempotency-replay","title":"idempotency replay","status":409,"detail":"Idempotency-Key is in use for another request","code":"idempotency-replay"}
+E       assert (409 == 202)
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/idempotency-replay","title":"idempotency replay","status":409,"detail":"Idempotency-Key is in use for another request","code":"idempotency-replay"}
+E       assert (409 == 202)
+E       assert (202 == 422)
+E           psycopg.errors.UndefinedColumn: column "idempotency_sub" does not exist
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/idempotency-replay","title":"idempotency replay","status":409,"detail":"Idempotency-Key is in use for another request","code":"idempotency-replay"}
+E       assert (409 == 202)
+E           assert '(idempotency_sub, idempotency_key) WHERE (idempotency_key IS NOT NULL)' in 'CREATE UNIQUE INDEX uq_cr_idempotency ON mig.change_requests USING btree (requester_sub, idempotency_key) WHERE (idempotency_key IS NOT NULL)'
+E           psycopg.errors.UndefinedColumn: column "idempotency_sub" of relation "change_requests" does not exist
+E           psycopg.errors.UndefinedColumn: column "idempotency_sub" does not exist
+FAILED tests/service/test_idempotency_caller_592.py::test_a_service_retry_on_behalf_of_a_person_replays_its_request
+FAILED tests/service/test_idempotency_caller_592.py::test_a_service_retry_that_loses_the_race_gets_the_winner
+FAILED tests/service/test_idempotency_caller_592.py::test_the_person_cannot_replay_the_service_request_with_its_key
+FAILED tests/service/test_idempotency_caller_592.py::test_a_person_own_retry_still_replays
+FAILED tests/service/test_idempotency_caller_592.py::test_a_service_key_is_free_again_after_24_hours
+FAILED tests/service/test_idempotency_caller_592.py::test_the_upgrade_keys_each_stored_key_on_its_caller
+FAILED tests/service/test_idempotency_caller_592.py::test_the_downgrade_keys_each_stored_key_on_its_requester_again
+FAILED tests/service/test_idempotency_caller_592.py::test_a_key_stored_before_the_upgrade_replays_after_it
+8 failed in 20.05s

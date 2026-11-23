@@ -1,0 +1,27 @@
+# The 12 reworked #592 tests on 628a6c5 (release 1's first head, before the rework). PostgreSQL 16.15, 127.0.0.1:55432, database cmapi_592_r1, macOS, 2026-11-23.
+# In an export of 628a6c5's cmapi/ with the reworked tests/service/test_idempotency_caller_592.py copied in: pytest tests/service/test_idempotency_caller_592.py -q -W ignore -p no:cacheprovider -rA
+E       AssertionError: {"clusterId":"CRC","requestId":"req-20261123-0002","instance":"nonprod","namespace":"ledger-dev","env":"dev","plugin":"namespaces","action":"create","reason":null,"justification":"Payments service dev namespace","status":"approved","pla
+E       assert (202 == 409)
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/change-pending","title":"change pending","status":409,"detail":"req-20261123-0001 holds payments-dev","code":"change-pending","requestId":"req-20261123-0001"}
+E       assert (409 == 202)
+E           AssertionError: {'uq_cr_idempotency': 'CREATE UNIQUE INDEX uq_cr_idempotency ON mig.change_requests USING btree (idempotency_sub, idempotency_key) WHERE (idempotency_key IS NOT NULL)'}
+E           assert ('0008' == '0008'
+E       AssertionError: migrated to head
+E       assert 0 != 0
+E       AssertionError: migrated to head
+E       assert 0 != 0
+E           AssertionError: {'a-person-own': ('k1', 'fp-a-person-own', None), 'b-service-for-ola': ('k2', 'fp-b-service-for-ola', None), 'c-0007-pod': ('k1', 'fp-c-0007-pod', None), 'd-expired': (None, None, None)}
+E           assert {'a-person-ow..., None, None)} == {'a-person-ow...pired', None)}
+PASSED tests/service/test_idempotency_caller_592.py::test_a_service_retry_on_behalf_of_a_person_replays_its_request
+PASSED tests/service/test_idempotency_caller_592.py::test_a_service_retry_that_loses_the_race_gets_the_closed_winner
+PASSED tests/service/test_idempotency_caller_592.py::test_one_service_key_for_a_second_person_is_refused_by_the_caller_index
+PASSED tests/service/test_idempotency_caller_592.py::test_a_person_own_retry_still_replays
+PASSED tests/service/test_idempotency_caller_592.py::test_a_service_key_is_free_again_after_24_hours
+PASSED tests/service/test_idempotency_caller_592.py::test_keys_written_by_this_code_replay_after_a_schema_round_trip
+FAILED tests/service/test_idempotency_caller_592.py::test_the_person_cannot_replay_the_service_request_with_its_key
+FAILED tests/service/test_idempotency_caller_592.py::test_a_row_that_a_0007_pod_wrote_after_0008_belongs_to_its_caller
+FAILED tests/service/test_idempotency_caller_592.py::test_the_upgrade_keys_each_stored_key_on_its_caller_and_keeps_the_old_index
+FAILED tests/service/test_idempotency_caller_592.py::test_the_upgrade_refuses_a_live_collision_and_succeeds_once_it_expires
+FAILED tests/service/test_idempotency_caller_592.py::test_the_upgrade_refuses_a_live_delegated_row_without_its_caller
+FAILED tests/service/test_idempotency_caller_592.py::test_the_downgrade_keeps_every_key_and_the_old_index
+6 failed, 6 passed in 37.76s

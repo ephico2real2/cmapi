@@ -15,7 +15,7 @@ This document shows each operation of the cmapi API that is built, with a curl s
 |---|---|
 | The instance | Call the instance that serves the environment of the cluster. Another instance answers 422 `environment-not-served` |
 | Writes | A write to a namespace returns 202 with a change request. The change reaches the cluster through a pull request after approval |
-| `Idempotency-Key` | Necessary on each write to a namespace, at most 100 characters, and not read on a `?dryRun=true` call (`plugins/namespaces/router.py`, `_idem`). For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state, with the same `requestId` (`_replay` and `core/views.py`, `request_view`), not a stored copy of the first response. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead: the key is looked up under the caller and stored under the person (#592). Without it the answer is 400 `idempotency-key-required`. The same key with a different request is 409 `idempotency-replay`. The expiry calls do not compare `justification`, so a retry that changes only it gets the original request. Make a new key for each new action (`$(uuidgen)` in a shell), and send the same key again only to retry that same call. The fixed keys in the samples below are examples, not values to copy. Clients that generate the key, so that a person never types one, are #282 |
+| `Idempotency-Key` | Necessary on each write to a namespace, at most 100 characters, and not read on a `?dryRun=true` call (`plugins/namespaces/router.py`, `_idem`). For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state, with the same `requestId` (`_replay` and `core/views.py`, `request_view`), not a stored copy of the first response. The caller is the token's subject, and the key is stored and looked up under it (#592): a service that sends `onBehalfOf` holds its own key, so its retry replays, and the person it names cannot replay that request with the key. Until release 2 (#603) the person also cannot use that key for a request of their own while it is held: 409 `idempotency-replay` "Idempotency-Key is in use for another request", naming no request. Without it the answer is 400 `idempotency-key-required`. The same key with a different request is 409 `idempotency-replay`. The expiry calls do not compare `justification`, so a retry that changes only it gets the original request. Make a new key for each new action (`$(uuidgen)` in a shell), and send the same key again only to retry that same call. The fixed keys in the samples below are examples, not values to copy. Clients that generate the key, so that a person never types one, are #282 |
 | `If-Match` | Necessary on a change, a delete, an extension, a new expiry date and the removal of the expiry (`:extend`, `:set`, `:makePermanent`). Its value is the `etag` of `GET .../namespaces/{ns}` in double quotes, as the `ETag` header gives it. A list of tags (`If-Match: "a", "b"`) passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the list in one comma-separated `If-Match` field: the front door's nginx answers 400 to a second `If-Match` line (#582). Without it, or with `If-Match: *`, the answer is 428 `precondition-required`: cmapi refuses `*` on purpose, where RFC 9110 lets it match any namespace that exists, because it proves no read (RFC 6585, section 3; #571). A weak tag (`W/"..."`) never matches, and with an old value the answer is 412 `precondition-failed`, whose `etag` is the current one. An Idempotency-Key replay still needs If-Match and refuses `*`, and returns the original request in its current state without comparing the tag |
 | `?dryRun=true` | On every write to a namespace (a create, a change, a delete and each of the three expiry calls), it returns 200 with the plan and writes nothing: no request, no pull request. It makes the checks of the call it previews, so it is refused where that call would be. A delete's plan lists each file of the folder as `removed` and renders none (#602). Every other write (`:approve`, `:reject`, `:cancel`, `:retry`, `:revert`, the admin calls, `:probe`) has no dry run and answers any `dryRun` with 400 `dry-run-not-supported`, so a preview never runs for real (`core/docs.py`, `refuse_dry_run`; #606) |
 | A change of metadata | `PATCH .../namespaces/{ns}` is a JSON merge patch (RFC 7396) inside `labels` and `annotations`: a key left out keeps its value, a value sets it, and `null` removes it. The keys that the namespace name is made of (`namespacePrefix`, `namespaceSuffix`) and the keys that cmapi fills in (`value: {from: ...}`) keep their values: sending the value back is accepted, and another value is refused. `x-cmapi-edit` of each key in `GET /api/v1/metadata-keys` says how it may change, and the dry run's `metadataDiff` lists each effective change with `before`, `after` and `source` (`core/metadata.py`, `edit_rule` and `metadata_diff`; #481) |
@@ -257,11 +257,11 @@ The answer was 202 (`application/json`):
   "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:21.567915Z",
+  "createdAt": "2026-11-23T20:34:42.183677Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:21.690102Z",
+      "at": "2026-11-23T20:34:42.257528Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "auto:baseline-rnd-namespace",
@@ -305,7 +305,7 @@ The answer was 202 (`application/json`):
     "submittedByClient": null
   },
   "status": "approved",
-  "updatedAt": "2026-11-23T19:57:21.521657Z"
+  "updatedAt": "2026-11-23T20:34:42.067606Z"
 }
 ```
 
@@ -502,11 +502,11 @@ The answer was 202 (`application/json`):
   "baseSha": "a685e60e04b8eeed05c82d699cb9cff596459f39",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:31.843099Z",
+  "createdAt": "2026-11-23T20:34:52.626583Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:31.856160Z",
+      "at": "2026-11-23T20:34:52.640325Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -550,7 +550,7 @@ The answer was 202 (`application/json`):
     "submittedByClient": null
   },
   "status": "pending_approval",
-  "updatedAt": "2026-11-23T19:57:31.700459Z"
+  "updatedAt": "2026-11-23T20:34:52.454842Z"
 }
 ```
 
@@ -819,11 +819,11 @@ The answer was 202 (`application/json`):
   "baseSha": "95fc380aba05a9fda1073a63b683180aa64d6ba6",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:23.089878Z",
+  "createdAt": "2026-11-23T20:34:43.546065Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:23.164681Z",
+      "at": "2026-11-23T20:34:43.625512Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -867,7 +867,7 @@ The answer was 202 (`application/json`):
     "submittedByClient": null
   },
   "status": "pending_approval",
-  "updatedAt": "2026-11-23T19:57:23.008727Z"
+  "updatedAt": "2026-11-23T20:34:43.439152Z"
 }
 ```
 
@@ -1006,11 +1006,11 @@ The answer was 202 (`application/json`):
   "baseSha": "f390b02e68a83254d0df67e57d3eface7ff1a33f",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:25.968240Z",
+  "createdAt": "2026-11-23T20:34:46.524946Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:26.044674Z",
+      "at": "2026-11-23T20:34:46.603019Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "none-required",
@@ -1054,7 +1054,7 @@ The answer was 202 (`application/json`):
     "submittedByClient": null
   },
   "status": "approved",
-  "updatedAt": "2026-11-23T19:57:25.889360Z"
+  "updatedAt": "2026-11-23T20:34:46.417924Z"
 }
 ```
 
@@ -1176,11 +1176,11 @@ The answer was 202 (`application/json`):
   "baseSha": "8dab0bad411d81a696ed074b67b5f8fdbe640f64",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:37.969804Z",
+  "createdAt": "2026-11-23T20:34:59.087029Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:38.044807Z",
+      "at": "2026-11-23T20:34:59.171058Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -1224,7 +1224,7 @@ The answer was 202 (`application/json`):
     "submittedByClient": null
   },
   "status": "pending_approval",
-  "updatedAt": "2026-11-23T19:57:37.889916Z"
+  "updatedAt": "2026-11-23T20:34:58.984214Z"
 }
 ```
 
@@ -1351,11 +1351,11 @@ The answer was 202 (`application/json`):
   "baseSha": "3871ec0a8cd09f496e4a2934858f19cd3b0dfcac",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:37.079758Z",
+  "createdAt": "2026-11-23T20:34:58.188852Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:37.157808Z",
+      "at": "2026-11-23T20:34:58.271712Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "none-required",
@@ -1399,7 +1399,7 @@ The answer was 202 (`application/json`):
     "submittedByClient": null
   },
   "status": "approved",
-  "updatedAt": "2026-11-23T19:57:37.001827Z"
+  "updatedAt": "2026-11-23T20:34:58.086684Z"
 }
 ```
 
@@ -1490,7 +1490,7 @@ The answer was 200 (`application/json`):
 
 ```json
 {
-  "from": "2026-11-16T19:57:38.112779Z",
+  "from": "2026-11-16T20:34:59.224277Z",
   "items": [
     {
       "action": "create",
@@ -1509,9 +1509,9 @@ The answer was 200 (`application/json`):
           "source": "cmapi"
         }
       ],
-      "firstAt": "2026-11-23T19:57:35.702945Z",
+      "firstAt": "2026-11-23T20:34:56.753945Z",
       "id": "rej-2",
-      "lastAt": "2026-11-23T19:57:35.702945Z",
+      "lastAt": "2026-11-23T20:34:56.753945Z",
       "namespace": "kube-tools",
       "outcome": "refused",
       "plugin": "namespaces",
@@ -1558,7 +1558,7 @@ The answer was 200 (`application/json`):
 {
   "clusters": [
     {
-      "asOf": "2026-11-23T19:57:37.996498Z",
+      "asOf": "2026-11-23T20:34:59.099008Z",
       "bundle": {
         "actionsDiffer": [],
         "actionsDifferTotal": 0,
@@ -1736,13 +1736,13 @@ curl -X GET https://cmapi-nonprod.ephico2real.com/api/v1/capacity -H "Authorizat
 
 The run sent `GET /api/v1/capacity`.
 
-The answer was 200 (`application/json`, `etag: "6dd07405f78c9d271b37413250d3d832"`):
+The answer was 200 (`application/json`, `etag: "d212794415c718223a4315078b0a70e0"`):
 
 ```json
 {
   "clusters": [
     {
-      "asOf": "2026-11-23T19:57:00Z",
+      "asOf": "2026-11-23T20:34:00Z",
       "basis": "simulated",
       "boundBy": "cpu",
       "clusterId": "CRC",
@@ -2136,11 +2136,11 @@ The answer was 200 (`application/json`):
       "baseSha": "95fc380aba05a9fda1073a63b683180aa64d6ba6",
       "beyondTier": null,
       "clusterId": "CRC",
-      "createdAt": "2026-11-23T19:57:23.089878Z",
+      "createdAt": "2026-11-23T20:34:43.546065Z",
       "env": "dev",
       "events": [
         {
-          "at": "2026-11-23T19:57:23.164681Z",
+          "at": "2026-11-23T20:34:43.625512Z",
           "by": "ola",
           "event": "plan_needs_approval",
           "note": "waiting for [('approver-platform', 1)]",
@@ -2184,7 +2184,7 @@ The answer was 200 (`application/json`):
         "submittedByClient": null
       },
       "status": "pending_approval",
-      "updatedAt": "2026-11-23T19:57:23.008727Z"
+      "updatedAt": "2026-11-23T20:34:43.439152Z"
     }
   ],
   "letters": {
@@ -2236,11 +2236,11 @@ The answer was 200 (`application/json`):
   "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:21.567915Z",
+  "createdAt": "2026-11-23T20:34:42.183677Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:21.690102Z",
+      "at": "2026-11-23T20:34:42.257528Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "auto:baseline-rnd-namespace",
@@ -2290,7 +2290,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "synced",
-  "updatedAt": "2026-11-23T19:57:21.907231Z"
+  "updatedAt": "2026-11-23T20:34:42.402215Z"
 }
 ```
 
@@ -2338,7 +2338,7 @@ The answer was 200 (`application/json`):
 {
   "events": [
     {
-      "at": "2026-11-23T19:57:21.690102Z",
+      "at": "2026-11-23T20:34:42.257528Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "auto:baseline-rnd-namespace",
@@ -2378,7 +2378,7 @@ The answer was 200 (`application/json`):
   "approval": {
     "approvals": [
       {
-        "at": "2026-11-23T19:57:23.337353Z",
+        "at": "2026-11-23T20:34:43.844568Z",
         "comment": "sizing reviewed",
         "relayedBy": null,
         "sub": "sub-amy",
@@ -2405,11 +2405,11 @@ The answer was 200 (`application/json`):
   "baseSha": "95fc380aba05a9fda1073a63b683180aa64d6ba6",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:23.089878Z",
+  "createdAt": "2026-11-23T20:34:43.546065Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:23.164681Z",
+      "at": "2026-11-23T20:34:43.625512Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -2453,7 +2453,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "approved",
-  "updatedAt": "2026-11-23T19:57:23.220449Z"
+  "updatedAt": "2026-11-23T20:34:43.701018Z"
 }
 ```
 
@@ -2504,11 +2504,11 @@ The answer was 200 (`application/json`):
   "baseSha": "f2d6ec8033de631fe772fe1f5c292e03abe1bc0e",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:27.253537Z",
+  "createdAt": "2026-11-23T20:34:47.848451Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:27.282960Z",
+      "at": "2026-11-23T20:34:47.880127Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -2552,7 +2552,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "cancelled",
-  "updatedAt": "2026-11-23T19:57:27.473921Z"
+  "updatedAt": "2026-11-23T20:34:48.023355Z"
 }
 ```
 
@@ -2608,11 +2608,11 @@ The answer was 200 (`application/json`):
   "baseSha": "f2d6ec8033de631fe772fe1f5c292e03abe1bc0e",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:27.388613Z",
+  "createdAt": "2026-11-23T20:34:47.987507Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:27.418706Z",
+      "at": "2026-11-23T20:34:48.019083Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -2656,7 +2656,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "rejected",
-  "updatedAt": "2026-11-23T19:57:27.372104Z"
+  "updatedAt": "2026-11-23T20:34:47.926391Z"
 }
 ```
 
@@ -2695,11 +2695,11 @@ The answer was 200 (`application/json`):
   "baseSha": "f2d6ec8033de631fe772fe1f5c292e03abe1bc0e",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:28.893176Z",
+  "createdAt": "2026-11-23T20:34:49.676090Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:28.924493Z",
+      "at": "2026-11-23T20:34:49.704994Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "auto:baseline-rnd-namespace",
@@ -2749,7 +2749,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "approved",
-  "updatedAt": "2026-11-23T19:57:30.302182Z"
+  "updatedAt": "2026-11-23T20:34:51.010810Z"
 }
 ```
 
@@ -2789,11 +2789,11 @@ The answer was 200 (`application/json`):
   "baseSha": "f2d6ec8033de631fe772fe1f5c292e03abe1bc0e",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:34.202832Z",
+  "createdAt": "2026-11-23T20:34:55.077515Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:34.234605Z",
+      "at": "2026-11-23T20:34:55.106856Z",
       "by": "ola",
       "event": "plan_auto_approved",
       "note": "auto:baseline-rnd-namespace",
@@ -2843,7 +2843,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "sync_failed",
-  "updatedAt": "2026-11-23T19:57:34.578240Z"
+  "updatedAt": "2026-11-23T20:34:55.479947Z"
 }
 ```
 
@@ -2872,7 +2872,7 @@ The answer was 200 (`application/json`):
 {
   "items": [
     {
-      "checkedAt": "2026-11-23T19:57:20.200389Z",
+      "checkedAt": "2026-11-23T20:34:40.771371Z",
       "clusterId": "CRC",
       "environment": "dev",
       "findingDetails": [],
@@ -2881,11 +2881,11 @@ The answer was 200 (`application/json`):
       "labels": {
         "region": "us-central"
       },
-      "lastProbeAt": "2026-11-23T19:57:20.200389Z",
+      "lastProbeAt": "2026-11-23T20:34:40.771371Z",
       "secretName": "cmapi-cluster-crc",
       "serverVersion": "v1.35.6-fake",
       "status": "connected",
-      "statusSince": "2026-11-23T19:57:20.200389Z",
+      "statusSince": "2026-11-23T20:34:40.771371Z",
       "tokenExpiresAt": null,
       "trust": {
         "downgrade": false,
@@ -2914,7 +2914,7 @@ The answer was 200 (`application/json`):
 
 ```json
 {
-  "checkedAt": "2026-11-23T19:57:20.650530Z",
+  "checkedAt": "2026-11-23T20:34:41.163080Z",
   "clusterId": "CRC",
   "environment": "dev",
   "findingDetails": [],
@@ -2923,11 +2923,11 @@ The answer was 200 (`application/json`):
   "labels": {
     "region": "us-central"
   },
-  "lastProbeAt": "2026-11-23T19:57:20.650530Z",
+  "lastProbeAt": "2026-11-23T20:34:41.163080Z",
   "secretName": "cmapi-cluster-crc",
   "serverVersion": "v1.35.6-fake",
   "status": "connected",
-  "statusSince": "2026-11-23T19:57:20.200389Z",
+  "statusSince": "2026-11-23T20:34:40.771371Z",
   "tokenExpiresAt": null,
   "trust": {
     "downgrade": false,
@@ -3334,7 +3334,7 @@ The answer was 200 (`application/json`):
 {
   "paused": true,
   "reason": "incident 1234",
-  "setAt": "2026-11-23T19:57:27.714801+00:00",
+  "setAt": "2026-11-23T20:34:48.288758+00:00",
   "setBy": "ada"
 }
 ```
@@ -3363,7 +3363,7 @@ The answer was 200 (`application/json`):
 {
   "paused": false,
   "reason": "incident 1234 closed",
-  "setAt": "2026-11-23T19:57:27.649314+00:00",
+  "setAt": "2026-11-23T20:34:48.190484+00:00",
   "setBy": "ada"
 }
 ```
@@ -3461,7 +3461,7 @@ The answer was 200 (`application/json`):
       "cpuThrottledPeriods": null,
       "cpuThrottledSeconds": null,
       "cpuUsageSeconds": null,
-      "measuredAt": 1795463842.648412,
+      "measuredAt": 1795466083.155765,
       "memoryBytes": null,
       "memoryLimitBytes": null
     }
@@ -3473,7 +3473,7 @@ The answer was 200 (`application/json`):
     "poolInUse": 0,
     "poolSize": 5,
     "sizeBytes": 9690135,
-    "walBytes": 218103808
+    "walBytes": 184549376
   },
   "instance": "nonprod",
   "kpis": [
@@ -3484,7 +3484,7 @@ The answer was 200 (`application/json`):
       "target": "under 10 min",
       "targetStatus": "proposed",
       "unit": "seconds",
-      "value": 0.334935
+      "value": 0.215456
     }
   ],
   "thresholds": {
@@ -3560,7 +3560,7 @@ The answer was 200 (`application/json`):
   "approval": {
     "approvals": [
       {
-        "at": "2026-11-23T19:57:31.934379Z",
+        "at": "2026-11-23T20:34:52.721993Z",
         "comment": "",
         "relayedBy": null,
         "sub": "sub-amy",
@@ -3587,11 +3587,11 @@ The answer was 200 (`application/json`):
   "baseSha": "a685e60e04b8eeed05c82d699cb9cff596459f39",
   "beyondTier": null,
   "clusterId": "CRC",
-  "createdAt": "2026-11-23T19:57:31.843099Z",
+  "createdAt": "2026-11-23T20:34:52.626583Z",
   "env": "dev",
   "events": [
     {
-      "at": "2026-11-23T19:57:31.856160Z",
+      "at": "2026-11-23T20:34:52.640325Z",
       "by": "ola",
       "event": "plan_needs_approval",
       "note": "waiting for [('approver-platform', 1)]",
@@ -3641,7 +3641,7 @@ The answer was 200 (`application/json`):
     "submittedByClient": null
   },
   "status": "awaiting_prune",
-  "updatedAt": "2026-11-23T19:57:32.860882Z"
+  "updatedAt": "2026-11-23T20:34:53.682472Z"
 }
 ```
 
@@ -3938,7 +3938,7 @@ Each refusal is an RFC 9457 problem with the media type `application/problem+jso
 {
   "code": "precondition-failed",
   "detail": "If-Match does not list the current ETag of this answer: read it again",
-  "etag": "6dd07405f78c9d271b37413250d3d832",
+  "etag": "d212794415c718223a4315078b0a70e0",
   "status": 412,
   "title": "precondition failed",
   "type": "https://cmapi.ephico2real.com/problems/precondition-failed"
