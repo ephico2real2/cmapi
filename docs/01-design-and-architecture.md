@@ -727,7 +727,7 @@ docs.enabled and docs.public in instance.yaml switch these off, or put them behi
 | Required permission and roles (x-cmapi-permission, a "Requires" line in the description) | The route's require() dependency |
 | Security: OAuth2 Authorization Code + PKCE (Keycloak) and pasted bearer token | instance.yaml auth; audience cmapi-\<instance> |
 | Idempotency-Key, If-Match, ?dryRun headers and parameters | Shared write dependencies |
-| 202 + ChangeRequest + Location for writes; 200 Plan for dry runs | The pipeline, for every write route |
+| 202 + ChangeRequest, whose `links.self` names the request, for a write that opens one, with no `Location` header; 200 PlanView for its dry run where the route has one (the delete has none); 200 for the other writes | The documented router, `cmapi/src/cmapi/core/docs.py`: each route's status (202 unless the route sets another), its response model, and its `dry_run_model` as the 200 |
 | RFC 9457 error responses with an example each | The problem types the route declares, from core/errors.py |
 | Environment enum limited to allowedEnvironments; servers set to the instance URL | instance.yaml, so each instance's Swagger offers only its own environments |
 | A curl sample per operation (x-codeSamples), with the instance URL and headers | Generated from the operation |

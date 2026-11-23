@@ -137,9 +137,10 @@ def test_the_if_match_dependency_reads_the_octets_as_starlette_decodes_them():
     assert star.value.status == 428
 
 
-def _if_match_params(spec: dict) -> list[dict]:
-    return [p for path in spec["paths"].values() for op in path.values() if isinstance(op, dict)
-            for p in op.get("parameters", []) if p.get("name") == "If-Match"]
+def _if_match_params(spec: dict, writes_only: bool = False) -> list[dict]:
+    """Each If-Match parameter of the document; with writes_only, a write's, without the conditional reads' (#590)."""
+    return [p for path in spec["paths"].values() for method, op in path.items() if isinstance(op, dict)
+            and not (writes_only and method == "get") for p in op.get("parameters", []) if p.get("name") == "If-Match"]
 
 
 def test_the_document_marks_if_match_required_on_the_five_writes(world):
@@ -155,7 +156,7 @@ def test_the_document_marks_if_match_required_on_the_five_writes(world):
         param = params[0]
         assert param["in"] == "header" and param["required"] is True, (path, method, param)
         assert param["schema"]["type"] == "string" and "anyOf" not in param["schema"], (path, method, param["schema"])
-    assert len(_if_match_params(spec)) == len(expected), "no other operation takes If-Match"
+    assert len(_if_match_params(spec, writes_only=True)) == len(expected), "no other write takes If-Match"
     create = spec["paths"]["/api/v1/clusters/{cluster_id}/namespaces"]["post"]
     assert all(p["name"] != "If-Match" for p in create.get("parameters", [])), "a create takes no If-Match"
     assert "put" not in ns, "there is no namespace PUT"
@@ -187,8 +188,9 @@ def test_the_document_describes_a_replay_as_the_original_request_in_its_current_
     spec = client.get("/openapi.json").json()
     patch = spec["paths"][NS_PATH]["patch"]
     assert CURRENT_STATE in patch["description"], patch["description"]
-    texts = [patch["description"]] + [p["description"] for path in spec["paths"].values() for op in path.values()
-                                      if isinstance(op, dict) for p in op.get("parameters", [])
+    # A write's If-Match and Idempotency-Key: a conditional read's If-Match (#590) has no replay.
+    texts = [patch["description"]] + [p["description"] for path in spec["paths"].values() for method, op in path.items()
+                                      if isinstance(op, dict) and method != "get" for p in op.get("parameters", [])
                                       if p["name"] in ("If-Match", "Idempotency-Key")]
     assert sum(1 for t in texts if CURRENT_STATE in t) == len(texts), [t for t in texts if CURRENT_STATE not in t]
     for text in texts:
