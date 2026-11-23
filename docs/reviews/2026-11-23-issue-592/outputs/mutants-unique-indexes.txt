@@ -1,0 +1,15 @@
+# Mutants of the branch's migrations (not committed), database cmapi_592_mut, pytest -k 'race or second_person'.
+## 1. both uq_cr_idempotency and uq_cr_idempotency_caller made non-unique
+E       AssertionError: {"clusterId":"CRC","requestId":"req-20261123-0002","instance":"nonprod","namespace":"payments-dev","env":"dev","plugin":"namespaces","action":"create","reason":null,"justification":"Payments service dev namespace","status":"approved","p
+E       assert (202 == 202 and 'req-20261123-0002' == 'req-20261123-0001'
+E       AssertionError: {"clusterId":"CRC","requestId":"req-20261123-0002","instance":"nonprod","namespace":"ledger-dev","env":"dev","plugin":"namespaces","action":"create","reason":null,"justification":"Payments service dev namespace","status":"approved","pla
+E       assert (202 == 409)
+FAILED tests/service/test_idempotency_caller_592.py::test_a_service_retry_that_loses_the_race_gets_the_closed_winner
+FAILED tests/service/test_idempotency_caller_592.py::test_one_service_key_for_a_second_person_is_refused_by_the_caller_index
+2 failed, 10 deselected in 4.85s
+## 2. only uq_cr_idempotency_caller made non-unique (release 1 without the caller's index)
+E       AssertionError: {"clusterId":"CRC","requestId":"req-20261123-0002","instance":"nonprod","namespace":"ledger-dev","env":"dev","plugin":"namespaces","action":"create","reason":null,"justification":"Payments service dev namespace","status":"approved","pla
+E       assert (202 == 409)
+PASSED tests/service/test_idempotency_caller_592.py::test_a_service_retry_that_loses_the_race_gets_the_closed_winner
+FAILED tests/service/test_idempotency_caller_592.py::test_one_service_key_for_a_second_person_is_refused_by_the_caller_index
+1 failed, 1 passed, 10 deselected in 4.52s

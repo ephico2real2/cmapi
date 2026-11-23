@@ -8,13 +8,13 @@ The database is PostgreSQL through CloudNativePG, or an existing PostgreSQL serv
 
 | Table | One row is | Written by | Read by |
 |---|---|---|---|
-| `change_requests` | One write to a namespace: its plan, its approval rule, its requester, its pull request and its state | The API when a write is submitted (`RequestRepo.insert`, `core/db/repo.py:158`), then the API and the worker on each state change (`RequestRepo.move`, `repo.py:188`) | The request routes, the worker jobs, the KPI report |
-| `request_events` | One state change or note of a request, in order | `RequestRepo.event` and `RequestRepo.move` (`repo.py:183-188`) | `GET /api/v1/requests/{request_id}/events` |
-| `approvals` | One approval of one request by one person | `RequestRepo.record_approval` (`repo.py:231`) | The approval ledger (`repo.py:217`) |
-| `jobs` | One unit of work for the worker, with its lease | `JobRepo.enqueue` (`repo.py:247`) | The worker: `JobRepo.claim` (`repo.py:260`) |
-| `audit_events` | One recorded action: who, what and on which target | `AuditRepo.record` (`repo.py:319`) | No route reads it yet. `AuditRepo.recent` exists (`repo.py:323`) |
-| `jwks_keys` | The last good signing keys of one issuer | `DbKeyStore.save` (`repo.py:354`) | `DbKeyStore.load` (`repo.py:349`), when a pod starts while Keycloak does not answer |
-| `admin_switches` | One switch of the instance, for example `auto-approval`, with who set it | `SwitchRepo.set` (`repo.py:335`) | `SwitchRepo.get` (`repo.py:331`) |
+| `change_requests` | One write to a namespace: its plan, its approval rule, its requester, its pull request and its state | The API when a write is submitted (`RequestRepo.insert`, `core/db/repo.py:170`), then the API and the worker on each state change (`RequestRepo.move`, `repo.py:200`) | The request routes, the worker jobs, the KPI report |
+| `request_events` | One state change or note of a request, in order | `RequestRepo.event` and `RequestRepo.move` (`repo.py:195-200`) | `GET /api/v1/requests/{request_id}/events` |
+| `approvals` | One approval of one request by one person | `RequestRepo.record_approval` (`repo.py:243`) | The approval ledger (`repo.py:229`) |
+| `jobs` | One unit of work for the worker, with its lease | `JobRepo.enqueue` (`repo.py:259`) | The worker: `JobRepo.claim` (`repo.py:272`) |
+| `audit_events` | One recorded action: who, what and on which target | `AuditRepo.record` (`repo.py:331`) | No route reads it yet. `AuditRepo.recent` exists (`repo.py:335`) |
+| `jwks_keys` | The last good signing keys of one issuer | `DbKeyStore.save` (`repo.py:366`) | `DbKeyStore.load` (`repo.py:361`), when a pod starts while Keycloak does not answer |
+| `admin_switches` | One switch of the instance, for example `auto-approval`, with who set it | `SwitchRepo.set` (`repo.py:347`) | `SwitchRepo.get` (`repo.py:343`) |
 | `approval_notifications` | One notice that a channel recorded for a request | The worker job `channel_notify` (`jobs/channel_notify.py:30`) | The same job, to send a notice only once |
 | `expiration_notices` | One expiry notice for a namespace | No code writes it yet. The job `expire_check` is not built | No code reads it yet |
 | `policy_rejections` | One refusal of cmapi before Git on one UTC day, or Kyverno's warnings on a plan that became a request (#302) | `RejectionRepo.record` (`core/rejections.py`), from the namespace routes, `_submit` and the job `pr_checks`; pruned by the job `rejections_prune` | `GET /api/v1/policies/rejections` |
@@ -50,14 +50,14 @@ These indexes and constraints carry correctness. The code relies on each of them
 | Rule | How the schema holds it | Source |
 |---|---|---|
 | One open request for each namespace | The partial unique index `uq_cr_open_namespace` on `(cluster_id, namespace)`, for the eight open states (six in migration `0001`, and `applied` and `merge_failed` added by `0005`) | Migration `0001`, line 57, and `0005` |
-| One request for each idempotency key of a caller | The partial unique index `uq_cr_idempotency` on `(idempotency_sub, idempotency_key)`. Until `0008` it was on `(requester_sub, idempotency_key)`, the person's subject, and a service's retry sent with `onBehalfOf` missed its own key (#592) | Migration `0001`, line 60, and `0008` |
+| One request for each idempotency key of a caller, and of a requester | Two partial unique indexes. `uq_cr_idempotency_caller` on `(idempotency_sub, idempotency_key)`, the caller's (#592). `uq_cr_idempotency` on `(requester_sub, idempotency_key)`, the person's, kept by release 1 so that 0007 pods keep working. It also refuses a person a key that a service holds for them (409). Release 2 (`0009`, #603) keeps only the caller's | Migration `0001`, line 60, and `0008` |
 | One approval for each person on a request | The unique index `uq_approvals_person` on `(request_id, approver_sub)` | Migration `0002` |
 | An approval says which approving group it counted for | `approvals.counted_for`. Each new approval writes the column again for each approval of the request, because the ledger can move an earlier approval to another slot. It is null for an approval from before the column | Migration `0004` |
-| One pending job for each kind, request and payload kind. A job with no request counts the request as empty. A second `enqueue` with the same three values does nothing (`JobRepo.enqueue`, `repo.py:247`) | The partial unique index `uq_jobs_pending` on `(kind, coalesce(request_id, ''), coalesce(payload->>'kind', ''))`, for rows with no `done_at` | Migration `0001`, line 108 |
-| A worker that lost its lease cannot commit | `jobs.lease_generation` increases at each claim, and the commit checks it | Migration `0003`, `JobRepo.assert_lease` (`repo.py:273`) |
+| One pending job for each kind, request and payload kind. A job with no request counts the request as empty. A second `enqueue` with the same three values does nothing (`JobRepo.enqueue`, `repo.py:259`) | The partial unique index `uq_jobs_pending` on `(kind, coalesce(request_id, ''), coalesce(payload->>'kind', ''))`, for rows with no `done_at` | Migration `0001`, line 108 |
+| A worker that lost its lease cannot commit | `jobs.lease_generation` increases at each claim, and the commit checks it | Migration `0003`, `JobRepo.assert_lease` (`repo.py:285`) |
 | A requester is a person or a service | The check `ck_cr_requester_kind` | Migration `0001`, line 54 |
 
-The states of a request are in `cmapi/src/cmapi/core/lifecycle.py`. The eight open states are `pending_approval`, `approved`, `pr_open`, `applied`, `merge_failed`, `merged`, `awaiting_prune` and `sync_failed` (`core/db/models.py:18`). `applied` and `merge_failed` came with #286: the cluster holds the change and `main` does not yet, so the lock must hold.
+The states of a request are in `cmapi/src/cmapi/core/lifecycle.py`. The eight open states are `pending_approval`, `approved`, `pr_open`, `applied`, `merge_failed`, `merged`, `awaiting_prune` and `sync_failed` (`core/db/models.py:19`). `applied` and `merge_failed` came with #286: the cluster holds the change and `main` does not yet, so the lock must hold.
 
 ## The models and the migrations agree
 
@@ -103,7 +103,7 @@ One row is one write to one namespace. The row is the only record of a request: 
 | `requester` | The record of the person and of the caller, as JSON. See "The JSON columns" below | `Requester.record` (`core/identity/checks.py`) |
 | `requester_sub`, `requester_kind`, `requester_client`, `requester_username` | The person's token subject, `user` or `service`, the client that got the token, and the person's username. The ledger refuses `requester_sub` as an approver unless the rule has `selfApproval` | `Pipeline.submit` |
 | `idempotency_key`, `idempotency_fingerprint` | The `Idempotency-Key` header, and a hash of the inputs that the route chooses (`fingerprint`, `repo.py`; the expiry routes leave out `justification`). The same key from the same caller with the same hash returns the original request in its current state. The same key with another hash is `idempotency-replay` | `Pipeline.submit`; `RequestRepo.by_idempotency` clears both after 24 hours |
-| `idempotency_sub` | The token subject of the caller that sent the key: the service, not the person, on a write sent with `onBehalfOf`. A key belongs to its caller, so `_replay` looks it up under the caller's subject, and the person a service names cannot replay the service's request (#592, migration `0008`). Null when the row holds no key. Migration `0008` filled it for the keys it found, from `requester.submittedBySub` or else `requester_sub` | `Pipeline.submit`; `RequestRepo.by_idempotency` clears it with the key |
+| `idempotency_sub` | The token subject of the caller that sent the key: the service, not the person, on a write sent with `onBehalfOf`. A key belongs to its caller, so `_replay` looks it up under the caller's subject, and the person a service names cannot replay the service's request (#592, migration `0008`). Null when the row holds no key. Migration `0008` filled it for the live keys it found, from `requester.submittedBySub` or else `requester_sub`. Also null on a keyed row that a 0007 pod wrote after `0008`: the lookup then takes the caller from `requester` the same way (`key_owner`, `repo.py`), until `0009` fills those rows (#603) | `Pipeline.submit`; `RequestRepo.by_idempotency` clears it with the key |
 | `pr` | The pull request: `number`, `url`, `branch` and `head` (the head commit). Null until `open_pr` runs | `open_pr` (`jobs/open_pr.py`) |
 | `merge_sha` | The merge commit of the pull request | `pr_checks` (`jobs/pr_checks.py`) |
 | `attempts` | A counter that starts at 0. `:retry` sets it to 0 again (`cmapi/src/cmapi/routers/requests.py`). No built code adds to it | `:retry` |
@@ -239,7 +239,7 @@ The owner's rule, 2026-11-13: "we can use postgress for cache as well if needed 
 | Shared state | Where it is | Expiry |
 |---|---|---|
 | The copy of the signing keys | `jwks_keys`, one row for each issuer, replaced at each good fetch | None. A newer fetch replaces the row |
-| The idempotency records | `change_requests.idempotency_key`, `idempotency_fingerprint` and `idempotency_sub` | 24 hours from the creation of the request, by the database's `now()`. The lookup clears an older key (`RequestRepo.by_idempotency`, `core/db/repo.py:124`, #142) |
+| The idempotency records | `change_requests.idempotency_key`, `idempotency_fingerprint` and `idempotency_sub` | 24 hours from the creation of the request, by the database's `now()`. The lookup clears an older key (`RequestRepo.by_idempotency`, `core/db/repo.py:135`, #142) |
 | The lock of a namespace | The index `uq_cr_open_namespace` | The request leaves the open states |
 | The work queue | `jobs`, claimed with a lease | `locked_until` |
 
@@ -372,7 +372,8 @@ Migration head: `0008`. Tables: 10.
 | `change_requests_pkey` | Primary key | `PRIMARY KEY (request_id)` |
 | `idx_cr_namespace` | Index | `btree (cluster_id, namespace, created_at)` |
 | `idx_cr_status` | Index | `btree (status, created_at)` |
-| `uq_cr_idempotency` | Unique index | `btree (idempotency_sub, idempotency_key) WHERE (idempotency_key IS NOT NULL)` |
+| `uq_cr_idempotency` | Unique index | `btree (requester_sub, idempotency_key) WHERE (idempotency_key IS NOT NULL)` |
+| `uq_cr_idempotency_caller` | Unique index | `btree (idempotency_sub, idempotency_key) WHERE (idempotency_key IS NOT NULL)` |
 | `uq_cr_open_namespace` | Unique index | `btree (cluster_id, namespace) WHERE ((status)::text = ANY ((ARRAY['pending_approval'::character varying, 'approved'::character varying, 'pr_open'::character varying, 'applied'::character varying, 'merge_failed'::character varying, 'merged'::character varying, 'awaiting_prune'::character varying, 'sync_failed'::character varying])::text[]))` |
 
 ### `expiration_notices`

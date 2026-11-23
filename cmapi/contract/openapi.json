@@ -9765,7 +9765,7 @@
             }
           },
           {
-            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
+            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. Until #603, the person also cannot use that key for a request of their own while it is held (409 `idempotency-replay`). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -9778,7 +9778,7 @@
                   "type": "null"
                 }
               ],
-              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
+              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. Until #603, the person also cannot use that key for a request of their own while it is held (409 `idempotency-replay`). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -11297,7 +11297,7 @@
             }
           },
           {
-            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
+            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. Until #603, the person also cannot use that key for a request of their own while it is held (409 `idempotency-replay`). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -11310,7 +11310,7 @@
                   "type": "null"
                 }
               ],
-              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
+              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. Until #603, the person also cannot use that key for a request of their own while it is held (409 `idempotency-replay`). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -12000,7 +12000,7 @@
             }
           },
           {
-            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
+            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. Until #603, the person also cannot use that key for a request of their own while it is held (409 `idempotency-replay`). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -12013,7 +12013,7 @@
                   "type": "null"
                 }
               ],
-              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
+              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. Until #603, the person also cannot use that key for a request of their own while it is held (409 `idempotency-replay`). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -12630,7 +12630,7 @@
             }
           },
           {
-            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
+            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. Until #603, the person also cannot use that key for a request of their own while it is held (409 `idempotency-replay`). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -12643,7 +12643,7 @@
                   "type": "null"
                 }
               ],
-              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
+              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. Until #603, the person also cannot use that key for a request of their own while it is held (409 `idempotency-replay`). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -13265,7 +13265,7 @@
             }
           },
           {
-            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
+            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. Until #603, the person also cannot use that key for a request of their own while it is held (409 `idempotency-replay`). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -13278,7 +13278,7 @@
                   "type": "null"
                 }
               ],
-              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
+              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it. Until #603, the person also cannot use that key for a request of their own while it is held (409 `idempotency-replay`). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],

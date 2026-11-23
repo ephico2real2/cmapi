@@ -47,6 +47,17 @@ def requirement_from_json(d: Mapping[str, Any] | None) -> Requirement | None:
 
 
 IDEMPOTENCY_HOURS = 24      # how long an Idempotency-Key returns its original request (docs/02, API contract)
+# The two unique indexes of an Idempotency-Key in release 1 of #592: the requester's (0001) and the caller's (0008).
+# Release 2 (0009, #603) keeps only the caller's.
+IDEMPOTENCY_INDEXES = ("uq_cr_idempotency_caller", "uq_cr_idempotency")
+
+
+def key_owner():
+    """The caller that a row's Idempotency-Key belongs to (#592). This code writes `idempotency_sub`. A keyed row that a
+    0007 pod wrote after migration 0008 has none, so its caller comes from `requester`, as 0008's backfill takes it:
+    `submittedBySub` for a service that sent it for a person, otherwise the requester, who sent it."""
+    return func.coalesce(ChangeRequestRow.idempotency_sub, ChangeRequestRow.requester["submittedBySub"].astext,
+                         ChangeRequestRow.requester_sub)
 
 
 class LeaseLost(RuntimeError):
@@ -123,17 +134,18 @@ class RequestRepo:
 
     def by_idempotency(self, caller_sub: str, key: str) -> ChangeRequestRow | None:
         """The caller's request for this key, if the key is still held. The key belongs to the caller that sent it, the
-        service on a write sent with onBehalfOf, not the person the request is for (#592). A key is held for
+        service on a write sent with onBehalfOf, not the person the request is for (#592, `key_owner`). A key is held for
         IDEMPOTENCY_HOURS (docs/02) from the request's creation, by the database's clock and not a pod's. Past that the key,
-        its fingerprint and its caller are cleared here, in the caller's transaction, so the unique index on
-        (idempotency_sub, idempotency_key) lets the key be used again."""
+        its fingerprint and its caller are cleared here, in the caller's transaction, so the unique indexes
+        (IDEMPOTENCY_INDEXES) let the key be used again. The oldest row comes first: two rows of one owner can exist only
+        if a 0007 pod and this code raced in the window of release 1."""
+        held = (ChangeRequestRow.idempotency_key == key, key_owner() == caller_sub)
         self.s.execute(update(ChangeRequestRow)
-                       .where(ChangeRequestRow.idempotency_sub == caller_sub, ChangeRequestRow.idempotency_key == key,
-                              ChangeRequestRow.created_at < func.now() - text(f"interval '{IDEMPOTENCY_HOURS} hours'"))
+                       .where(*held, ChangeRequestRow.created_at < func.now() - text(f"interval '{IDEMPOTENCY_HOURS} hours'"))
                        .values(idempotency_key=None, idempotency_fingerprint=None, idempotency_sub=None,
                                updated_at=ChangeRequestRow.updated_at))
-        return self.s.scalars(select(ChangeRequestRow).where(ChangeRequestRow.idempotency_sub == caller_sub,
-                                                            ChangeRequestRow.idempotency_key == key)).first()
+        return self.s.scalars(select(ChangeRequestRow).where(*held)
+                              .order_by(ChangeRequestRow.created_at, ChangeRequestRow.request_id)).first()
 
     def auto_approvals_today(self, team: str) -> int:
         start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -174,7 +186,7 @@ class RequestRepo:
                                            "read the namespace again and resend the change") from exc
                 raise Problem.conflict("change-pending", f"{holder.request_id} holds {row.namespace}",
                                        requestId=holder.request_id) from exc
-            if "uq_cr_idempotency" in str(exc.orig):
+            if any(name in str(exc.orig) for name in IDEMPOTENCY_INDEXES):
                 raise Problem.conflict("idempotency-replay", "Idempotency-Key is in use for another request") from exc
             raise
         self.event(row, first_event.value, by, note)

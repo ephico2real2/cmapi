@@ -1,0 +1,29 @@
+# Mixed versions on one 0008 schema (database cmapi_592_mixed): the branch's code (new pod) and 8a5b41c's code (0007 pod), one pytest run per step, in order. Probe files not committed.
+## 0. the branch migrator to head
+migrated to head
+## 0b. the 0007 migrator (8a5b41c) on the same database
+the database is at 0008, a later release's revision: nothing to do
+## 1. new pod (branch code)
+new pod: service writes onBehalfOf ola, key new-svc: 202 code=None requestId=req-20261123-0001 detail=None
+  row ('req-20261123-0001', 'sub-ola', 'sub-service-account-svc-payments-ci', 'new-svc')
+1 passed, 1 deselected in 1.66s
+## 2. 0007 pod (8a5b41c code)
+0007 pod: ola sends the new pod's service key new-svc with its body (req-20261123-0001): 202 code=None requestId=req-20261123-0001 detail=None
+0007 pod: the service retries key new-svc: 409 code=idempotency-replay requestId=None detail='Idempotency-Key is in use for another request'
+0007 pod: service writes onBehalfOf ola, key old-svc: 202 code=None requestId=req-20261123-0002 detail=None
+0007 pod: the service retries key old-svc: 409 code=idempotency-replay requestId=None detail='Idempotency-Key is in use for another request'
+0007 pod: ola writes her own, key old-ola: 202 code=None requestId=req-20261123-0003 detail=None
+0007 pod: ola retries key old-ola: 202 code=None requestId=req-20261123-0003 detail=None
+  row ('req-20261123-0001', 'sub-ola', 'sub-service-account-svc-payments-ci', 'new-svc')
+  row ('req-20261123-0002', 'sub-ola', None, 'old-svc')
+  row ('req-20261123-0003', 'sub-ola', None, 'old-ola')
+1 passed in 2.46s
+## 3. new pod (branch code)
+new pod: service retries key old-svc (0007 wrote req-20261123-0002): 202 code=None requestId=req-20261123-0002 detail=None
+new pod: ola retries key old-ola (0007 wrote req-20261123-0003): 202 code=None requestId=req-20261123-0003 detail=None
+new pod: ola sends the service's key old-svc, her own body: 409 code=idempotency-replay requestId=None detail='Idempotency-Key is in use for another request'
+new pod: ola sends the service's key new-svc with its body: 422 code=on-behalf-of-not-allowed requestId=None detail='A person calls as themselves; onBehalfOf is for service clients and automation accounts'
+  row ('req-20261123-0001', 'sub-ola', 'sub-service-account-svc-payments-ci', 'new-svc')
+  row ('req-20261123-0002', 'sub-ola', None, 'old-svc')
+  row ('req-20261123-0003', 'sub-ola', None, 'old-ola')
+1 passed, 1 deselected in 1.81s
