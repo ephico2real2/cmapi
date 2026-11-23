@@ -114,7 +114,7 @@ jobs:
           version: v3.19.0
       - name: oasdiff v1.37.0
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/oasdiff.tar.gz" https://github.com/oasdiff/oasdiff/releases/download/v1.37.0/oasdiff_1.37.0_linux_amd64.tar.gz
+          curl -fsSL --retry 5 -o "$RUNNER_TEMP/oasdiff.tar.gz" https://github.com/oasdiff/oasdiff/releases/download/v1.37.0/oasdiff_1.37.0_linux_amd64.tar.gz
           echo "eac87307d31d08c36800c58a409c247f1c5db37fbb72e2544402f22a87cbca3c  $RUNNER_TEMP/oasdiff.tar.gz" | sha256sum -c -
           tar xzf "$RUNNER_TEMP/oasdiff.tar.gz" -C "$RUNNER_TEMP" oasdiff && sudo mv "$RUNNER_TEMP/oasdiff" /usr/local/bin/
           oasdiff --version

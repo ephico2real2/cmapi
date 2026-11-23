@@ -14,7 +14,7 @@ check(job["runs-on"] == "ubuntu-24.04", "the runner is a named release, not ubun
 envs = [v for s in steps for v in (s.get("env") or {}).values() if "raw.githubusercontent" in v]
 check(envs and not [e for e in envs if re.search(r"/(master|main)/", e)], "the schema URLs are pinned by commit, not master or main")
 runs = "\n".join(s.get("run", "") for s in steps)
-downloads = re.findall(r"curl -fsSL -o (\S+) (\S+)", runs)
+downloads = re.findall(r"curl -fsSL --retry \d+ -o (\S+) (\S+)", runs)    # --retry: a transient 503 is tried again (#609)
 check(len(downloads) >= 3, f"{len(downloads)} downloads")
 for out, url in downloads:
     check(re.search(r'echo "[0-9a-f]{64}  ' + re.escape(out) + r'" \| sha256sum -c -', runs) is not None, f"{out} is verified by SHA-256")
@@ -24,7 +24,7 @@ check((co.get("with") or {}).get("persist-credentials") is False, "persist-crede
 check(all(re.search(r"@[0-9a-f]{40}", s["uses"]) for s in steps if "uses" in s), "actions by full SHA")
 check("https://dl.k8s.io" in runs, "kubectl is pinned too: the runner's floats with the runner image")
 check("deploy/render-test.sh" in runs, "render.sh's result is checked, not only the absence of the placeholder")
-for script in ("deploy/tests/ldap-identities-test.sh", "deploy/secrets-test.sh", "deploy/tests/ci-guard.py", "deploy/tests/doc12-test.py", "deploy/tests/kind-test-stubbed.sh", "deploy/tests/db-probe-test.py", "deploy/tests/mutate-secrets.py", "deploy/tests/np-reach-test.sh", "deploy/tests/crc-guard-test.py", "deploy/tests/crc-scripts-test.sh", "deploy/tests/crc-backup-test.sh", "deploy/tests/doc13-test.py", "deploy/tests/realm-test.py", "deploy/tests/oidc-login-test.py"):
+for script in ("deploy/tests/ldap-identities-test.sh", "deploy/secrets-test.sh", "deploy/tests/ci-guard.py", "deploy/tests/download-retry-test.py", "deploy/tests/doc12-test.py", "deploy/tests/kind-test-stubbed.sh", "deploy/tests/db-probe-test.py", "deploy/tests/mutate-secrets.py", "deploy/tests/np-reach-test.sh", "deploy/tests/crc-guard-test.py", "deploy/tests/crc-scripts-test.sh", "deploy/tests/crc-backup-test.sh", "deploy/tests/doc13-test.py", "deploy/tests/realm-test.py", "deploy/tests/oidc-login-test.py"):
     check(script in runs, f"the job runs {script}")
 # #90, twice now: GNU's stat -f writes the file system's details on stdout before it fails, so "stat -f ... || stat -c ..." on Linux gives both. -c goes first, wherever a script reads a mode.
 bsd_first = [f"{os.path.relpath(os.path.join(d, f), ROOT)}:{n}" for d, _, fs in os.walk(os.path.join(ROOT, "deploy")) for f in fs if f.endswith((".sh", ".py")) and f != "ci-guard.py"
