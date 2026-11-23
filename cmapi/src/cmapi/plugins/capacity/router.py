@@ -30,7 +30,7 @@ from cmapi.core.capacity_backend import read_snapshot_quotas
 from cmapi.core.context import AppContext
 from cmapi.core.docs import CONDITIONAL_READ, DocumentedRouter
 from cmapi.core.errors import Problem
-from cmapi.core.etag import etag_matches, etag_of
+from cmapi.core.etag import etag_of, not_modified
 from cmapi.core.identity.claims import Identity
 from cmapi.core.models import CapacityPage
 from cmapi.core.registry import ClusterState
@@ -189,7 +189,7 @@ def capacity(request: Request, group_by: GroupBy = "region,environment", env: En
     included clusters: summed commitments, headroom floored at 0 per cluster, and the largest single placement.
 
     Read from each cluster's watch, never from the cluster at request time. A figure that is not known is null, never 0. The
-    answer carries a strong ETag; If-None-Match answers 304."""
+    answer carries a strong ETag; If-None-Match answers 304, and an If-Match that does not list it answers 412."""
     keys = _group_by(group_by)
     if env is not None:
         if env not in c.cfg.allowed_environments:
@@ -220,7 +220,7 @@ def capacity(request: Request, group_by: GroupBy = "region,environment", env: En
     etag = etag_of(data)
     # private: the bytes depend on the caller's scope (RFC 9111, 5.2.2.7); no-cache: revalidated before each reuse (5.2.2.4).
     headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
-    if etag_matches(", ".join(request.headers.getlist("if-none-match")), etag):
+    if not_modified(request.headers, etag):
         return Response(status_code=304, headers=headers)
     return Response(data, media_type="application/json", headers=headers)
 

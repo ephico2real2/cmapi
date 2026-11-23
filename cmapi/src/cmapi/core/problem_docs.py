@@ -28,7 +28,7 @@ ACTIONS: dict[str, str] = {
     "self-approval": "Ask another person of the approving group. A requester cannot approve their own request in this environment.",
     "nothing-to-prune": "Do nothing. No delete of this namespace waits for a prune.",
     "idempotency-replay": "Send a new `Idempotency-Key` for a new request. A key belongs to one request body.",
-    "precondition-failed": "Read the object again, and send the change with the new `ETag` in `If-Match`.",
+    "precondition-failed": "For a read, send it again without `If-Match`. For a change, read the object again, and send the change with the new `ETag` in `If-Match`.",
     "validation-failed": "Correct the fields that `errors` names, and send the request again.",
     "policy-violation": "Correct the items that `errors` names. Each item has a code and the key or the field that the policy refused. "
                         "`findings`, when present, lists what the validator found on the same files beside them: a Kyverno "

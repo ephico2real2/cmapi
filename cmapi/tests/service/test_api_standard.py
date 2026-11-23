@@ -51,6 +51,7 @@ TOKEN_ONLY = {("get", "/api/v1/me")}
 CONDITIONAL_READS = {("get", "/api/v1/metadata-keys"), ("get", "/api/v1/capacity")}
 # S10: the headers that a write is refused without, so a sample that "runs as written" carries them even where the
 # document cannot mark them required: 400 idempotency-key-required (optional only on a dry run), 428 precondition-required.
+# A conditional read's If-Match is optional (#590), so a read's sample does not send it.
 REFUSED_WITHOUT = ("Idempotency-Key", "If-Match")
 Op = dict[str, Any]
 
@@ -240,6 +241,10 @@ def check_responses(method: str, path: str, op: Op, spec: dict) -> list[str]:
     conditional = any(p.get("name") == "If-None-Match" for p in op.get("parameters") or ())
     if ((method, path) in CONDITIONAL_READS) != ("304" in responses) or ("304" in responses) != conditional:
         out.append("answers 304 to If-None-Match and does not document both, or documents them and does not")
+    # RFC 9110, 13.2.2: a conditional read evaluates If-Match first and answers 412 when it is false (#590).
+    names = {p.get("name") for p in op.get("parameters") or ()}
+    if (method, path) in CONDITIONAL_READS and ("If-Match" not in names or "412" not in responses):
+        out.append("a conditional read does not document If-Match and its 412")
     return out
 
 
@@ -310,7 +315,8 @@ def check_curl_sample(method: str, path: str, op: Op, spec: dict) -> list[str]:
         out.append("curl sample's token does not match the security scheme")
     headers = {header.partition(":")[0] for header in _after(words, "-H")}
     for p in op.get("parameters") or ():
-        if p.get("in") == "header" and (p.get("required") or p["name"] in REFUSED_WITHOUT) and p["name"] not in headers:
+        refused_without = p.get("required") or (method != "get" and p["name"] in REFUSED_WITHOUT)
+        if p.get("in") == "header" and refused_without and p["name"] not in headers:
             out.append(f"curl sample has no {p['name']} header, which the call is refused without")
     media = ((op.get("requestBody") or {}).get("content") or {}).get("application/json")
     bodies = _after(words, "-d")
