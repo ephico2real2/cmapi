@@ -10,6 +10,7 @@ lifecycle event in one transaction.
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from typing import Any, Mapping
@@ -34,7 +35,7 @@ from cmapi.core.observability import AUTO_APPROVALS, AUTO_FALLBACKS, CHANGE_REQU
 from cmapi.core.ports import CapacityBackend, CapacityResult, Finding, Validator
 from cmapi.core.validate import ValidatorUnavailable
 from cmapi.core.registry import ClusterRegistry
-from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec, diff_files, folder, objects_of, plan_hash
+from cmapi.core.render.manifests import DELETED, ManifestRenderer, NamespaceSpec, diff_files, folder, objects_of, plan_hash
 from cmapi.core.tiers import EXPOSURE_KEYS, flatten_limits, qty
 from cmapi.plugins.expiration.rules import ExpiryInfo
 
@@ -97,8 +98,19 @@ def _spec_json(spec: NamespaceSpec | None) -> dict[str, Any] | None:
 
 
 def folder_etag(files: Mapping[str, str]) -> str:
-    """The ETag of a namespace: a hash of its folder's content, stable until the folder changes."""
-    return hashlib.sha256(plan_hash(files).encode()).hexdigest()[:16] if files else "0"
+    """The ETag of a namespace: a hash of its folder's content, stable until the folder changes, and "0" for no files.
+
+    A strong validator changes with every change of the content (RFC 9110 section 8.8.1). plan_hash writes an empty file
+    as DELETED and ends each path and content with NUL, so a file holding DELETED or a NUL read as another folder (#584);
+    a Git path has no NUL. Only such a folder is hashed from JSON, unambiguous for Git's strict UTF-8 (no lone surrogate).
+    Every other folder keeps its tag; a tag given for such a folder before #584 still matches the folder it read as."""
+    if not files:
+        return "0"
+    if any(text == DELETED or "\0" in text for text in files.values()):
+        identity = "folder-v2:" + json.dumps(sorted(files.items()), separators=(",", ":"))
+    else:
+        identity = plan_hash(files)
+    return hashlib.sha256(identity.encode()).hexdigest()[:16]
 
 
 def require_if_match(if_match: str | None, write: str) -> None:

@@ -259,7 +259,7 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
     def serve(kind: str, media_type: str, request: Request) -> Response:
         body, etag = document(kind)
         headers = {"ETag": etag, "Cache-Control": "no-cache"}
-        if etag_matches(request.headers.get("if-none-match"), etag):
+        if etag_matches(", ".join(request.headers.getlist("if-none-match")), etag):
             return Response(status_code=304, headers=headers)
         return Response(body, media_type=media_type, headers=headers)
 
