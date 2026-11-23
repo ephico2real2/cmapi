@@ -75,7 +75,12 @@ server certificate's name is the one the pods will connect to (`verify-full` che
 
 - **Migrations** are expand-only. A rollback of the image keeps running on a later schema (the old migrator exits 0 on
   a later four-digit revision, and `/readyz` counts it as ready); a divergent or unknown revision is refused by both.
-  Nothing rolls a data migration back; none exists yet.
+  Nothing rolls a data migration back by itself. `0008` (#592) is the first to move data: it fills
+  `change_requests.idempotency_sub` with the caller of each key still held, clears the keys older than 24 hours, and
+  moves the unique index `uq_cr_idempotency` to `(idempotency_sub, idempotency_key)`. The column is nullable, so an
+  older image still writes on `0008`. While it runs, it keys its new rows on the person as before, with no
+  `idempotency_sub`, so those keys do not replay once the newer image is back. `cmapi-migrate 0007 --downgrade`
+  undoes `0008` and keeps one key per person and key.
 - **A changed password.** The pods read `cmapi-db-app` at start. A pod started from a Secret the server no longer
   accepts waits on the stale password until the 540 s wait runs out and then crash-loops (measured on kind with a CNPG
   cluster recreated under running pods): after a rotation, update the Secret and restart the api and the worker.

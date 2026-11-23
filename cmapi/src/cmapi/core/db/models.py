@@ -3,7 +3,7 @@
 The migrations make the schema. The models say the same schema, each index included, so that `alembic check`
 finds no difference between them (tests/service/test_models_match_migrations.py, #185). The indexes that carry
 correctness: one open request per namespace (a partial unique index on cluster_id and namespace), one idempotency
-key per requester, one approval per person, and one pending job of a kind per request.
+key per caller, one approval per person, and one pending job of a kind per request.
 """
 from __future__ import annotations
 
@@ -46,6 +46,9 @@ class ChangeRequestRow(Base):
     requester_username: Mapped[str] = mapped_column(String(100), nullable=False)
     idempotency_key: Mapped[str | None] = mapped_column(String(100))
     idempotency_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    # The subject of the caller that sent the key: the service, not the person, on a write sent with onBehalfOf (#592,
+    # migration 0008). Null when the row holds no key. Nullable so that an older image keeps inserting after a rollback.
+    idempotency_sub: Mapped[str | None] = mapped_column(String(100))
     pr: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     merge_sha: Mapped[str | None] = mapped_column(String(64))
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -193,7 +196,7 @@ class PolicyRejectionRow(Base):
 # Each index of the migrations, in the same words, so that autogenerate has nothing to add and nothing to drop.
 Index("uq_cr_open_namespace", ChangeRequestRow.cluster_id, ChangeRequestRow.namespace, unique=True,
       postgresql_where=text("status IN ('" + "', '".join(OPEN_STATES) + "')"))
-Index("uq_cr_idempotency", ChangeRequestRow.requester_sub, ChangeRequestRow.idempotency_key, unique=True,
+Index("uq_cr_idempotency", ChangeRequestRow.idempotency_sub, ChangeRequestRow.idempotency_key, unique=True,
       postgresql_where=text("idempotency_key IS NOT NULL"))
 Index("idx_cr_namespace", ChangeRequestRow.cluster_id, ChangeRequestRow.namespace, ChangeRequestRow.created_at)
 Index("uq_approvals_person", ApprovalRow.request_id, ApprovalRow.approver_sub, unique=True)

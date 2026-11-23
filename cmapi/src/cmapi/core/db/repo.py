@@ -121,15 +121,18 @@ class RequestRepo:
             q = q.where(ChangeRequestRow.cluster_id == cluster_id)
         return {(c, n): r for c, n, r in self.s.execute(q)}
 
-    def by_idempotency(self, requester_sub: str, key: str) -> ChangeRequestRow | None:
-        """The caller's request for this key, if the key is still held. A key is held for IDEMPOTENCY_HOURS (docs/02) from
-        the request's creation, by the database's clock and not a pod's. Past that the key and its fingerprint are cleared
-        here, in the caller's transaction, so the unique index on (requester_sub, idempotency_key) lets the key be used again."""
+    def by_idempotency(self, caller_sub: str, key: str) -> ChangeRequestRow | None:
+        """The caller's request for this key, if the key is still held. The key belongs to the caller that sent it, the
+        service on a write sent with onBehalfOf, not the person the request is for (#592). A key is held for
+        IDEMPOTENCY_HOURS (docs/02) from the request's creation, by the database's clock and not a pod's. Past that the key,
+        its fingerprint and its caller are cleared here, in the caller's transaction, so the unique index on
+        (idempotency_sub, idempotency_key) lets the key be used again."""
         self.s.execute(update(ChangeRequestRow)
-                       .where(ChangeRequestRow.requester_sub == requester_sub, ChangeRequestRow.idempotency_key == key,
+                       .where(ChangeRequestRow.idempotency_sub == caller_sub, ChangeRequestRow.idempotency_key == key,
                               ChangeRequestRow.created_at < func.now() - text(f"interval '{IDEMPOTENCY_HOURS} hours'"))
-                       .values(idempotency_key=None, idempotency_fingerprint=None, updated_at=ChangeRequestRow.updated_at))
-        return self.s.scalars(select(ChangeRequestRow).where(ChangeRequestRow.requester_sub == requester_sub,
+                       .values(idempotency_key=None, idempotency_fingerprint=None, idempotency_sub=None,
+                               updated_at=ChangeRequestRow.updated_at))
+        return self.s.scalars(select(ChangeRequestRow).where(ChangeRequestRow.idempotency_sub == caller_sub,
                                                             ChangeRequestRow.idempotency_key == key)).first()
 
     def auto_approvals_today(self, team: str) -> int:

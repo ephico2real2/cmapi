@@ -62,13 +62,14 @@ def idempotency_key(idempotency_key: str | None = Header(default=None, alias="Id
                                                            description="A new random value for each new request, such as a UUID, of at most 100 "
                                                                        "characters. Required, except with `dryRun=true`. For 24 hours, the same "
                                                                        "caller retrying the same request with the same key gets the original "
-                                                                       "request in its current state. For now a retry sent with `onBehalfOf` "
-                                                                       "gets 409 `idempotency-replay` instead (#592). The same key with another "
+                                                                       "request in its current state. The caller is the token's subject: a "
+                                                                       "service that sends `onBehalfOf` holds its key, and the person cannot "
+                                                                       "replay it. The same key with another "
                                                                        "request is 409 `idempotency-replay`. The expiry writes do not compare "
                                                                        "`justification`: a retry that changes only it gets the original "
                                                                        "request.")) -> str | None:
-    """The key of a create, a change and the expiry writes. `_replay` (plugins/namespaces/router.py) looks it up under the
-    caller's subject, and the row holds the requester's (core/pipeline.py, submit), so the two differ with onBehalfOf (#592).
+    """The key of a create, a change and the expiry writes. The row holds it under the caller's subject (core/pipeline.py,
+    submit), and `_replay` (plugins/namespaces/router.py) looks it up under the same subject (#592).
     Each route chooses what its fingerprint holds; the expiry writes leave out `justification`. The Idempotency-Key draft
     (draft-ietf-httpapi-idempotency-key-header-09, section 2.4): "If the fingerprint covers only part of the payload,
     requests that differ only outside that part are treated as the same request", and a resource that computes one
