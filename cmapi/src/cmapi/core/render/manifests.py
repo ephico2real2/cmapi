@@ -89,11 +89,16 @@ def objects_of(files: Mapping[str, str | None], kind: str) -> list[dict[str, Any
     return out
 
 
+# What plan_hash writes for a removed file, and for an empty one. Persisted plan hashes depend on it (jobs/delivery.py,
+# jobs/pr_checks.py), so it stays; folder_etag (core/pipeline.py) tells the two apart another way (#584).
+DELETED = "<deleted>"
+
+
 def plan_hash(files: Mapping[str, str | None]) -> str:
     """sha256 over path and content of every file the plan writes or removes (None = removed)."""
     h = hashlib.sha256()
     for path in sorted(files):
-        h.update(path.encode() + b"\0" + (files[path] or "<deleted>").encode() + b"\0")
+        h.update(path.encode() + b"\0" + (files[path] or DELETED).encode() + b"\0")
     return h.hexdigest()
 
 

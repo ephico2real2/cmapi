@@ -78,7 +78,7 @@ def metadata_keys(request: Request, who: Identity = Depends(require("objects:rea
                                         tuple(c.cfg.raw_instance["instance"]["allowedEnvironments"]))
     # private: the request carries Authorization (RFC 9111, 3.5); no-cache: revalidated before each reuse (5.2.2.4).
     headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
-    if etag_matches(request.headers.get("if-none-match"), etag):
+    if etag_matches(", ".join(request.headers.getlist("if-none-match")), etag):
         return Response(status_code=304, headers=headers)
     return Response(body, media_type="application/json", headers=headers)
 
