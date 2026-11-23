@@ -296,12 +296,16 @@ def _valid_ca_data(ca_data: str) -> bool:
     the blocks joined are not base64 even when each one is. A boundary is a whole line: PEM_BEGIN or PEM_END, then only SP
     or HTAB (RFC 7468 sections 2 and 3, whose lines end in CRLF, CR or LF). Each BEGIN line needs an END line before the
     next BEGIN, and each END line an open BEGIN (#585): OpenSSL refuses a block that is not closed. Other text before,
-    between and after the blocks is ignored, as RFC 7468 and OpenSSL allow, even a sentence that quotes a boundary. A value
-    with no boundary line is read as bare base64, as before; the client finds no certificate in it and says so (#419).
+    between and after the blocks is ignored, as RFC 7468 and OpenSSL allow, even a sentence that quotes a boundary, and text
+    that is not ASCII, which the client leaves out of the loader (#591). A value with no boundary line is read as bare base64,
+    as before; the client finds no certificate in it and says so (#419).
     One pass over the lines, in linear time: the regex this replaces rescanned the rest of the value from every BEGIN."""
     def decodes(lines: list[str]) -> bool:
+        text = "".join(lines)
+        if not text.isascii():
+            return False                   # base64 is ASCII; str.split() would drop a no-break space the loader refuses (#591)
         try:
-            return bool(base64.b64decode("".join("".join(lines).split()), validate=True))
+            return bool(base64.b64decode("".join(text.split()), validate=True))
         except (binascii.Error, ValueError):
             return False
 

@@ -28,6 +28,8 @@ from urllib.parse import urlsplit
 TRUSTED_CA_ENV = "CMAPI_TRUSTED_CA_FILE"
 # RFC 1123 host names: labels of letters, digits and hyphens, neither first nor last a hyphen; at most 253 characters.
 _LABEL = re.compile(r"(?!-)[A-Za-z0-9-]{1,63}(?<!-)")
+# A line with its end, CRLF, CR or LF (RFC 7468 section 3), as the registry's caData check splits it; the last may have none.
+_LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+")
 
 
 class TrustBundleError(OSError):
@@ -92,10 +94,20 @@ def _client_context(server_name: str | None = None) -> ssl.SSLContext:
     return ctx
 
 
+def _ascii_lines(ca_data: str) -> str:
+    """caData as Python's loader takes it: "an ASCII string of one or more PEM-encoded certificates" (the ssl docs), since a
+    bytes value is read as DER. A line that is not ASCII, such as an issuer's name above a certificate (RFC 7468 section 5.2's
+    explanatory text), raised TypeError (#591); OpenSSL and client-go skip such text, so that line is left out. The registry
+    has refused a value with one inside a CERTIFICATE block, so no certificate line is lost. An ASCII value is unchanged."""
+    if ca_data.isascii():
+        return ca_data
+    return "".join(line for line in _LINE.findall(ca_data) if line.isascii())
+
+
 def ca_data_context(ca_data: str, server_name: str | None = None) -> ssl.SSLContext:
     """The caData of an import Secret as the only anchors, in memory. ssl.SSLError when it holds no certificate."""
     ctx = _client_context(server_name)
-    ctx.load_verify_locations(cadata=ca_data)
+    ctx.load_verify_locations(cadata=_ascii_lines(ca_data))
     return ctx
 
 
