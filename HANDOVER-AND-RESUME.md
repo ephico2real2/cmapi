@@ -13,7 +13,7 @@ Drafted by Sonnet 5.5 from `origin/main`, `gh` and the live `/api/v1/version` an
 | `main` | `5c01876` (PR #555). No open PRs |
 | CRC | Runs `5c01876` (`/api/v1/version` answered `{"version":"0.2.0","commit":"5c01876086","component":"api"}`; the #484 closing comment calls it run 33) |
 | Stories #483, #484, #485 | Approved by the owner on 2026-11-22 through `/decide`, and closed (07:46:58Z, 07:47:01Z, 07:47:03Z) |
-| Epic #481 | Open. Its children #482 (spike, In-Progress) and #486 (bug, In-Progress) are open |
+| Epic #481 | Open. Its one open child is #482 (spike, In-Progress); #483, #484 and #485 are closed. #486 (the rollout window, In-Progress) belongs to #13, not #481 |
 | New defect | #556: "Swagger UI (/docs) scrolls sideways by 149 px at 390 px". Open, `bug`, `sev:low`, a sub-issue of #485 |
 
 **What the owner decided (the last comment of each story, quoted):**
@@ -30,8 +30,8 @@ Drafted by Sonnet 5.5 from `origin/main`, `gh` and the live `/api/v1/version` an
 **The "Waiting for the owner" list of the 05:05Z section is answered.** Nothing waits for the owner now.
 
 **Next, in order:**
-1. #556: fix the 149 px sideways scroll of Swagger UI at 390 px. Research first: find what overflows, and fix it in the page cmapi serves. The proof is a check that loads `/docs` at 390 px and asserts `scrollWidth <= clientWidth`; it fails today and passes after; 1440 px stays unchanged (the issue body).
-2. #482 (the spike) and #486 (the rollout window), both open and In-Progress. #481 closes when its children are done.
+1. #556: fix the 149 px sideways scroll of Swagger UI at 390 px. Located on CRC on 2026-11-22 (the #556 comment): the overflow appears only with the PATCH operation open, and it is the Extensions table, whose cells hold the long `x-codeSamples` JSON with no wrap (`scrollWidth` 539 at 390). Fix it in the page cmapi serves, not in the vendor bundle. The proof opens the PATCH operation at 390 px and asserts `scrollWidth <= clientWidth`; it fails today and passes after; 1440 px stays at 0.
+2. #482 (the spike, the last open child of #481; #481 closes when it is done) and #486 (the rollout window, part of #13). Both are open and In-Progress.
 3. The other open defects (`gh issue list -R ephico2real2/cmapi --state open --label bug`). Each goes through `fix-defect`, in the session it is found.
 
 Observed on #485, not defects: neither Swagger UI nor ReDoc has a dark theme, and ReDoc's logo is refused by cmapi's CSP on purpose (`main.py` l.313-316).
