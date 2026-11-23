@@ -11,6 +11,7 @@ a recipient skips empty list elements (section 5.6.1.2); and a field sent on sev
 """
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import date, timedelta
 
@@ -94,19 +95,31 @@ def test_an_expiry_write_takes_a_list(world):
     assert r.status_code == 200, r.text
 
 
-@pytest.mark.parametrize("method", ["patch", "delete"])
+def _send(client, method: str, headers: dict):
+    """One write of each replay path: PATCH and DELETE in their routes, and the three expiry writes in _expiry_write."""
+    if method == "patch":
+        return client.patch(URL, json={"tier": "medium"}, headers=headers)
+    if method == "delete":
+        return client.delete(URL, headers=headers)
+    until = (date.today() + timedelta(days=20)).isoformat()
+    return client.post(f"{URL}/{method}", json={"until": until, "justification": "One sprint"}, headers=headers)
+
+
+@pytest.mark.parametrize("method", ["patch", "delete", "expiration:set"])
 def test_a_replay_with_star_is_428(world, method):
-    """The replay path checks If-Match as the first request would (#495), so * is refused there as everywhere."""
+    """The replay path checks If-Match as the first request would (#495), so * is refused there as everywhere. It does not
+    compare the tags: Git moves before the retries, so a replay that compared would answer 412 to the listed value."""
     client, ctx, git, kube, validator, keys = world
     tag = _created(client, ctx, keys)
     key = str(uuid.uuid4())
-    send = (lambda h: client.patch(URL, json={"tier": "medium"}, headers=h)) if method == "patch" else \
-        (lambda h: client.delete(URL, headers=h))
-    first = send({**auth(keys, "ola", **OLA), "Idempotency-Key": key, "If-Match": f'"{tag}"'})
+    first = _send(client, method, {**auth(keys, "ola", **OLA), "Idempotency-Key": key, "If-Match": f'"{tag}"'})
     assert first.status_code == 202, first.text
-    replay = send({**auth(keys, "ola", **OLA), "Idempotency-Key": key, "If-Match": "*"})
+    git.branches["main"]["clusters/CRC/namespaces/payments-dev/namespace.yaml"] += "# edited in Git\n"
+    git._sha("main")
+    assert client.get(URL, headers=auth(keys, "ola", **OLA)).json()["etag"] != tag, "Git moved: the tag is stale"
+    replay = _send(client, method, {**auth(keys, "ola", **OLA), "Idempotency-Key": key, "If-Match": "*"})
     assert replay.status_code == 428 and replay.json()["code"] == "precondition-required", replay.text
-    listed = send({**auth(keys, "ola", **OLA), "Idempotency-Key": key, "If-Match": f'"0", "{tag}"'})
+    listed = _send(client, method, {**auth(keys, "ola", **OLA), "Idempotency-Key": key, "If-Match": f'"0", "{tag}"'})
     assert listed.status_code == 202 and listed.json()["requestId"] == first.json()["requestId"], listed.text
 
 
@@ -120,6 +133,24 @@ def test_the_parser_reads_rfc_9110s_grammar(value, tags):
     from cmapi.core.etag import if_match_tags      # imported here, so the service tests above also run on main
     assert if_match_tags(value) == tags
 
+
+# The longest If-Match line that reaches the API: the front door reads a header line into one buffer of 16k
+# (large_client_header_buffers 4 16k, cmapi-portal-ui/nginx/templates/cmapi.conf.template), and the API's server, uvicorn
+# with httptools, sets no limit of its own. "If-Match: " and the CRLF take the rest of the line.
+LONGEST_LINE = 16 * 1024 - len("If-Match: \r\n")
+
+
+@pytest.mark.parametrize("ws", [" ", "\t"], ids=["space", "tab"])
+def test_the_parser_reads_a_long_run_of_whitespace_in_linear_time(ws):
+    """#580: two adjacent [ \\t]* in the element pattern shared one run of whitespace, and a run that does not end
+    its element was retried at every split. One such line took 3.7 s of CPU, with the GIL held, against 2 ms once linear.
+    CPU time of this process, not wall time, so a busy runner does not inflate it; the bound leaves the linear parse a
+    margin of over 100 times and is under a tenth of the quadratic one."""
+    from cmapi.core.etag import if_match_tags
+    value = '"x",' + ws * (LONGEST_LINE - len('"x",x')) + "x"
+    start = time.process_time()
+    assert if_match_tags(value) == []
+    assert time.process_time() - start < 0.25, "the parse is no longer linear in the length of the value"
 
 
 def test_the_document_says_how_each_form_is_read(world):
