@@ -293,6 +293,9 @@ def test_each_operation_has_a_sample_from_a_run(world):
 
     # ---- a delete: approved, merged, then the prune that an operator confirms
     etag = client.get(f"{base}/search-dev", headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}"}).json()["etag"]
+    planned_delete = rec.call("namespaces_delete_namespace:dryRun", "DELETE", f"{base}/search-dev?dryRun=true", ola,
+                              headers={"If-Match": f'"{etag}"'})
+    assert planned_delete.status_code == 200, planned_delete.text
     deleted = rec.call("namespaces_delete_namespace", "DELETE", f"{base}/search-dev", ola, headers={"If-Match": f'"{etag}"'}, key=True)
     assert deleted.status_code == 202, deleted.text
     client.post(f"/api/v1/requests/{deleted.json()['requestId']}:approve", json={}, headers={"Authorization": f"Bearer {keys.token('amy', **AMY)}"})

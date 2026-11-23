@@ -557,16 +557,19 @@ def test_the_directory_and_the_retry_say_what_the_caller_gets(spec):
 
 
 def test_the_delete_key_is_described_as_the_delete_checks_it(spec):
-    """DELETE takes no dryRun and always checks its Idempotency-Key (_idem(key, False)): 400 without one, or past 100."""
+    """DELETE checks its Idempotency-Key as the other writes do (_idem): 400 without one, or past 100, and none is read
+    with dryRun=true (#602). Its description leaves out what the delete does not take: onBehalfOf and justification."""
     from cmapi.plugins.namespaces.router import _idem
 
     for key in (None, "", "k" * 101):
         with pytest.raises(Exception, match="Idempotency-Key"):
             _idem(key, False)
+    assert _idem(None, True) is None
     ops = spec["paths"]["/api/v1/clusters/{cluster_id}/namespaces/{ns}"]
     delete = next(p for p in ops["delete"]["parameters"] if p["name"] == "Idempotency-Key")["description"]
     patch = next(p for p in ops["patch"]["parameters"] if p["name"] == "Idempotency-Key")["description"]
-    assert "dryRun" not in delete and "100 characters" in delete
+    assert "except with `dryRun=true`" in delete and "100 characters" in delete
+    assert "onBehalfOf" not in delete and "justification" not in delete
     assert "dryRun" in patch and "100 characters" in patch
 
 

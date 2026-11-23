@@ -334,22 +334,28 @@ def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePa
 
 
 @router.write("/namespaces/{ns}", summary="Delete a namespace", permission="namespaces:write", method="DELETE",
-              response_model=ChangeRequest,
+              response_model=ChangeRequest, dry_run_model=PlanView,
               problems=WRITE_PROBLEMS + CHANGE_PROBLEMS + ["namespace-protected"])
-def delete_namespace(cluster_id: ClusterId, ns: NamespaceName, key: str | None = Depends(delete_idempotency_key),
-                     etag: str | None = Depends(if_match),
+def delete_namespace(cluster_id: ClusterId, ns: NamespaceName, dry_run: DryRun = False,
+                     key: str | None = Depends(delete_idempotency_key), etag: str | None = Depends(if_match),
                      who: Identity = Depends(require("namespaces:write")), c: AppContext = Depends(ctx)):
     """Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune
     until an operator confirms the prune. Needs If-Match, read as on a change: a list of tags passes when one of them is
-    the current etag, and `*` is 428 `precondition-required`."""
+    the current etag, and `*` is 428 `precondition-required`.
+
+    `dryRun=true` answers 200 with the plan, and writes nothing: `changes` lists each file of the folder as `removed`,
+    `files` is empty, and `approval` is the approval that the delete would need. It makes the delete's checks, so it is
+    refused where the delete would be: If-Match, a protected namespace (422 `namespace-protected`), the permission."""
     raw = {"namespace": ns, "action": "delete", "clusterId": cluster_id}
-    key = _idem(key, False)
+    key = _idem(key, dry_run)
     replay = _replay(c, who, key, raw)
     if replay:
         require_if_match(etag, "delete")              # a replay needs If-Match too (#495)
         return replay
-    with refusals(c, who, cluster_id, ns, "delete", dry_run=False):
+    with refusals(c, who, cluster_id, ns, "delete", dry_run=dry_run):
         plan = c.pipeline.plan_delete(who, cluster_id, ns, if_match=etag)
+    if dry_run:
+        return JSONResponse(PlanView.model_validate(plan.view()).model_dump(by_alias=True), status_code=200)
     return _submit(c, who, plan, key, raw, None)
 
 
