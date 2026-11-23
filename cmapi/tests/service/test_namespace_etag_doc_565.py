@@ -18,6 +18,9 @@ URL = "/api/v1/clusters/CRC/namespaces/payments-dev"
 GET_NAMESPACE = "/api/v1/clusters/{cluster_id}/namespaces/{ns}"
 # The two forms folder_etag returns: a 16-hex hash of a folder in Git, or "0" for an empty one.
 FORM = re.compile(r"[0-9a-f]{16}|0")
+# The conditional reads' 412 carries their own ETag (core/etag.py, etag_of: 32 hex), not a namespace's (#590).
+CONDITIONAL_READS = {"/api/v1/metadata-keys": "get", "/api/v1/capacity": "get"}
+READ_FORM = re.compile(r"[0-9a-f]{32}")
 # Words that promise the value's internals. The value is not a commit, and a client must not rely on how it is built.
 INTERNALS = re.compile(r"\b(commit|sha(-?\d+)?|hash)\b", re.IGNORECASE)
 
@@ -72,9 +75,14 @@ def test_the_get_namespace_answer_documents_its_etag_header_with_a_quoted_real_v
 def test_each_recorded_etag_in_the_document_has_the_documented_form(world):
     client, *_ = world
     spec = client.get("/openapi.json").json()
-    recorded = [v for v in _etag_example_values(spec["paths"]) if v is not None]
+    reads = {path: spec["paths"][path][method] for path, method in CONDITIONAL_READS.items()}
+    namespaces = {path: ops if path not in reads else {m: op for m, op in ops.items() if m != CONDITIONAL_READS[path]}
+                  for path, ops in spec["paths"].items()}
+    recorded = [v for v in _etag_example_values(namespaces) if v is not None]
     assert recorded, "the recorded samples show no etag"
     assert all(isinstance(v, str) and FORM.fullmatch(v) for v in recorded), recorded
+    read_tags = [v for v in _etag_example_values(reads) if v is not None]
+    assert read_tags and all(isinstance(v, str) and READ_FORM.fullmatch(v) for v in read_tags), read_tags
 
 
 def test_a_real_etag_has_the_form_of_the_documented_example_and_works_as_documented(world):

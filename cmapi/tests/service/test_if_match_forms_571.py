@@ -157,7 +157,8 @@ def test_the_document_says_how_each_form_is_read(world):
     """The behaviour above is what the If-Match parameter and both etag properties promise (#571): a list, * and a weak tag."""
     client, *_ = world
     spec = client.get("/openapi.json").json()
-    params = [p for path in spec["paths"].values() for op in path.values() if isinstance(op, dict)
+    # The writes' If-Match. A conditional read's is optional and lets `*` hold (#590, test_read_preconditions_590_593.py).
+    params = [p for path in spec["paths"].values() for method, op in path.items() if isinstance(op, dict) and method != "get"
               for p in op.get("parameters", []) if p.get("name") == "If-Match"]
     assert len(params) == 5, "PATCH, DELETE, :extend, :set and :makePermanent take If-Match"
     schemas = spec["components"]["schemas"]

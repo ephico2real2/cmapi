@@ -115,18 +115,20 @@ DRY_RUN_RETURNS = "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and 
 # (add_recorded_examples) when contract/samples.json has it.
 ETAG_HEADER = {"ETag": {"description": "The strong ETag of this answer, to send back in If-None-Match.",
                         "schema": {"type": "string"}}}
-READ_PRECONDITION_FAILED = Problem(412, "precondition-failed", STALE_READ, extra={"etag": "3f9a1c0b7e2d4a68"})
+# An ETag of a read is 32 hex characters (etag_of); the examples have that form.
+READ_ETAG_EXAMPLE = "1f774baf9bf093f8d4ebc497eb0d5b96"
+READ_PRECONDITION_FAILED = Problem(412, "precondition-failed", STALE_READ, extra={"etag": READ_ETAG_EXAMPLE})
 CONDITIONAL_READ: dict[str, Any] = {
     "parameters": [{"name": "If-None-Match", "in": "header", "required": False,
                     "description": "The ETag of the answer the caller holds. If it is still the current one, the answer is "
                                    "304 with no body.",
-                    "schema": {"type": "string", "examples": ['"3f9a1c0b7e2d4a68"']}},
+                    "schema": {"type": "string", "examples": [f'"{READ_ETAG_EXAMPLE}"']}},
                    {"name": "If-Match", "in": "header", "required": False,
                     "description": "Optional on a read. The answer is sent only if one strong tag listed here is its "
                                    "current ETag, or if the value is `*`; otherwise it is 412 `precondition-failed`, with "
                                    "the current tag in `etag`. A weak tag (`W/\"...\"`) never matches. If-Match is read "
                                    "before If-None-Match (RFC 9110, section 13.2.2).",
-                    "schema": {"type": "string", "examples": ['"3f9a1c0b7e2d4a68"']}}],
+                    "schema": {"type": "string", "examples": [f'"{READ_ETAG_EXAMPLE}"']}}],
     "responses": {"200": {"headers": ETAG_HEADER},
                   "304": {"description": "Not modified: the ETag in If-None-Match is still the current one. Use the answer "
                                          "you hold; this one has no body.", "headers": ETAG_HEADER},
