@@ -22,10 +22,12 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import date, timedelta
 
 import httpx
 import pytest
 
+from test_expirations import created_namespace, write
 from test_flow import NS, OLA, auth, run_jobs
 
 URL = "/api/v1/clusters/CRC/namespaces/payments-dev"
@@ -47,8 +49,10 @@ def _move_git(client, git, keys, tag: str) -> None:
 
 
 # The header value as raw octets. Starlette's TestClient re-encodes a header value as UTF-8 (b"\xa0" reaches the app as
-# b"\xc2\xa0"), so these requests go through httpx's ASGITransport, which passes `request.headers.raw` unchanged, as
-# uvicorn passes the octets it read. Starlette's Request then decodes them as latin-1 for the real if_match dependency.
+# b"\xc2\xa0"), so these requests go through httpx's ASGITransport, which passes the supplied octets unchanged. uvicorn's
+# HTTP/1.1 parsers (h11 and httptools) pass the obs-text octets 0xA0 and 0x85 unchanged too; around the value they drop
+# SP and HTAB, which the guard strips anyway. Starlette's Request then decodes them as latin-1 for the real if_match
+# dependency.
 OBS_TEXT_STAR = [b"\xa0*\xa0", b"\x85*\x85"]
 OWS_STAR = b" \t*\t "
 
@@ -60,13 +64,18 @@ def _raw_patch(client, url: str, headers: dict, body: dict) -> httpx.Response:
     return asyncio.run(send())
 
 
-def test_the_raw_transport_delivers_the_octets_unchanged(world):
-    """The premise of the HTTP tests below: the app sees 0xA0, not the UTF-8 form that TestClient would send. The value
-    names no tag, so the 412's detail is that the namespace changed, which only a value read as an opaque tag gives."""
-    client, ctx, git, kube, validator, keys = world
-    _created(client, ctx, keys)
-    r = _raw_patch(client, f"{URL}?dryRun=true", {**auth(keys, "ola", **OLA), "If-Match": b"\xa0x\xa0"}, {"tier": "medium"})
-    assert r.status_code == 412 and r.json()["detail"].startswith("The namespace changed"), r.text
+def test_the_raw_transport_delivers_the_octets_unchanged():
+    """The premise of the HTTP tests below: _raw_patch hands the app the octets it was given, not the UTF-8 form that
+    TestClient would send (0xC2 0xA0 for 0xA0). An app that echoes the If-Match octets it received tells the two apart,
+    where a status cannot: the value names no tag either way, so both forms answer the same 412."""
+    from starlette.responses import Response
+    from starlette.testclient import TestClient
+
+    async def echo(scope, receive, send):
+        await Response(dict(scope["headers"])[b"if-match"])(scope, receive, send)
+
+    for value in OBS_TEXT_STAR:
+        assert _raw_patch(TestClient(echo), "/", {"If-Match": value}, {}).content == value
 
 
 @pytest.mark.parametrize("value", OBS_TEXT_STAR, ids=["nbsp", "nel"])
@@ -203,16 +212,95 @@ def test_a_replay_returns_the_request_as_it_is_now(world):
     assert replay.status_code == 202, replay.text
     assert replay.json()["requestId"] == rid
     assert replay.json()["status"] == cancelled.json()["status"], "the replay is the request now, not the first response"
-    assert len(replay.json()["events"]) > len(first.json()["events"]), "it carries the events added since"
+    assert replay.json()["events"] == cancelled.json()["events"], "it carries the events added since"
+    assert "cancel" not in [e["event"] for e in first.json()["events"]]
+    assert "cancel" in [e["event"] for e in replay.json()["events"]], replay.json()["events"]
+
+
+def test_the_expiry_writes_do_not_compare_the_justification_and_a_change_does(world):
+    """#587, what the Idempotency-Key description says: an expiry write's fingerprint leaves out `justification`
+    (plugins/namespaces/router.py, _expiry_write), so a retry that changes only it gets the original request, with the
+    first justification. A change's fingerprint holds its whole body, so there the same retry is 409."""
+    client, ctx, git, kube, validator, keys = world
+    tag = created_namespace(client, ctx, keys, expiresAt=(date.today() + timedelta(days=10)).isoformat())
+    key = str(uuid.uuid4())
+    first = write(client, keys, "extend", {"days": 7, "justification": "One sprint"}, tag, key=key)
+    assert first.status_code == 202, first.text
+    retry = write(client, keys, "extend", {"days": 7, "justification": "Another reason"}, tag, key=key)
+    assert retry.status_code == 202 and retry.json()["requestId"] == first.json()["requestId"], retry.text
+    assert retry.json()["justification"] == "One sprint"
+    client.post(f"/api/v1/requests/{first.json()['requestId']}:cancel", headers=auth(keys, "ola", **OLA))
+    key = str(uuid.uuid4())
+    headers = {**auth(keys, "ola", **OLA), "Idempotency-Key": key, "If-Match": f'"{tag}"'}
+    change = client.patch(URL, json={"tier": "medium", "justification": "One sprint"}, headers=headers)
+    assert change.status_code == 202, change.text
+    again = client.patch(URL, json={"tier": "medium", "justification": "Another reason"}, headers=headers)
+    assert again.status_code == 409 and again.json()["code"] == "idempotency-replay", again.text
+
+
+def _row(path: str, term: str) -> str:
+    """The table row of a hand-written doc whose first cell is `term`."""
+    from pathlib import Path
+
+    lines = (Path(__file__).resolve().parents[3] / path).read_text().splitlines()
+    rows = [line for line in lines if line.startswith(f"| {term} |")]
+    assert len(rows) == 1, (path, term, rows)
+    return rows[0]
 
 
 @pytest.mark.parametrize("path", ["docs/04-api-examples.md", "docs/GLOSSARY.md"])
 def test_the_api_docs_describe_the_replay_and_the_one_field(path):
-    """#587 and #582 in the hand-written docs: docs/04's rules table and the glossary say what the code does."""
-    from pathlib import Path
+    """#587 and #582 in the hand-written docs: the `If-Match` row of docs/04's rules table and of the glossary says to send
+    one field, and the `Idempotency-Key` row says what a replay returns and when a retry is not one (#592, the expiry
+    writes' fingerprint without `justification`)."""
+    match, idem = _row(path, "`If-Match`"), _row(path, "`Idempotency-Key`")
+    assert "one comma-separated" in match and "second `If-Match` line" in match, match
+    assert CURRENT_STATE in idem, idem
+    assert "`onBehalfOf`" in idem and "#592" in idem, idem
+    assert "do not compare `justification`" in idem, idem
+    for row in (match, idem):
+        for stale in ("first answer", "first response again", "stored answer"):
+            assert stale not in row, (path, stale)
 
-    text = (Path(__file__).resolve().parents[3] / path).read_text()
-    assert CURRENT_STATE in text, path
-    assert "one comma-separated" in text and "second `If-Match` line" in text, path
-    for stale in ("first answer again", "first response again", "stored answer"):
-        assert stale not in text, (path, stale)
+
+def test_the_document_tightens_only_the_five_writes_and_keeps_the_string_rules():
+    """#586: _document_if_match_required changes If-Match on the five writes only, and drops only the null of
+    `str | None`, so a rule of the string (here a maxLength) stays. Another operation's If-Match keeps its declaration."""
+    import copy
+
+    from cmapi.core.docs import _document_if_match_required
+
+    declared = {"in": "header", "name": "If-Match", "required": False,
+                "schema": {"anyOf": [{"type": "string", "maxLength": 128}, {"type": "null"}], "title": "If-Match"}}
+
+    def op(operation_id: str) -> dict:
+        return {"operationId": operation_id, "parameters": [copy.deepcopy(declared)]}
+
+    spec = {"paths": {NS_PATH: {"get": op("namespaces_get_namespace"), "patch": op("namespaces_update_namespace")},
+                      "/probe": {"post": op("probe_write")}}}
+    _document_if_match_required(spec)
+    assert spec["paths"][NS_PATH]["get"]["parameters"] == [declared]
+    assert spec["paths"]["/probe"]["post"]["parameters"] == [declared]
+    (patch,) = spec["paths"][NS_PATH]["patch"]["parameters"]
+    assert patch["required"] is True
+    assert patch["schema"] == {"type": "string", "maxLength": 128, "title": "If-Match"}, patch["schema"]
+
+
+def test_the_design_rows_name_the_writes_that_the_api_serves(world):
+    """#587: docs/02's concurrency row names the five writes that take If-Match, as the served document has them, and no
+    namespace PUT; it says what the hash is and what a replay returns. Its idempotency row says when a retry is not one."""
+    client, *_ = world
+    spec = client.get("/openapi.json").json()
+    ns = spec["paths"][NS_PATH]
+    assert "put" not in ns and {"patch", "delete"} <= ns.keys()
+    row = _row("docs/02-technical-design-v2.md", "Optimistic concurrency")
+    assert "PATCH" in row and "DELETE" in row and "POST" in row and "PUT" not in row, row
+    for op in ("extend", "set", "makePermanent"):
+        assert f"expiration:{op}" in row and "post" in spec["paths"][f"{NS_PATH}/expiration:{op}"]
+    assert "`plan_hash`" in row and "`<deleted>`" in row and "as JSON" in row and "16" in row, row
+    assert "404 first" in row and "A namespace create takes no If-Match" in row, row
+    assert "replay of one of these five writes still needs If-Match" in row, row
+    assert CURRENT_STATE in row and "stored answer" not in row
+    assert "one comma-separated If-Match field" in row
+    idem = _row("docs/02-technical-design-v2.md", "Idempotency")
+    assert "current state" in idem and "`onBehalfOf`" in idem and "#592" in idem, idem

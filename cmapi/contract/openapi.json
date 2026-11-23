@@ -9765,7 +9765,7 @@
             }
           },
           {
-            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
+            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -9778,7 +9778,7 @@
                   "type": "null"
                 }
               ],
-              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
+              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -11250,7 +11250,7 @@
         "x-plugin-version": "0.2.0"
       },
       "patch": {
-        "description": "Changes a namespace that exists: its tier, its custom quota and limits, and its labels and annotations.\n\n**Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):\na key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,\nin `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,\nsays how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (filled at creation;\na change keeps Git's value, and adoption must supply a missing value), `required` (it changes and is never removed)\nor `optional`. A key that no rule admits can be removed,\nnever set. A `sensitive` key adds one approval to the request.\n\n**Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and nothing is written. `metadataDiff`\nlists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`\nis `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).\n\n**If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,\na namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,\nmissing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi\nrefuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags, sent in one If-Match\nfield, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/\"...\"`) never matches.\nOtherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the\nnamespace again, apply the change to it and send it.\nAn Idempotency-Key replay still requires If-Match, but does not compare it again: a retry with its original ETag\nreturns the original request in its current state even after Git moves, and `*` is 428 there too. A non-dry-run\nsubmission also requires Idempotency-Key (400 without it).\nOne request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.\n\n**Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,\n`invalid_key`, `invalid_value`, `derived_key`, `missing_required_key`, `too_many_keys`, `annotations_too_large`).\nA key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's\nenvironment. A body that changes nothing is 422 `no-change`.\n\n**Requires** `namespaces:write`.",
+        "description": "Changes a namespace that exists: its tier, its custom quota and limits, and its labels and annotations.\n\n**Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):\na key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,\nin `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,\nsays how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (filled at creation;\na change keeps Git's value, and adoption must supply a missing value), `required` (it changes and is never removed)\nor `optional`. A key that no rule admits can be removed,\nnever set. A `sensitive` key adds one approval to the request.\n\n**Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and nothing is written. `metadataDiff`\nlists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`\nis `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).\n\n**If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,\na namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,\nmissing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi\nrefuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags, sent in one If-Match\nfield, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/\"...\"`) never matches.\nOtherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the\nnamespace again, apply the change to it and send it.\nAn Idempotency-Key replay still requires If-Match, but does not compare it again: it returns the\noriginal request in its current state even after Git moves, and `*` is 428 there too. The Idempotency-Key parameter\nsays when a retry is a replay. A non-dry-run submission also requires Idempotency-Key (400 without it).\nOne request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.\n\n**Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,\n`invalid_key`, `invalid_value`, `derived_key`, `missing_required_key`, `too_many_keys`, `annotations_too_large`).\nA key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's\nenvironment. A body that changes nothing is 422 `no-change`.\n\n**Requires** `namespaces:write`.",
         "operationId": "namespaces_update_namespace",
         "parameters": [
           {
@@ -11297,7 +11297,7 @@
             }
           },
           {
-            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
+            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -11310,7 +11310,7 @@
                   "type": "null"
                 }
               ],
-              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
+              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -12000,7 +12000,7 @@
             }
           },
           {
-            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
+            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -12013,7 +12013,7 @@
                   "type": "null"
                 }
               ],
-              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
+              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -12630,7 +12630,7 @@
             }
           },
           {
-            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
+            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -12643,7 +12643,7 @@
                   "type": "null"
                 }
               ],
-              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
+              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -13265,7 +13265,7 @@
             }
           },
           {
-            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
+            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -13278,7 +13278,7 @@
                   "type": "null"
                 }
               ],
-              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
+              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],

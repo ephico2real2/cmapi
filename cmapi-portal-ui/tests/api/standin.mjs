@@ -854,8 +854,9 @@ const bodyOf = (req) => new Promise((resolve) => {
 /**
  * The cmapi API: GET /api/v1/me, the requests (list, one, its events, approve, reject), the tiers, the clusters and the
  * namespace create with its dry run. It keeps the rules that the portal must follow: the list contract (q, state,
- * limit, cursor), the Idempotency-Key of a write (400 without it, the original request again for the same key and body, 409
- * for the same key and another body), the reason that a rejection needs, and the refusal of a self-approval.
+ * limit, cursor), the Idempotency-Key of a write (400 without it, the request that the key opened, as first answered, for
+ * the same key and body, 409 for the same key and another body), the reason that a rejection needs, and the refusal of a
+ * self-approval. Unlike the API, a replay is not refreshed to the request's current state (#595).
  * `mode` changes one answer, to show what the portal does with it; `answers` overrides the next answers of one route.
  * `namespaces` (#484) holds the Namespaces tab's namespaces: the lookup, the read with Git and sync, and the change with
  * If-Match (428, 412), the metadata refusal, no-change, the dry run's metadataDiff and the lock (409 change-pending).
@@ -1158,7 +1159,9 @@ export function apiHandler({ issuer, portalOrigin }) {
       if (!row) return problem(res, refuse(404, "object-not-found", `${ns} is not managed on ${clusterId}`), cors);
       const dry = url.searchParams.get("dryRun") === "true";
       if (!dry && !call.key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
-      // The API's replay comes first: the same key and caller with the same route and body get the original request again.
+      // The replay, before the If-Match check: the same key and caller with the same route and body get the request as first
+      // answered. The API returns it in its current state and still requires If-Match without `*`; this stand-in does neither
+      // yet (#595).
       const print = fingerprint({ ...body, route, clusterId, namespace: ns });
       const held = dry ? null : state.keys.get(`${user.sub} ${call.key}`);
       if (held) return held.fingerprint === print ? ok(held.request, 202) : problem(res, refuse(409, "idempotency-replay", "Idempotency-Key was used for a different request"), cors);

@@ -307,9 +307,9 @@ def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePa
     field, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/"..."`) never matches.
     Otherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the
     namespace again, apply the change to it and send it.
-    An Idempotency-Key replay still requires If-Match, but does not compare it again: a retry with its original ETag
-    returns the original request in its current state even after Git moves, and `*` is 428 there too. A non-dry-run
-    submission also requires Idempotency-Key (400 without it).
+    An Idempotency-Key replay still requires If-Match, but does not compare it again: it returns the
+    original request in its current state even after Git moves, and `*` is 428 there too. The Idempotency-Key parameter
+    says when a retry is a replay. A non-dry-run submission also requires Idempotency-Key (400 without it).
     One request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.
 
     **Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,

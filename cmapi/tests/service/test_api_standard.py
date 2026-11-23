@@ -29,8 +29,8 @@ from fastapi import FastAPI
 from metadata_corpus import SchemaReader
 from test_namespace_contract_479 import DESIGN
 
-from cmapi.core.docs import (PROBLEM_STATUS_TEXT, PROBLEMS, WRITE_ACCEPTED, DocumentedRouter, problem_description,
-                             takes_validated_input)
+from cmapi.core.docs import (IF_MATCH_OPERATIONS, PROBLEM_STATUS_TEXT, PROBLEMS, WRITE_ACCEPTED, DocumentedRouter,
+                             problem_description, takes_validated_input)
 from cmapi.core.models import Health
 from cmapi.main import api_app, openapi_document
 from cmapi.tools.openapi import cluster_environments, load
@@ -389,13 +389,16 @@ def test_the_document_keeps_what_each_route_declares(declared, spec):
         published = {(p["name"], p["in"]): p for p in op.get("parameters") or ()}
         for p in route.get("parameters") or ():
             mine = published.get((p["name"], p["in"]), {})
-            if (p["name"], p["in"]) == ("If-Match", "header"):
-                # The one parameter that the document tightens (#586): the route keeps it optional so that 404 comes before
-                # 428, and the document says what the route enforces, required and a string (_document_if_match_required).
-                if mine.get("required") is not True or (mine.get("schema") or {}).get("type") != "string":
-                    out.append(f"{label}: parameter If-Match is not required with a string schema")
-                continue
             rules = {k: v for k, v in p["schema"].items() if k not in ("examples", "description", "title")}
+            if (p["name"], p["in"]) == ("If-Match", "header") and op.get("operationId") in IF_MATCH_OPERATIONS:
+                # The one parameter that the document tightens (#586): the route keeps it optional so that 404 comes before
+                # 428, and the document marks it required and drops only the null of `str | None`. Every rule of the string
+                # stays, and nothing is added (_document_if_match_required).
+                string = next(v for v in rules.pop("anyOf") if v != {"type": "null"})
+                shown = {k: v for k, v in (mine.get("schema") or {}).items() if k not in ("examples", "description", "title")}
+                if p.get("required") or mine.get("required") is not True or shown != {**rules, **string}:
+                    out.append(f"{label}: If-Match is not the route's string, required in the document only: {shown}")
+                continue
             kept = {k: v for k, v in (mine.get("schema") or {}).items() if k in rules}
             if kept != rules or mine.get("required") != p.get("required"):
                 out.append(f"{label}: parameter {p['name']} lost a rule or its required flag")

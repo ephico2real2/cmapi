@@ -335,9 +335,9 @@ export interface paths {
          *     field, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/"..."`) never matches.
          *     Otherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the
          *     namespace again, apply the change to it and send it.
-         *     An Idempotency-Key replay still requires If-Match, but does not compare it again: a retry with its original ETag
-         *     returns the original request in its current state even after Git moves, and `*` is 428 there too. A non-dry-run
-         *     submission also requires Idempotency-Key (400 without it).
+         *     An Idempotency-Key replay still requires If-Match, but does not compare it again: it returns the
+         *     original request in its current state even after Git moves, and `*` is 428 there too. The Idempotency-Key parameter
+         *     says when a retry is a replay. A non-dry-run submission also requires Idempotency-Key (400 without it).
          *     One request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.
          *
          *     **Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,
@@ -5970,7 +5970,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request. */
                 "Idempotency-Key"?: string | null;
             };
             path: {
@@ -6775,7 +6775,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
                 "If-Match": string;
@@ -7108,7 +7108,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
                 "If-Match": string;
@@ -7417,7 +7417,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
                 "If-Match": string;
@@ -7749,7 +7749,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request. */
                 "Idempotency-Key"?: string | null;
                 /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
                 "If-Match": string;

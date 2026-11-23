@@ -117,7 +117,7 @@ def require_if_match(if_match: str | None, write: str) -> None:
     """428 when a write to an existing namespace has no If-Match (RFC 6585 section 3), or has `*`. The plan checks it after
     the namespace is found (404 first, as RFC 9110 section 13.2.1 orders a precondition after the resource). The routes also
     check it on an Idempotency-Key replay, which never reaches the plan (#495). The ETag comparison is not repeated
-    there, so a retry carrying its first ETag still gets the original request, in its current state, after Git moved.
+    there, so a replay carrying its first ETag still returns the original request, in its current state, after Git moved.
 
     `*` departs on purpose from RFC 9110 section 13.1.1, step 1, where it holds for any resource that exists (the owner,
     #571): it proves no read, and cmapi requires If-Match so that clients "are working with the correct copies" (RFC 6585
