@@ -47,7 +47,7 @@ fi
 say "node: $(k get nodes -o jsonpath='{.items[0].metadata.name} {.items[0].status.nodeInfo.kubeletVersion}')"
 
 say "CloudNativePG operator 1.30.1"
-curl -fsSL "$CNPG_URL" -o "$T/cnpg.yaml"
+curl -fsSL --retry 5 "$CNPG_URL" -o "$T/cnpg.yaml"
 echo "$CNPG_SHA  $T/cnpg.yaml" | shasum -a 256 -c - >/dev/null || { echo "ERROR: cnpg-1.30.1.yaml checksum mismatch" >&2; exit 1; }
 k apply --server-side -f "$T/cnpg.yaml" >/dev/null
 k -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=180s >/dev/null; say "cnpg operator ready"
