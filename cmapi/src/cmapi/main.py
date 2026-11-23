@@ -233,9 +233,10 @@ def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None
 
 
 def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: Any, problem_response: Any) -> None:
-    """/docs, /redoc, /openapi.json, /openapi.yaml and /docs/changelog (docs/01, "API documentation").
+    """/docs, /redoc, /openapi.json, /openapi.yaml and /docs/changelog (docs/01, "API documentation"), with the files of the
+    two pages: /docs/redoc-start.js and /docs/swagger.css.
 
-    Public unless instance.yaml says docs.public: false; then each of the five needs a valid bearer token and answers
+    Public unless instance.yaml says docs.public: false; then each of the seven needs a valid bearer token and answers
     401 with WWW-Authenticate without one. Swagger UI and ReDoc come from the image's bundles only, never a CDN: without
     the bundles the two pages answer 503 and name the command that fetches them (cmapi-tools docs-assets).
     """
@@ -350,14 +351,17 @@ SWAGGER_UI_PARAMETERS: dict[str, Any] = {
 # narrower than its longest run, so at 390 px the table grew past the page and the page scrolled sideways (539 px on CRC).
 # overflow-wrap: anywhere lets the Value cell break that run, and its break points count in the cell's min-content
 # width (https://www.w3.org/TR/css-text-3/#overflow-wrap-property), which is what lets an auto-layout table shrink to
-# its container; break-word would wrap the text but leave the column as wide. Only the Value column wraps: the Field
-# column keeps its x- names whole.
+# its container; break-word would wrap the text but leave the column as wide. Only the Value cells get the rule; the
+# Field cells keep Swagger UI's wrapping, which at 390 px still breaks an x- name at its hyphens. Because the Value
+# column's min-content is now small, the auto layout also moves the Field/Value split at 1440 px, by 1 to 5 px
+# (docs/reviews/2026-11-22-issue-556/outputs/layout-1440-before-after.txt).
 # The Responses table (#558) is a table, not one long string: its Code and Links columns are held at min-width 6em by
 # Swagger UI, and an operation that documents a response header nests a three-column headers table in Description, so in
 # a 332 px box it needs 349 px. Breaking its words would not make it readable, so its box scrolls sideways instead, the
-# usual pattern for a wide table on a phone (https://getbootstrap.com/docs/5.3/content/tables/#responsive-tables). With
-# overflow-x auto a box that fits "looks the same as with visible" (https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-x),
-# so wider windows are unchanged.
+# usual pattern for a wide table on a phone (https://getbootstrap.com/docs/5.3/content/tables/#responsive-tables). A
+# box with overflow-x auto that fits "looks the same as with visible, but still establishes a new block-formatting
+# context" (https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-x), and its overflow-y computes to auto; it has
+# no height limit, and the 1440 px screenshots of a Responses section are byte-identical before and after.
 SWAGGER_CSS = "/docs/swagger.css"
 SWAGGER_CSS_TEXT = """@import url("/static/swagger/swagger-ui.css");
 
