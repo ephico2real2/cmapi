@@ -109,7 +109,7 @@ def _submit(c: AppContext, who: Identity, plan: Any, key: str | None, body: dict
                                 {"requestId": row.request_id, "status": row.status})
             return request_view(repo, row)
     except Problem as exc:
-        # Lost a race to the same key: the winner's commit is visible now, and it is this caller's first response.
+        # Lost a race to the same key: the winner's commit is visible now, and its request is this caller's answer.
         replay = _replay(c, who, key, body) if exc.status == 409 else None
         if replay:
             return replay
@@ -303,11 +303,13 @@ def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePa
     **If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,
     a namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,
     missing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi
-    refuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags passes when one of them
-    is the current etag, by the strong comparison, so a weak tag (`W/"..."`) never matches. Otherwise the answer is 412
-    `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the namespace again, apply the change
-    to it and send it. An Idempotency-Key replay still requires If-Match, but does not compare it again: a retry with its
-    original ETag returns the stored answer even after Git moves, and `*` is 428 there too. A non-dry-run submission also requires Idempotency-Key (400 without it).
+    refuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags, sent in one If-Match
+    field, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/"..."`) never matches.
+    Otherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the
+    namespace again, apply the change to it and send it.
+    An Idempotency-Key replay still requires If-Match, but does not compare it again: it returns the
+    original request in its current state even after Git moves, and `*` is 428 there too. The Idempotency-Key parameter
+    says when a retry is a replay. A non-dry-run submission also requires Idempotency-Key (400 without it).
     One request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.
 
     **Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,

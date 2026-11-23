@@ -60,16 +60,28 @@ def require(permission: str, env_from: Callable[..., str | None] | None = None) 
 def idempotency_key(idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",
                                                            examples=["0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"],
                                                            description="A new random value for each new request, such as a UUID, of at most 100 "
-                                                                       "characters. Required, except with `dryRun=true`. The same key and caller get "
-                                                                       "the first answer again for 24 hours.")) -> str | None:
+                                                                       "characters. Required, except with `dryRun=true`. For 24 hours, the same "
+                                                                       "caller retrying the same request with the same key gets the original "
+                                                                       "request in its current state. For now a retry sent with `onBehalfOf` "
+                                                                       "gets 409 `idempotency-replay` instead (#592). The same key with another "
+                                                                       "request is 409 `idempotency-replay`. The expiry writes do not compare "
+                                                                       "`justification`: a retry that changes only it gets the original "
+                                                                       "request.")) -> str | None:
+    """The key of a create, a change and the expiry writes. `_replay` (plugins/namespaces/router.py) looks it up under the
+    caller's subject, and the row holds the requester's (core/pipeline.py, submit), so the two differ with onBehalfOf (#592).
+    Each route chooses what its fingerprint holds; the expiry writes leave out `justification`. The Idempotency-Key draft
+    (draft-ietf-httpapi-idempotency-key-header-09, section 2.4): "If the fingerprint covers only part of the payload,
+    requests that differ only outside that part are treated as the same request", and a resource that computes one
+    "SHOULD document it". So the description says so."""
     return idempotency_key
 
 
 def delete_idempotency_key(idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",
                                                                   examples=["0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"],
                                                                   description="A new random value for each new request, such as a UUID, of at most "
-                                                                              "100 characters. Required: a delete has no dry run. The same key and "
-                                                                              "caller get the first answer again for 24 hours.")) -> str | None:
+                                                                              "100 characters. Required: a delete has no dry run. For 24 hours, the "
+                                                                              "same caller retrying the same request with the same key gets the "
+                                                                              "original request in its current state.")) -> str | None:
     """The delete's key: the same header, described without the dry run that a delete does not take (_idem(key, False))."""
     return idempotency_key
 
@@ -79,11 +91,18 @@ def if_match(request: Request,
                                            description="The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as "
                                                        "its `ETag` header gives it. Required on a change or a delete. A list "
                                                        "of tags passes when one of them is the current etag (RFC 9110, section "
-                                                       "13.1.1). `*` is 428 `precondition-required`: If-Match must name the "
-                                                       "etag that was read. A weak tag (`W/\"...\"`) never matches. An "
-                                                       "Idempotency-Key replay returns the request that its key opened without "
-                                                       "comparing the tag.")) -> str | None:
+                                                       "13.1.1). Send the tags in one comma-separated If-Match field "
+                                                       "(`If-Match: \"a\", \"b\"`): the front door answers 400 to a second "
+                                                       "If-Match line. `*` is 428 `precondition-required`: If-Match must name "
+                                                       "the etag that was read. A weak tag (`W/\"...\"`) never matches. An "
+                                                       "Idempotency-Key replay returns the original request in its current "
+                                                       "state without comparing the tag.")) -> str | None:
     """If-Match as one list: a field sent on several lines is the same list joined with commas (RFC 9110, section 5.3),
-    and FastAPI's Header gives only the first line. The Header parameter stays, so the document describes the field."""
+    and FastAPI's Header gives only the first line. The Header parameter stays, so the document describes the field.
+
+    The join serves a caller that reaches the API directly. Through the front door the tags must come in one field:
+    nginx registers If-Match with ngx_http_process_unique_header_line, which answers 400 to a second line (nginx
+    1.30.6, src/http/ngx_http_request.c, #582). The document marks the field required although the default is None
+    (core/docs.py, _document_if_match_required): the plan answers 404 for a namespace missing from Git before 428."""
     lines = request.headers.getlist("If-Match")
     return ", ".join(lines) if lines else if_match
