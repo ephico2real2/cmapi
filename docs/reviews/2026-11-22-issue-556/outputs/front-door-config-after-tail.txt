@@ -1,0 +1,4 @@
+  ok   the authorization code of a failed /docs/oauth2-redirect is not in nginx's error log
+  ok   the access log still records the failure and both pods
+front door cases failed: 0
+340

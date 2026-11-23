@@ -1,0 +1,18 @@
+sections 130 differ 14
+operations-admin-admin_pause 3 Extensions {"h":307,"w":1382,"cols":[125,1217]} -> {"h":307,"w":1382,"cols":[127,1215]}
+operations-admin-admin_resume 3 Extensions {"h":307,"w":1382,"cols":[124,1218]} -> {"h":307,"w":1382,"cols":[126,1216]}
+operations-admin-admin_prune_confirm 3 Extensions {"h":307,"w":1382,"cols":[122,1220]} -> {"h":307,"w":1382,"cols":[125,1217]}
+operations-namespaces-namespaces_create_namespace 3 Extensions {"h":361,"w":1382,"cols":[107,1235]} -> {"h":361,"w":1382,"cols":[110,1232]}
+operations-namespaces-namespaces_delete_namespace 2 Extensions {"h":307,"w":1382,"cols":[117,1225]} -> {"h":307,"w":1382,"cols":[122,1220]}
+operations-namespaces-namespaces_get_namespace 2 Extensions {"h":307,"w":1382,"cols":[136,1206]} -> {"h":307,"w":1382,"cols":[137,1205]}
+operations-namespaces-namespaces_update_namespace 3 Extensions {"h":361,"w":1382,"cols":[106,1236]} -> {"h":361,"w":1382,"cols":[110,1232]}
+operations-namespaces-namespaces_extend 3 Extensions {"h":343,"w":1382,"cols":[111,1231]} -> {"h":325,"w":1382,"cols":[116,1226]}
+operations-namespaces-namespaces_make_permanent 3 Extensions {"h":343,"w":1382,"cols":[111,1231]} -> {"h":325,"w":1382,"cols":[116,1226]}
+operations-namespaces-namespaces_set_expiry 3 Extensions {"h":343,"w":1382,"cols":[110,1232]} -> {"h":325,"w":1382,"cols":[115,1227]}
+operations-requests-requests_approval_status 2 Extensions {"h":307,"w":1382,"cols":[135,1207]} -> {"h":307,"w":1382,"cols":[136,1206]}
+operations-requests-requests_approve 3 Extensions {"h":307,"w":1382,"cols":[123,1219]} -> {"h":307,"w":1382,"cols":[126,1216]}
+operations-requests-requests_cancel 2 Extensions {"h":307,"w":1382,"cols":[138,1205]} -> {"h":307,"w":1382,"cols":[138,1204]}
+operations-requests-requests_reject 3 Extensions {"h":307,"w":1382,"cols":[123,1219]} -> {"h":307,"w":1382,"cols":[125,1217]}
+{ Extensions: 14 }
+before [["x-cmapi-permission 111x57","\"namespaces:write\" 1231x57"],["x-cmapi-plugin 111x38","\"namespaces\" 1231x38"],["x-codeSamples 111x64","[{\"label\":\"curl\",\"lang\": 1231x64"],["x-plugin-version 111x56","\"0.2.0\" 1231x56"]]
+after [["x-cmapi-permission 116x57","\"namespaces:write\" 1226x57"],["x-cmapi-plugin 116x38","\"namespaces\" 1226x38"],["x-codeSamples 116x64","[{\"label\":\"curl\",\"lang\": 1226x64"],["x-plugin-version 116x38","\"0.2.0\" 1226x38"]]

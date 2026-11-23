@@ -1,0 +1,9 @@
+before 390 capacity open: scrollWidth 440
+before 1440 capacity open: scrollWidth 1440
+before 1440 all open: scrollWidth 1440 scrollHeight 136646
+after 390 capacity open: scrollWidth 390
+after 390 PATCH open: scrollWidth 390
+after 1440 capacity open: scrollWidth 1440
+after 1440 PATCH open: scrollWidth 1440
+after 1440 all open: scrollWidth 1440 scrollHeight 136592
+1440 all-open full-page screenshots byte-identical: false 12425763 12249867

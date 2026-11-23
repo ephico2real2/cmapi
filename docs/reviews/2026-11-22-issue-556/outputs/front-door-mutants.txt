@@ -1,0 +1,36 @@
+== M1-no-responses-rule (exit 1)
+  ok   the portal signs in and lists requests on one origin, with no CSP violation
+  ok   Swagger UI renders the operations, with no CSP violation
+  FAIL Swagger UI at 390 px, every operation open: no sideways scroll, each x- value shown whole: the page is 398 px wide in a 390 px window
+  ok   Swagger UI at 1440 px, every operation open: no sideways scroll, each x- value shown whole
+  ok   ReDoc renders the reference and searches it, with only its logo refused
+  ok   the problem pages render, with no CSP violation
+  ok   the mockup renders on its own host, with no CSP violation
+front door browser checks failed: 1
+== M2-break-word (exit 1)
+  ok   the portal signs in and lists requests on one origin, with no CSP violation
+  ok   Swagger UI renders the operations, with no CSP violation
+  FAIL Swagger UI at 390 px, every operation open: no sideways scroll, each x- value shown whole: the page is 647 px wide in a 390 px window
+  ok   Swagger UI at 1440 px, every operation open: no sideways scroll, each x- value shown whole
+  ok   ReDoc renders the reference and searches it, with only its logo refused
+  ok   the problem pages render, with no CSP violation
+  ok   the mockup renders on its own host, with no CSP violation
+front door browser checks failed: 1
+== M3-extensions-overflow-hidden (exit 1)
+  ok   the portal signs in and lists requests on one origin, with no CSP violation
+  ok   Swagger UI renders the operations, with no CSP violation
+  FAIL Swagger UI at 390 px, every operation open: no sideways scroll, each x- value shown whole: these pass the page's right edge, and no box scrolls to them
+  ok   Swagger UI at 1440 px, every operation open: no sideways scroll, each x- value shown whole
+  ok   ReDoc renders the reference and searches it, with only its logo refused
+  ok   the problem pages render, with no CSP violation
+  ok   the mockup renders on its own host, with no CSP violation
+front door browser checks failed: 1
+== M4-extensions-scroll-box (exit 1)
+  ok   the portal signs in and lists requests on one origin, with no CSP violation
+  ok   Swagger UI renders the operations, with no CSP violation
+  FAIL Swagger UI at 390 px, every operation open: no sideways scroll, each x- value shown whole: an Extensions cell is hidden, cut off, or runs past the page
+  ok   Swagger UI at 1440 px, every operation open: no sideways scroll, each x- value shown whole
+  ok   ReDoc renders the reference and searches it, with only its logo refused
+  ok   the problem pages render, with no CSP violation
+  ok   the mockup renders on its own host, with no CSP violation
+front door browser checks failed: 1

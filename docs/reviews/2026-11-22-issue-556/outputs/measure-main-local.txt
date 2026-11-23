@@ -1,0 +1,8 @@
+before 390 folded {"scrollWidth":390,"clientWidth":390,"out":[],"outCount":0}
+before 390 PATCH open {"scrollWidth":647,"clientWidth":390,"out":[{"el":"tr.","right":647,"w":598},{"el":"td.","right":647,"w":501},{"el":"tr.","right":647,"w":598},{"el":"td.","right":647,"w":501},{"el":"tr.","right":647,"w":598},{"el":"td.","right":647,"w":501}],"outCount":13}
+before 390 all open {"scrollWidth":647,"clientWidth":390,"out":[{"el":"tr.","right":440,"w":391},{"el":"td.","right":440,"w":294},{"el":"tr.","right":440,"w":391},{"el":"td.","right":440,"w":294},{"el":"tr.","right":440,"w":391},{"el":"td.","right":440,"w":294}],"outCount":564} ops 40
+before 390 selector {"direct":40,"extensionsHeaders":40,"allTableContainers":69}
+before 1440 folded {"scrollWidth":1440,"clientWidth":1440,"out":[],"outCount":0}
+before 1440 PATCH open {"scrollWidth":1440,"clientWidth":1440,"out":[],"outCount":0}
+before 1440 all open {"scrollWidth":1440,"clientWidth":1440,"out":[],"outCount":0} ops 40
+before 1440 selector {"direct":40,"extensionsHeaders":40,"allTableContainers":69}
