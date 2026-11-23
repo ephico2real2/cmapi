@@ -173,7 +173,10 @@ class FakeGit(HostGitProvider):
         if branch is None:
             from cmapi.core.git.base import GitUnavailable
             raise GitUnavailable(f"no branch {ref}")
-        files = {p: t for p, t in self.branches[branch].items() if p.startswith(path) and p.endswith(".yaml")}
+        # The .yaml files directly in the folder, as github.py, gitea.py and workspace.py list one folder, not its subfolders (#578).
+        prefix = path.rstrip("/") + "/"
+        files = {p: t for p, t in self.branches[branch].items()
+                 if p.startswith(prefix) and "/" not in p[len(prefix):] and p.endswith(".yaml")}
         return files, self.heads[branch]
 
     def contains(self, revision, sha):
