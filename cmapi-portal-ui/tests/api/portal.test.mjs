@@ -3544,6 +3544,13 @@ try {
   const refusedCalls = () => calls("/api/v1/policies/rejections");
   const sentPol = (want, why) => assert.ok(polCalls().some((c) => isDeepStrictEqual(c.query, want)), `${why}: ${JSON.stringify(want)} was not sent; the calls were ${JSON.stringify(polCalls().map((c) => c.query))}`);
   const tableRows = (page, label) => page.locator(`table[aria-label="${label}"] tbody tr`).evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.innerText.replace(/\s+/g, " ").trim())));
+  // The rows once the answer of the current filters is in (#600). After a filter or a page changes, the table keeps the last
+  // answer's rows, marked aria-busy, until the new one arrives (keepPreviousData; DataTable's busy). The heading and the range
+  // can show the new filters while the rows are still the old ones, so a read after a change waits for the table to settle.
+  const settledRows = async (page, label) => {
+    await page.locator(`table[aria-label="${label}"]:not([aria-busy="true"])`).waitFor();
+    return tableRows(page, label);
+  };
   const polCard = (page, title) => panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: title }) });
   const openPol = async (page, hash = "#policies") => {
     await open(page, hash);
@@ -3601,18 +3608,20 @@ try {
     assert.deepEqual(pills, ordered.slice(0, 25).map((r) => ({ fail: "danger", warn: "warning", error: "info" })[r.result]), "fail danger, warn warning, error info");
     await polCard(page, /^Failing, warning and erroring resources/).getByRole("button", { name: "Next ›" }).click();
     await panel(page).getByText("26–30 of 30 · by namespace").waitFor();
-    assert.deepEqual(await tableRows(page, "Failing resources"), ordered.slice(25).map(expectedResult));
+    assert.deepEqual(await settledRows(page, "Failing resources"), ordered.slice(25).map(expectedResult));
     await polCard(page, /^Failing, warning and erroring resources/).getByRole("button", { name: "‹ Previous" }).click();
     await panel(page).getByText("1–25 of 30 · by namespace").waitFor();
     // A chip is the API's clusterId; Show failures is its policy. Each is a new first page, and in the address.
     await panel(page).getByRole("group", { name: "Cluster" }).getByRole("button", { name: "CRC", exact: true }).click();
     await page.waitForFunction(() => location.hash === "#policies?cluster=CRC");
+    await settledRows(page, "Failing resources");      // the answer is in, so the call was sent: the stand-in records it on arrival
     sentPol({ result: "fail,warn,error", limit: "25", clusterId: "CRC" }, "the chip");
     const second = ordered.find((r) => r.policy !== ordered[0].policy).policy;
     await polCard(page, "Results by policy").locator("tbody tr").filter({ hasText: second }).getByRole("button", { name: "Show failures" }).click();
     await panel(page).getByRole("heading", { name: `Failing, warning and erroring resources · ${second} · CRC` }).waitFor();
+    const filtered = await settledRows(page, "Failing resources");
     sentPol({ result: "fail,warn,error", limit: "25", clusterId: "CRC", policy: second }, "Show failures");
-    assert.deepEqual(await tableRows(page, "Failing resources"), ordered.filter((r) => r.policy === second).slice(0, 25).map(expectedResult));
+    assert.deepEqual(filtered, ordered.filter((r) => r.policy === second).slice(0, 25).map(expectedResult));
     await panel(page).getByText(`GET /api/v1/policies/results?result=fail,warn,error&clusterId=CRC&policy=${second} · filtered to the environments your roles cover · paged like every list.`).waitFor();
     await polCard(page, "Results by policy").getByRole("button", { name: "Showing" }).click();
     await panel(page).getByRole("heading", { name: "Failing, warning and erroring resources · CRC", exact: true }).waitFor();
