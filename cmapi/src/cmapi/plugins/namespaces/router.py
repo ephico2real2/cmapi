@@ -302,10 +302,12 @@ def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePa
 
     **If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,
     a namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,
-    missing If-Match is 428 `precondition-required` (RFC 6585, section 3), then a mismatch is 412 `precondition-failed`
-    (RFC 9110, section 15.5.13) with the current `etag`: read the namespace again, apply the change to it and send it.
-    An Idempotency-Key replay still requires If-Match, but does not compare it again: a retry with its original ETag
-    returns the stored answer even after Git moves. A non-dry-run submission also requires Idempotency-Key (400 without it).
+    missing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi
+    refuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags passes when one of them
+    is the current etag, by the strong comparison, so a weak tag (`W/"..."`) never matches. Otherwise the answer is 412
+    `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the namespace again, apply the change
+    to it and send it. An Idempotency-Key replay still requires If-Match, but does not compare it again: a retry with its
+    original ETag returns the stored answer even after Git moves, and `*` is 428 there too. A non-dry-run submission also requires Idempotency-Key (400 without it).
     One request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.
 
     **Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,
@@ -336,7 +338,8 @@ def delete_namespace(cluster_id: ClusterId, ns: NamespaceName, key: str | None =
                      etag: str | None = Depends(if_match),
                      who: Identity = Depends(require("namespaces:write")), c: AppContext = Depends(ctx)):
     """Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune
-    until an operator confirms the prune. Needs If-Match."""
+    until an operator confirms the prune. Needs If-Match, read as on a change: a list of tags passes when one of them is
+    the current etag, and `*` is 428 `precondition-required`."""
     raw = {"namespace": ns, "action": "delete", "clusterId": cluster_id}
     key = _idem(key, False)
     replay = _replay(c, who, key, raw)

@@ -4734,7 +4734,7 @@
                 "type": "null"
               }
             ],
-            "description": "The namespace's entity tag: the `ETag` header without its quotes. Send it back unchanged, in double quotes, as `If-Match` on a change or a delete; another value is 412 `precondition-failed`, except on an Idempotency-Key replay, which returns the request that key opened. It changes when the `.yaml` files directly in the namespace's folder in Git change. Compare it; never parse it. Null on the list, which reads no Git",
+            "description": "The namespace's entity tag: the `ETag` header without its quotes. Send it back unchanged, in double quotes, as `If-Match` on a change or a delete. A list of tags passes when one of them is this one; another value is 412 `precondition-failed`, except on an Idempotency-Key replay, which returns the request that key opened. A weak tag (`W/\"...\"`) never matches, and `*` is 428 `precondition-required`, on a replay too. It changes when the `.yaml` files directly in the namespace's folder in Git change. Compare it; never parse it. Null on the list, which reads no Git",
             "examples": [
               "3f9a1c0b7e2d4a68"
             ],
@@ -5198,7 +5198,7 @@
                 "type": "null"
               }
             ],
-            "description": "The entity tag of the namespace that the plan was made against, as `GET .../namespaces/{ns}` gives it. On a change it is the one that `If-Match` sent: send the same `If-Match` when you submit the change. A create takes no `If-Match`, so ignore it there. Compare it; never parse it",
+            "description": "The entity tag of the namespace that the plan was made against, as `GET .../namespaces/{ns}` gives it. On a change it is the one that `If-Match` matched: send the same `If-Match` when you submit the change. A list of tags passes when one of them is this one; `*` is 428 `precondition-required`, and a weak tag (`W/\"...\"`) never matches. A create takes no `If-Match`, so ignore it there. Compare it; never parse it",
             "examples": [
               "3f9a1c0b7e2d4a68"
             ],
@@ -10435,7 +10435,7 @@
     },
     "/api/v1/clusters/{cluster_id}/namespaces/{ns}": {
       "delete": {
-        "description": "Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune\nuntil an operator confirms the prune. Needs If-Match.\n\n**Requires** `namespaces:write`.",
+        "description": "Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune\nuntil an operator confirms the prune. Needs If-Match, read as on a change: a list of tags passes when one of them is\nthe current etag, and `*` is 428 `precondition-required`.\n\n**Requires** `namespaces:write`.",
         "operationId": "namespaces_delete_namespace",
         "parameters": [
           {
@@ -10488,7 +10488,7 @@
             }
           },
           {
-            "description": "The namespace's etag from GET; required on a change or delete",
+            "description": "The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/\"...\"`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -10501,7 +10501,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The namespace's etag from GET; required on a change or delete",
+              "description": "The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/\"...\"`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag.",
               "examples": [
                 "\"3f9a1c0b7e2d4a68\""
               ],
@@ -10750,7 +10750,7 @@
                 }
               }
             },
-            "description": "The object changed since it was read: If-Match no longer matches its ETag.\n\nCodes: `precondition-failed`."
+            "description": "No strong tag that If-Match lists is the object's ETag: it changed since it was read, or the value named none.\n\nCodes: `precondition-failed`."
           },
           "422": {
             "content": {
@@ -10846,7 +10846,7 @@
                 }
               }
             },
-            "description": "A change needs If-Match with the ETag of the object as it was read.\n\nCodes: `precondition-required`."
+            "description": "A change needs If-Match with the ETag of the object as it was read; `*` is not one.\n\nCodes: `precondition-required`."
           },
           "502": {
             "content": {
@@ -11257,7 +11257,7 @@
         "x-plugin-version": "0.2.0"
       },
       "patch": {
-        "description": "Changes a namespace that exists: its tier, its custom quota and limits, and its labels and annotations.\n\n**Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):\na key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,\nin `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,\nsays how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (filled at creation;\na change keeps Git's value, and adoption must supply a missing value), `required` (it changes and is never removed)\nor `optional`. A key that no rule admits can be removed,\nnever set. A `sensitive` key adds one approval to the request.\n\n**Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and nothing is written. `metadataDiff`\nlists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`\nis `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).\n\n**If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,\na namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,\nmissing If-Match is 428 `precondition-required` (RFC 6585, section 3), then a mismatch is 412 `precondition-failed`\n(RFC 9110, section 15.5.13) with the current `etag`: read the namespace again, apply the change to it and send it.\nAn Idempotency-Key replay still requires If-Match, but does not compare it again: a retry with its original ETag\nreturns the stored answer even after Git moves. A non-dry-run submission also requires Idempotency-Key (400 without it).\nOne request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.\n\n**Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,\n`invalid_key`, `invalid_value`, `derived_key`, `missing_required_key`, `too_many_keys`, `annotations_too_large`).\nA key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's\nenvironment. A body that changes nothing is 422 `no-change`.\n\n**Requires** `namespaces:write`.",
+        "description": "Changes a namespace that exists: its tier, its custom quota and limits, and its labels and annotations.\n\n**Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):\na key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,\nin `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,\nsays how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (filled at creation;\na change keeps Git's value, and adoption must supply a missing value), `required` (it changes and is never removed)\nor `optional`. A key that no rule admits can be removed,\nnever set. A `sensitive` key adds one approval to the request.\n\n**Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and nothing is written. `metadataDiff`\nlists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`\nis `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).\n\n**If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,\na namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,\nmissing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi\nrefuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags passes when one of them\nis the current etag, by the strong comparison, so a weak tag (`W/\"...\"`) never matches. Otherwise the answer is 412\n`precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the namespace again, apply the change\nto it and send it. An Idempotency-Key replay still requires If-Match, but does not compare it again: a retry with its\noriginal ETag returns the stored answer even after Git moves, and `*` is 428 there too. A non-dry-run submission also requires Idempotency-Key (400 without it).\nOne request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.\n\n**Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,\n`invalid_key`, `invalid_value`, `derived_key`, `missing_required_key`, `too_many_keys`, `annotations_too_large`).\nA key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's\nenvironment. A body that changes nothing is 422 `no-change`.\n\n**Requires** `namespaces:write`.",
         "operationId": "namespaces_update_namespace",
         "parameters": [
           {
@@ -11325,7 +11325,7 @@
             }
           },
           {
-            "description": "The namespace's etag from GET; required on a change or delete",
+            "description": "The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/\"...\"`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -11338,7 +11338,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The namespace's etag from GET; required on a change or delete",
+              "description": "The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/\"...\"`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag.",
               "examples": [
                 "\"3f9a1c0b7e2d4a68\""
               ],
@@ -11706,7 +11706,7 @@
                 }
               }
             },
-            "description": "The object changed since it was read: If-Match no longer matches its ETag.\n\nCodes: `precondition-failed`."
+            "description": "No strong tag that If-Match lists is the object's ETag: it changed since it was read, or the value named none.\n\nCodes: `precondition-failed`."
           },
           "422": {
             "content": {
@@ -11878,7 +11878,7 @@
                 }
               }
             },
-            "description": "A change needs If-Match with the ETag of the object as it was read.\n\nCodes: `precondition-required`."
+            "description": "A change needs If-Match with the ETag of the object as it was read; `*` is not one.\n\nCodes: `precondition-required`."
           },
           "502": {
             "content": {
@@ -12035,7 +12035,7 @@
             }
           },
           {
-            "description": "The namespace's etag from GET; required on a change or delete",
+            "description": "The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/\"...\"`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -12048,7 +12048,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The namespace's etag from GET; required on a change or delete",
+              "description": "The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/\"...\"`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag.",
               "examples": [
                 "\"3f9a1c0b7e2d4a68\""
               ],
@@ -12365,7 +12365,7 @@
                 }
               }
             },
-            "description": "The object changed since it was read: If-Match no longer matches its ETag.\n\nCodes: `precondition-failed`."
+            "description": "No strong tag that If-Match lists is the object's ETag: it changed since it was read, or the value named none.\n\nCodes: `precondition-failed`."
           },
           "422": {
             "content": {
@@ -12515,7 +12515,7 @@
                 }
               }
             },
-            "description": "A change needs If-Match with the ETag of the object as it was read.\n\nCodes: `precondition-required`."
+            "description": "A change needs If-Match with the ETag of the object as it was read; `*` is not one.\n\nCodes: `precondition-required`."
           },
           "502": {
             "content": {
@@ -12672,7 +12672,7 @@
             }
           },
           {
-            "description": "The namespace's etag from GET; required on a change or delete",
+            "description": "The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/\"...\"`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -12685,7 +12685,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The namespace's etag from GET; required on a change or delete",
+              "description": "The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/\"...\"`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag.",
               "examples": [
                 "\"3f9a1c0b7e2d4a68\""
               ],
@@ -13025,7 +13025,7 @@
                 }
               }
             },
-            "description": "The object changed since it was read: If-Match no longer matches its ETag.\n\nCodes: `precondition-failed`."
+            "description": "No strong tag that If-Match lists is the object's ETag: it changed since it was read, or the value named none.\n\nCodes: `precondition-failed`."
           },
           "422": {
             "content": {
@@ -13157,7 +13157,7 @@
                 }
               }
             },
-            "description": "A change needs If-Match with the ETag of the object as it was read.\n\nCodes: `precondition-required`."
+            "description": "A change needs If-Match with the ETag of the object as it was read; `*` is not one.\n\nCodes: `precondition-required`."
           },
           "502": {
             "content": {
@@ -13314,7 +13314,7 @@
             }
           },
           {
-            "description": "The namespace's etag from GET; required on a change or delete",
+            "description": "The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/\"...\"`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -13327,7 +13327,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The namespace's etag from GET; required on a change or delete",
+              "description": "The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/\"...\"`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag.",
               "examples": [
                 "\"3f9a1c0b7e2d4a68\""
               ],
@@ -13644,7 +13644,7 @@
                 }
               }
             },
-            "description": "The object changed since it was read: If-Match no longer matches its ETag.\n\nCodes: `precondition-failed`."
+            "description": "No strong tag that If-Match lists is the object's ETag: it changed since it was read, or the value named none.\n\nCodes: `precondition-failed`."
           },
           "422": {
             "content": {
@@ -13794,7 +13794,7 @@
                 }
               }
             },
-            "description": "A change needs If-Match with the ETag of the object as it was read.\n\nCodes: `precondition-required`."
+            "description": "A change needs If-Match with the ETag of the object as it was read; `*` is not one.\n\nCodes: `precondition-required`."
           },
           "502": {
             "content": {

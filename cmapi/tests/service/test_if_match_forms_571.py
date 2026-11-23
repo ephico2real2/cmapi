@@ -120,3 +120,17 @@ def test_the_parser_reads_rfc_9110s_grammar(value, tags):
     from cmapi.core.etag import if_match_tags      # imported here, so the service tests above also run on main
     assert if_match_tags(value) == tags
 
+
+
+def test_the_document_says_how_each_form_is_read(world):
+    """The behaviour above is what the If-Match parameter and both etag properties promise (#571): a list, * and a weak tag."""
+    client, *_ = world
+    spec = client.get("/openapi.json").json()
+    params = [p for path in spec["paths"].values() for op in path.values() if isinstance(op, dict)
+              for p in op.get("parameters", []) if p.get("name") == "If-Match"]
+    assert len(params) == 5, "PATCH, DELETE, :extend, :set and :makePermanent take If-Match"
+    schemas = spec["components"]["schemas"]
+    for description in [p["description"] for p in params] + [schemas[s]["properties"]["etag"]["description"]
+                                                               for s in ("NamespaceView", "PlanView")]:
+        assert "A list of tags passes" in description and "`*` is 428" in description, description
+        assert "weak tag" in description and "never matches" in description, description
