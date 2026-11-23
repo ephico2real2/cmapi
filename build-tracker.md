@@ -19,7 +19,21 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-22, after 05:05Z
+## Current: 2026-11-22, after 07:50Z
+
+`main` is `5c01876` (PR #555). CRC runs `5c01876` (`/api/v1/version`, read 2026-11-22). No open PRs. The owner approved stories #483, #484 and #485 on 2026-11-22 through `/decide`, and all three are closed. Epic #481 is open, with #482 its one open child.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| PATCH contract | #483 (story) | Approved by the owner and closed 2026-11-22 (07:46:58Z). Decision: "Prove 428 live, then approve" | **428 proven live on CRC**, `5c01876`, 07:46:23Z, as `cmapi.requester`: a dry-run PATCH without `If-Match` on `cmap-live-g-dev` answered HTTP 428 `precondition-required`; requests 19 before and 19 after. Run 32: a real PATCH end to end four times (req-20261121-0002 to 0005, config PRs #23 to #26), with 409, 412 and `If-Match` live |
+| Namespaces tab | #484 (story) | Approved by the owner and closed 2026-11-22 (07:47:01Z). Decision: "Approve #484" | Live on CRC, run 32: the lookup, Submit, Pending, In sync, Drift, 412 with the per-key choice, 409, the mnemonic chip, the operator-only reason. CI: T1 to T9 at 390, 820 and 1440 px in both themes, each with its mutant. CI only: axe, the 820 px width, keyboard use, Remove and Undo, the sensitive mark |
+| Swagger and ReDoc for the namespace-change operations | #485 (story) | Approved by the owner and closed 2026-11-22 (07:47:03Z). Decision: "Approve, file the 390 px scroll" | 36 live checks on CRC in run 32 at 1440 and 390 px, plus the CI proof of PR #542. No dark theme in either viewer; ReDoc's logo is refused by the CSP on purpose |
+| Swagger UI (`/docs`) scrolls sideways by 149 px at 390 px | #556 (bug, `sev:low`, sub-issue of #485) | Open, filed 2026-11-22 07:46:40Z. Next | Found in CRC run 32 (`doc32` checks). Located 2026-11-22 (#556 comment): only with the PATCH operation open, in the Extensions table, whose cells hold the long `x-codeSamples` JSON with no wrap (`scrollWidth` 539 at 390). The proof to write: open the PATCH operation at 390 px and assert `scrollWidth <= clientWidth`; fails today, passes after; 1440 px stays at 0 |
+| Epic 8: change the metadata of existing namespaces | #481 | Open | One child open: #482 (spike, In-Progress). #486 (rollout window) belongs to #13 |
+
+Everything else of the 05:05Z section stands, apart from the rows of #483, #484 and #485 and the state of `main` and CRC. Run 33 deployed `5c01876`.
+
+## Previous: 2026-11-22, after 05:05Z (superseded by the section above)
 
 `main` is `8f387bf` (PR #553). CRC runs `4999dee` (OB1 run 32, deployed 22:47Z to 22:57Z on 2026-11-21): api and worker `cmapi@sha256:67f43526...`, portal `cmapi-portal@sha256:a18734ce...`, alembic `0006`, the dev bundle 40/40 `current` (hash `a2603db2...`). Monitoring is off (#489). Merged after `4999dee` and **not yet deployed**: #550, #553 (migration `0007`) and #554. No open PRs. Run 33 deploys `8f387bf`.
 
