@@ -767,7 +767,7 @@ async def create_namespace(cluster_id: ClusterId, body: NamespaceCreate) -> Plan
 **CI gates on the spec.**
 
 1. Spectral lint with cmapi's ruleset: operationId, tags, examples, problem responses, no inline schemas, cmapi.net/ keys only in label examples.
-2. Contract snapshot (tests/contract/test\_openapi\_snapshot.py): any spec change shows as a diff in the PR, and the changelog entry is generated from it.
+2. Contract snapshot (`test_the_committed_contract_is_the_document_this_code_serves` in cmapi/tests/service/test\_api\_docs.py, run by the CI job `api-contract`): the committed cmapi/contract/openapi.json must be the document that the code serves, so any spec change shows as a diff in the PR, and the changelog entry is generated from it.
 3. oasdiff against the last release tag: a breaking change to /api/v1 fails the build. Removing a field needs the deprecation path (deprecated: true and a Sunset header, 6 months).
 4. The generated CLI and Python SDK are rebuilt from the spec on every release.
 

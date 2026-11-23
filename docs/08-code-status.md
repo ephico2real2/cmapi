@@ -48,6 +48,7 @@ This page summarises what the code tree holds today.
 | The write pipeline: authorize, idempotency (key plus body fingerprint), lock, plan, decide; If-Match on changes | `core/pipeline.py`, `plugins/namespaces/router.py` | Built and tested |
 | Requests: list (paged), get, events, approval-status, `:approve`, `:reject`, `:cancel`, `:retry`, `:revert`; decisions serialised by a row lock | `routers/requests.py` | Built and tested |
 | Admin: `prune:confirm`, the auto-approval kill switch, integrations, the plugins, Git log, KPIs | `routers/admin.py`, `core/kpi.py` | Built; KPIs read the database and the pod's cgroup |
+| Caller and clusters: `GET /me`, `GET /clusters`, `GET /metadata-keys`, and `POST /clusters/{id}:probe` (permission `operations:run`), which runs the relist checks again on one cluster's last import and returns its diagnostics. It changes no Secret and no cluster resource (#396, #397) | `routers/me.py:22-91` | Built and tested. `docs/04` has a recorded sample of `:probe` from CRC |
 | Tiers, directory, quotas (list, suggest, CSV export) | `plugins/tiers`, `plugins/directory`, `plugins/quotas` | Built |
 | Expiration: `GET /expirations` (paged, filtered by state, env, cluster, team and text), and `:set` and `:makePermanent` beside `:extend`, each with a dry run (#318) | `plugins/expiration/router.py`, `plugins/namespaces/router.py` | Built and tested with fakes (`tests/service/test_expirations.py`). No `expire_check` job writes the notices yet, so `noticesSent` is 0 |
 | Policies: `GET /policies/results` (each cluster's state, the bundle's policies with their counts, and a page of fail, warn and error results on managed namespaces) and `GET /policies/rejections` (cmapi's refusals before Git, Kyverno's warnings on accepted plans, CI refusals), with the table `policy_rejections` (migration 0006) and the daily `rejections_prune` (#302) | `plugins/policies/router.py`, `core/clients/policyreports.py`, `core/rejections.py` | Built and tested with fakes (`tests/service/test_policies_302.py`) and on kind with Kyverno v1.20.0 in audit (`docs/reviews/2026-11-17-issue-302-policies/evidence/kind/`). Kyverno's breaker drops and `openreports.io` reports are not read (deferred by the arbitration) |
@@ -146,9 +147,9 @@ against the symlinked reference modules; section 2 is what replaces each stand-i
 
 ## 4. Not built yet
 
-**Service:** config hot reload; `core/kpi/` beyond the system figures and four database KPIs; the metadata
-plugin; `:probe`, `/admin/reload`, `/tiers/{tier}`, the webhooks; OpenTelemetry (none in the code);
-rate limits on routes.
+**Service:** config hot reload; `core/kpi.py` beyond the system figures and four database KPIs; the metadata
+plugin; `/admin/reload`, `/tiers/{tier}`, the webhooks; OpenTelemetry (none in the code);
+rate limits on routes (`core/ratelimit.py` holds the limiter, and no route calls it).
 
 **Adapters:** OpenShift reader beyond the kinds the namespaces plugin needs; policy report reader; LDAP
 directory provider; Argo CD mode proven against a real Argo CD (none has run).

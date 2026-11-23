@@ -762,7 +762,7 @@ Optional. The code is `cmapi/src/cmapi/core/plugins.py`. The chart does not moun
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `enabled` | list of plugin names | Each built-in plugin: `namespaces`, `tiers`, `directory`, `quotas` | The plugins whose routes the API mounts. A plugin that is not listed has no route and no line in the API document |
+| `enabled` | list of plugin names | Each built-in plugin, which is each key of `BUILT_IN` in `core/plugins.py:28-36`: `namespaces`, `tiers`, `directory`, `quotas`, `expiration`, `policies` and `capacity`. With no file, `core/plugins.py:49` enables all of them | The plugins whose routes the API mounts. A plugin that is not listed has no route and no line in the API document |
 | `overrides.<instance>.<env>.disabled` | list of plugin names | None | Stops the writes of an enabled plugin in one environment of one instance. The reads stay. The write answers 422 `plugin-disabled` |
 
 The loader checks only the block of its own instance. Each of these mistakes stops the start:
