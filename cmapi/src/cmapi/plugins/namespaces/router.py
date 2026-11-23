@@ -200,11 +200,20 @@ def list_namespaces(cluster_id: ClusterId, q: SearchText = None, mnemonic: Mnemo
     return _namespace_page(c, rows, q, mnemonic, limit)
 
 
+# The ETag that get_namespace sets, declared so a client generated from the document can read it (#565). It is opaque
+# (RFC 9110, 8.8.3.1), so the description says how to use it, not what it is made of; the example has the real form.
+NAMESPACE_ETAG_HEADER = {"ETag": {
+    "description": "The namespace's entity tag, quoted: the `etag` of the body. Send it unchanged as `If-Match` on a change "
+                   "or a delete. It changes when the `.yaml` files directly in the namespace's folder in Git change.",
+    "schema": {"type": "string", "examples": ['"3f9a1c0b7e2d4a68"']}}}
+
+
 @router.read("/namespaces/{ns}", summary="Get a namespace and its ETag",
              returns="The namespace's labels, annotations, tier and sync state as Git and the cluster hold them, with "
                      "the ETag that a change sends in If-Match.",
              permission="objects:read", response_model=NamespaceView,
-             problems=["cluster-not-found", "object-not-found", "git-unavailable", "environment-forbidden"])
+             problems=["cluster-not-found", "object-not-found", "git-unavailable", "environment-forbidden"],
+             responses={"200": {"headers": NAMESPACE_ETAG_HEADER}})
 def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> dict:
     """The live namespace and the etag of its folder in Git. Send the etag as If-Match on PATCH or DELETE (the `ETag`

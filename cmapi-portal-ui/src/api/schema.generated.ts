@@ -3087,8 +3087,8 @@ export interface components {
             env: string | null;
             /**
              * Etag
-             * @description Git commit of its folder; send as If-Match on a change
-             * @example 0a1b2c3d
+             * @description The namespace's entity tag: the `ETag` header without its quotes. Send it back unchanged, in double quotes, as `If-Match` on a change or a delete; another value is 412 `precondition-failed`, except on an Idempotency-Key replay, which returns the request that key opened. It changes when the `.yaml` files directly in the namespace's folder in Git change. Compare it; never parse it. Null on the list, which reads no Git
+             * @example 3f9a1c0b7e2d4a68
              */
             etag: string | null;
             /**
@@ -3312,8 +3312,8 @@ export interface components {
             };
             /**
              * Etag
-             * @description Git commit the plan was made against; send it as If-Match
-             * @example 0a1b2c3d
+             * @description The entity tag of the namespace that the plan was made against, as `GET .../namespaces/{ns}` gives it. On a change it is the one that `If-Match` sent: send the same `If-Match` when you submit the change. A create takes no `If-Match`, so ignore it there. Compare it; never parse it
+             * @example 3f9a1c0b7e2d4a68
              */
             etag: string | null;
             /**
@@ -6319,6 +6319,8 @@ export interface operations {
             /** @description The namespace's labels, annotations, tier and sync state as Git and the cluster hold them, with the ETag that a change sends in If-Match. */
             200: {
                 headers: {
+                    /** @description The namespace's entity tag, quoted: the `etag` of the body. Send it unchanged as `If-Match` on a change or a delete. It changes when the `.yaml` files directly in the namespace's folder in Git change. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
