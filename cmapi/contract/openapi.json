@@ -7703,7 +7703,7 @@
                 "example": {
                   "paused": true,
                   "reason": "incident 1234",
-                  "setAt": "2026-11-23T15:43:17.434763+00:00",
+                  "setAt": "2026-11-23T20:34:48.288758+00:00",
                   "setBy": "ada"
                 },
                 "schema": {
@@ -7712,6 +7712,27 @@
               }
             },
             "description": "The kill switch, now on, with who set it, when and why."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "dry-run-not-supported": {
+                    "value": {
+                      "code": "dry-run-not-supported",
+                      "detail": "This call has no dry run, and nothing was done",
+                      "status": 400,
+                      "title": "dry run not supported",
+                      "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `dry-run-not-supported`."
           },
           "401": {
             "content": {
@@ -7844,7 +7865,7 @@
                 "example": {
                   "paused": false,
                   "reason": "incident 1234 closed",
-                  "setAt": "2026-11-23T15:43:17.314227+00:00",
+                  "setAt": "2026-11-23T20:34:48.190484+00:00",
                   "setBy": "ada"
                 },
                 "schema": {
@@ -7853,6 +7874,27 @@
               }
             },
             "description": "The kill switch, now off, with who set it and when."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "dry-run-not-supported": {
+                    "value": {
+                      "code": "dry-run-not-supported",
+                      "detail": "This call has no dry run, and nothing was done",
+                      "status": 400,
+                      "title": "dry run not supported",
+                      "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `dry-run-not-supported`."
           },
           "401": {
             "content": {
@@ -8235,7 +8277,7 @@
                       "cpuThrottledPeriods": null,
                       "cpuThrottledSeconds": null,
                       "cpuUsageSeconds": null,
-                      "measuredAt": 1795448591.9235451,
+                      "measuredAt": 1795466083.155765,
                       "memoryBytes": null,
                       "memoryLimitBytes": null
                     }
@@ -8246,8 +8288,8 @@
                     "oldestTransactionSeconds": 0.0,
                     "poolInUse": 0,
                     "poolSize": 5,
-                    "sizeBytes": 9632791,
-                    "walBytes": 83886080
+                    "sizeBytes": 9690135,
+                    "walBytes": 184549376
                   },
                   "instance": "nonprod",
                   "kpis": [
@@ -8258,7 +8300,7 @@
                       "target": "under 10 min",
                       "targetStatus": "proposed",
                       "unit": "seconds",
-                      "value": 0.215315
+                      "value": 0.215456
                     },
                     {
                       "id": "lead-time-approved-p90",
@@ -8622,7 +8664,7 @@
                   "approval": {
                     "approvals": [
                       {
-                        "at": "2026-11-23T15:43:21.173292Z",
+                        "at": "2026-11-23T20:34:52.721993Z",
                         "comment": "",
                         "relayedBy": null,
                         "sub": "sub-amy",
@@ -8649,74 +8691,74 @@
                   "baseSha": "a685e60e04b8eeed05c82d699cb9cff596459f39",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:21.090851Z",
+                  "createdAt": "2026-11-23T20:34:52.626583Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:21.100893Z",
+                      "at": "2026-11-23T20:34:52.640325Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-23T15:43:21.189856Z",
+                      "at": "2026-11-23T20:34:52.742122Z",
                       "by": "amy",
                       "event": "approval",
                       "note": "",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-23T15:43:21.198235Z",
+                      "at": "2026-11-23T20:34:52.752035Z",
                       "by": "amy",
                       "event": "approved",
                       "note": "approval count met",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-23T15:43:21.343032Z",
+                      "at": "2026-11-23T20:34:52.893955Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
                       "note": "cmapi/CRC/req-20261123-0008 at f2d6ec80 on a685e60e (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-23T15:43:21.504880Z",
+                      "at": "2026-11-23T20:34:53.033797Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
                       "note": "cmapi/CRC/req-20261123-0008 #7",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:21.600618Z",
+                      "at": "2026-11-23T20:34:53.144122Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:21.681592Z",
+                      "at": "2026-11-23T20:34:53.243938Z",
                       "by": "worker",
                       "event": "merge_verified",
                       "note": "merged f2d6ec80; the folder at it is the plan's",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:21.689502Z",
+                      "at": "2026-11-23T20:34:53.253718Z",
                       "by": "cmapi-bot",
                       "event": "merged",
                       "note": "merged f2d6ec80",
                       "status": "merged"
                     },
                     {
-                      "at": "2026-11-23T15:43:21.777337Z",
+                      "at": "2026-11-23T20:34:53.368467Z",
                       "by": "cmapi-deliverer",
                       "event": "prune_pending",
                       "note": "Prune=confirm: waiting for an operator to confirm the prune",
                       "status": "awaiting_prune"
                     },
                     {
-                      "at": "2026-11-23T15:43:22.219419Z",
+                      "at": "2026-11-23T20:34:53.869779Z",
                       "by": "opal",
                       "event": "prune_confirm",
                       "note": "operator confirmed the prune",
@@ -8766,7 +8808,7 @@
                     "submittedByClient": null
                   },
                   "status": "awaiting_prune",
-                  "updatedAt": "2026-11-23T15:43:22.013913Z"
+                  "updatedAt": "2026-11-23T20:34:53.682472Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -8774,6 +8816,27 @@
               }
             },
             "description": "The delete request, with the prune confirmed."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "dry-run-not-supported": {
+                    "value": {
+                      "code": "dry-run-not-supported",
+                      "detail": "This call has no dry run, and nothing was done",
+                      "status": 400,
+                      "title": "dry run not supported",
+                      "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `dry-run-not-supported`."
           },
           "401": {
             "content": {
@@ -9006,7 +9069,7 @@
                 "example": {
                   "clusters": [
                     {
-                      "asOf": "2026-11-23T15:43:00Z",
+                      "asOf": "2026-11-23T20:34:00Z",
                       "basis": "simulated",
                       "boundBy": "cpu",
                       "clusterId": "CRC",
@@ -9255,7 +9318,7 @@
                     "value": {
                       "code": "precondition-failed",
                       "detail": "If-Match does not list the current ETag of this answer: read it again",
-                      "etag": "86e8de871622315a44a30c4bd1925e9c",
+                      "etag": "d212794415c718223a4315078b0a70e0",
                       "status": 412,
                       "title": "precondition failed",
                       "type": "https://cmapi.ephico2real.com/problems/precondition-failed"
@@ -9354,7 +9417,7 @@
                 "example": {
                   "items": [
                     {
-                      "checkedAt": "2026-11-23T15:43:09.659030Z",
+                      "checkedAt": "2026-11-23T20:34:40.771371Z",
                       "clusterId": "CRC",
                       "environment": "dev",
                       "findingDetails": [],
@@ -9363,11 +9426,11 @@
                       "labels": {
                         "region": "us-central"
                       },
-                      "lastProbeAt": "2026-11-23T15:43:09.659030Z",
+                      "lastProbeAt": "2026-11-23T20:34:40.771371Z",
                       "secretName": "cmapi-cluster-crc",
                       "serverVersion": "v1.35.6-fake",
                       "status": "connected",
-                      "statusSince": "2026-11-23T15:43:09.659030Z",
+                      "statusSince": "2026-11-23T20:34:40.771371Z",
                       "tokenExpiresAt": null,
                       "trust": {
                         "downgrade": false,
@@ -9766,7 +9829,7 @@
         "x-plugin-version": "0.2.0"
       },
       "post": {
-        "description": "Plans a new namespace on the cluster and submits a change request; the bot opens a pull request once it\nis approved. `dryRun=true` answers 200 with the plan, the capacity check and the approval that would apply,\nand writes nothing. The environment is the cluster's and must be one this instance serves.\n\n**Requires** `namespaces:create`.",
+        "description": "Plans a new namespace on the cluster and submits a change request; the bot opens a pull request once it\nis approved. `dryRun=true` answers 200 with the plan, the capacity check and the approval that would apply,\nand opens no request. The environment is the cluster's and must be one this instance serves.\n\n**Requires** `namespaces:create`.",
         "operationId": "namespaces_create_namespace",
         "parameters": [
           {
@@ -9784,13 +9847,13 @@
             }
           },
           {
-            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
               "default": false,
-              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
               "examples": [
                 true
               ],
@@ -9997,7 +10060,7 @@
                 }
               }
             },
-            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
           },
           "202": {
             "content": {
@@ -10021,11 +10084,11 @@
                   "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:10.969205Z",
+                  "createdAt": "2026-11-23T20:34:42.183677Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:11.042463Z",
+                      "at": "2026-11-23T20:34:42.257528Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
@@ -10069,7 +10132,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-23T15:43:10.836996Z"
+                  "updatedAt": "2026-11-23T20:34:42.067606Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -10469,7 +10532,7 @@
     },
     "/api/v1/clusters/{cluster_id}/namespaces/{ns}": {
       "delete": {
-        "description": "Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune\nuntil an operator confirms the prune. Needs If-Match, read as on a change: a list of tags passes when one of them is\nthe current etag, and `*` is 428 `precondition-required`.\n\n**Requires** `namespaces:write`.",
+        "description": "Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune\nuntil an operator confirms the prune. Needs If-Match, read as on a change: a list of tags passes when one of them is\nthe current etag, and `*` is 428 `precondition-required`.\n\n`dryRun=true` answers 200 with the plan and opens no request: `changes` lists each `.yaml` file directly in the\nnamespace's folder as `removed`, `files` is empty, and `approval` is the approval that the delete would need now. It makes\nthe delete's planning checks, so they refuse it where they refuse the delete: the permission, If-Match, and a protected\nnamespace (422 `namespace-protected`). Like every dry run it skips the Idempotency-Key and the namespace's lock: while\nanother request holds the namespace the plan is still 200, and the delete is 409 `change-pending`.\n\n**Requires** `namespaces:write`.",
         "operationId": "namespaces_delete_namespace",
         "parameters": [
           {
@@ -10501,7 +10564,22 @@
             }
           },
           {
-            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required: a delete has no dry run. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
+              "examples": [
+                true
+              ],
+              "title": "Dryrun",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -10514,7 +10592,7 @@
                   "type": "null"
                 }
               ],
-              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required: a delete has no dry run. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
+              "description": "A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state.",
               "examples": [
                 "0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"
               ],
@@ -10537,6 +10615,78 @@
           }
         ],
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "approval": {
+                    "approvals": [],
+                    "auto": null,
+                    "autoFallback": null,
+                    "reasons": [
+                      "dev delete: 1 from approver-platform"
+                    ],
+                    "remaining": [
+                      {
+                        "group": "approver-platform",
+                        "needed": 1
+                      }
+                    ],
+                    "rule": "dev-delete",
+                    "selfApproval": true,
+                    "slots": [
+                      {
+                        "count": 1,
+                        "group": "approver-platform",
+                        "reason": "dev delete: 1 from approver-platform"
+                      }
+                    ],
+                    "timeoutHours": 8
+                  },
+                  "beyondTier": null,
+                  "capacity": {
+                    "bindingResource": null,
+                    "fresh": true,
+                    "source": "delete",
+                    "status": "fits"
+                  },
+                  "changes": {
+                    "clusters/CRC/namespaces/search-dev/limitrange-search-dev-limits-cpu.yaml": "removed",
+                    "clusters/CRC/namespaces/search-dev/limitrange-search-dev-limits-memory.yaml": "removed",
+                    "clusters/CRC/namespaces/search-dev/namespace.yaml": "removed",
+                    "clusters/CRC/namespaces/search-dev/resourcequota-search-dev-quota.yaml": "removed",
+                    "clusters/CRC/namespaces/search-dev/token-issuer-rolebinding.yaml": "removed"
+                  },
+                  "etag": "af4a4195b750eae1",
+                  "files": {},
+                  "findings": [],
+                  "metadata": null,
+                  "metadataDiff": null,
+                  "planHash": "c490196334dad591c3196aa59224d119861392145360aee1d428c93109235dbe",
+                  "requester": {
+                    "automated": false,
+                    "requester": {
+                      "clientId": "cmapi-portal",
+                      "email": "ola@ephico2real.com",
+                      "employeeId": "1001",
+                      "familyName": "Doe",
+                      "givenName": "Ola",
+                      "kind": "user",
+                      "middleName": null,
+                      "sub": "sub-ola",
+                      "username": "ola"
+                    },
+                    "submittedBy": null,
+                    "submittedByClient": null
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PlanView"
+                }
+              }
+            },
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
+          },
           "202": {
             "content": {
               "application/json": {
@@ -10569,11 +10719,11 @@
                   "baseSha": "a685e60e04b8eeed05c82d699cb9cff596459f39",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:21.090851Z",
+                  "createdAt": "2026-11-23T20:34:52.626583Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:21.100893Z",
+                      "at": "2026-11-23T20:34:52.640325Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
@@ -10617,7 +10767,7 @@
                     "submittedByClient": null
                   },
                   "status": "pending_approval",
-                  "updatedAt": "2026-11-23T15:43:20.899513Z"
+                  "updatedAt": "2026-11-23T20:34:52.454842Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -11284,7 +11434,7 @@
         "x-plugin-version": "0.2.0"
       },
       "patch": {
-        "description": "Changes a namespace that exists: its tier, its custom quota and limits, and its labels and annotations.\n\n**Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):\na key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,\nin `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,\nsays how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (filled at creation;\na change keeps Git's value, and adoption must supply a missing value), `required` (it changes and is never removed)\nor `optional`. A key that no rule admits can be removed,\nnever set. A `sensitive` key adds one approval to the request.\n\n**Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and nothing is written. `metadataDiff`\nlists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`\nis `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).\n\n**If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,\na namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,\nmissing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi\nrefuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags, sent in one If-Match\nfield, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/\"...\"`) never matches.\nOtherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the\nnamespace again, apply the change to it and send it.\nAn Idempotency-Key replay still requires If-Match, but does not compare it again: it returns the\noriginal request in its current state even after Git moves, and `*` is 428 there too. The Idempotency-Key parameter\nsays when a retry is a replay. A non-dry-run submission also requires Idempotency-Key (400 without it).\nOne request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.\n\n**Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,\n`invalid_key`, `invalid_value`, `derived_key`, `missing_required_key`, `too_many_keys`, `annotations_too_large`).\nA key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's\nenvironment. A body that changes nothing is 422 `no-change`.\n\n**Requires** `namespaces:write`.",
+        "description": "Changes a namespace that exists: its tier, its custom quota and limits, and its labels and annotations.\n\n**Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):\na key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,\nin `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,\nsays how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (filled at creation;\na change keeps Git's value, and adoption must supply a missing value), `required` (it changes and is never removed)\nor `optional`. A key that no rule admits can be removed,\nnever set. A `sensitive` key adds one approval to the request.\n\n**Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and no request is opened. `metadataDiff`\nlists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`\nis `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).\n\n**If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,\na namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,\nmissing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi\nrefuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags, sent in one If-Match\nfield, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/\"...\"`) never matches.\nOtherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the\nnamespace again, apply the change to it and send it.\nAn Idempotency-Key replay still requires If-Match, but does not compare it again: it returns the\noriginal request in its current state even after Git moves, and `*` is 428 there too. The Idempotency-Key parameter\nsays when a retry is a replay. A non-dry-run submission also requires Idempotency-Key (400 without it).\nOne request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.\n\n**Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,\n`invalid_key`, `invalid_value`, `derived_key`, `missing_required_key`, `too_many_keys`, `annotations_too_large`).\nA key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's\nenvironment. A body that changes nothing is 422 `no-change`.\n\n**Requires** `namespaces:write`.",
         "operationId": "namespaces_update_namespace",
         "parameters": [
           {
@@ -11316,13 +11466,13 @@
             }
           },
           {
-            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
               "default": false,
-              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
               "examples": [
                 true
               ],
@@ -11480,7 +11630,7 @@
                 }
               }
             },
-            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
           },
           "202": {
             "content": {
@@ -11515,11 +11665,11 @@
                   "baseSha": "95fc380aba05a9fda1073a63b683180aa64d6ba6",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:12.346871Z",
+                  "createdAt": "2026-11-23T20:34:43.546065Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:12.424691Z",
+                      "at": "2026-11-23T20:34:43.625512Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
@@ -11563,7 +11713,7 @@
                     "submittedByClient": null
                   },
                   "status": "pending_approval",
-                  "updatedAt": "2026-11-23T15:43:12.222541Z"
+                  "updatedAt": "2026-11-23T20:34:43.439152Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -12019,13 +12169,13 @@
             }
           },
           {
-            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
               "default": false,
-              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
               "examples": [
                 true
               ],
@@ -12147,7 +12297,7 @@
                 }
               }
             },
-            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
           },
           "202": {
             "content": {
@@ -12170,11 +12320,11 @@
                   "baseSha": "f390b02e68a83254d0df67e57d3eface7ff1a33f",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:15.730973Z",
+                  "createdAt": "2026-11-23T20:34:46.524946Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:15.842612Z",
+                      "at": "2026-11-23T20:34:46.603019Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "none-required",
@@ -12218,7 +12368,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-23T15:43:15.640472Z"
+                  "updatedAt": "2026-11-23T20:34:46.417924Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -12649,13 +12799,13 @@
             }
           },
           {
-            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
               "default": false,
-              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
               "examples": [
                 true
               ],
@@ -12788,7 +12938,7 @@
                 }
               }
             },
-            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
           },
           "202": {
             "content": {
@@ -12823,11 +12973,11 @@
                   "baseSha": "8dab0bad411d81a696ed074b67b5f8fdbe640f64",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:26.715544Z",
+                  "createdAt": "2026-11-23T20:34:59.087029Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:26.791465Z",
+                      "at": "2026-11-23T20:34:59.171058Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
@@ -12871,7 +13021,7 @@
                     "submittedByClient": null
                   },
                   "status": "pending_approval",
-                  "updatedAt": "2026-11-23T15:43:26.590060Z"
+                  "updatedAt": "2026-11-23T20:34:58.984214Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -13284,13 +13434,13 @@
             }
           },
           {
-            "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
               "default": false,
-              "description": "With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key.",
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
               "examples": [
                 true
               ],
@@ -13412,7 +13562,7 @@
                 }
               }
             },
-            "description": "Dry run (`?dryRun=true`): the plan. cmapi writes nothing and opens no request."
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
           },
           "202": {
             "content": {
@@ -13435,11 +13585,11 @@
                   "baseSha": "3871ec0a8cd09f496e4a2934858f19cd3b0dfcac",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:25.887910Z",
+                  "createdAt": "2026-11-23T20:34:58.188852Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:25.958976Z",
+                      "at": "2026-11-23T20:34:58.271712Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "none-required",
@@ -13483,7 +13633,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-23T15:43:25.757471Z"
+                  "updatedAt": "2026-11-23T20:34:58.086684Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -13905,7 +14055,7 @@
             "content": {
               "application/json": {
                 "example": {
-                  "checkedAt": "2026-11-23T15:43:10.044573Z",
+                  "checkedAt": "2026-11-23T20:34:41.163080Z",
                   "clusterId": "CRC",
                   "environment": "dev",
                   "findingDetails": [],
@@ -13914,11 +14064,11 @@
                   "labels": {
                     "region": "us-central"
                   },
-                  "lastProbeAt": "2026-11-23T15:43:10.044573Z",
+                  "lastProbeAt": "2026-11-23T20:34:41.163080Z",
                   "secretName": "cmapi-cluster-crc",
                   "serverVersion": "v1.35.6-fake",
                   "status": "connected",
-                  "statusSince": "2026-11-23T15:43:09.659030Z",
+                  "statusSince": "2026-11-23T20:34:40.771371Z",
                   "tokenExpiresAt": null,
                   "trust": {
                     "downgrade": false,
@@ -13933,6 +14083,27 @@
               }
             },
             "description": "The cluster's diagnostics after the checks ran again: status, findings, server version and token expiry."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "dry-run-not-supported": {
+                    "value": {
+                      "code": "dry-run-not-supported",
+                      "detail": "This call has no dry run, and nothing was done",
+                      "status": 400,
+                      "title": "dry run not supported",
+                      "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `dry-run-not-supported`."
           },
           "401": {
             "content": {
@@ -15547,7 +15718,7 @@
             "content": {
               "application/json": {
                 "example": {
-                  "from": "2026-11-16T15:43:27.035215Z",
+                  "from": "2026-11-16T20:34:59.224277Z",
                   "items": [
                     {
                       "action": "create",
@@ -15566,9 +15737,9 @@
                           "source": "cmapi"
                         }
                       ],
-                      "firstAt": "2026-11-23T15:43:24.664453Z",
+                      "firstAt": "2026-11-23T20:34:56.753945Z",
                       "id": "rej-2",
-                      "lastAt": "2026-11-23T15:43:24.664453Z",
+                      "lastAt": "2026-11-23T20:34:56.753945Z",
                       "namespace": "kube-tools",
                       "outcome": "refused",
                       "plugin": "namespaces",
@@ -15594,9 +15765,9 @@
                           "source": "cmapi"
                         }
                       ],
-                      "firstAt": "2026-11-23T15:43:18.883522Z",
+                      "firstAt": "2026-11-23T20:34:50.072094Z",
                       "id": "rej-1",
-                      "lastAt": "2026-11-23T15:43:18.883522Z",
+                      "lastAt": "2026-11-23T20:34:50.072094Z",
                       "namespace": "search-dev",
                       "outcome": "refused",
                       "plugin": "namespaces",
@@ -15928,7 +16099,7 @@
                 "example": {
                   "clusters": [
                     {
-                      "asOf": "2026-11-23T15:43:26.923908Z",
+                      "asOf": "2026-11-23T20:34:59.099008Z",
                       "bundle": {
                         "actionsDiffer": [],
                         "actionsDifferTotal": 0,
@@ -17813,11 +17984,11 @@
                       "baseSha": "95fc380aba05a9fda1073a63b683180aa64d6ba6",
                       "beyondTier": null,
                       "clusterId": "CRC",
-                      "createdAt": "2026-11-23T15:43:12.346871Z",
+                      "createdAt": "2026-11-23T20:34:43.546065Z",
                       "env": "dev",
                       "events": [
                         {
-                          "at": "2026-11-23T15:43:12.424691Z",
+                          "at": "2026-11-23T20:34:43.625512Z",
                           "by": "ola",
                           "event": "plan_needs_approval",
                           "note": "waiting for [('approver-platform', 1)]",
@@ -17861,7 +18032,7 @@
                         "submittedByClient": null
                       },
                       "status": "pending_approval",
-                      "updatedAt": "2026-11-23T15:43:12.222541Z"
+                      "updatedAt": "2026-11-23T20:34:43.439152Z"
                     }
                   ],
                   "letters": {
@@ -18063,67 +18234,67 @@
                   "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:10.969205Z",
+                  "createdAt": "2026-11-23T20:34:42.183677Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:11.042463Z",
+                      "at": "2026-11-23T20:34:42.257528Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.125878Z",
+                      "at": "2026-11-23T20:34:42.344635Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
                       "note": "cmapi/CRC/req-20261123-0001 at 95fc380a on aaaaaaaa (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.177779Z",
+                      "at": "2026-11-23T20:34:42.394582Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
                       "note": "cmapi/CRC/req-20261123-0001 #1",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.224864Z",
+                      "at": "2026-11-23T20:34:42.435874Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.284103Z",
+                      "at": "2026-11-23T20:34:42.488561Z",
                       "by": "cmapi-deliverer",
                       "event": "apply_started",
                       "note": "applying 95fc380a before the merge",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.324758Z",
+                      "at": "2026-11-23T20:34:42.526109Z",
                       "by": "cmapi-deliverer",
                       "event": "applied",
                       "note": "5 objects from cmapi/CRC/req-20261123-0001 at 95fc380a, before the merge, confirmed by a read: quota matches the plan",
                       "status": "applied"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.368384Z",
+                      "at": "2026-11-23T20:34:42.566770Z",
                       "by": "worker",
                       "event": "merge_verified",
                       "note": "merged 95fc380a; the folder at it is the plan's",
                       "status": "applied"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.379049Z",
+                      "at": "2026-11-23T20:34:42.577612Z",
                       "by": "cmapi-bot",
                       "event": "merged",
                       "note": "merged 95fc380a",
                       "status": "merged"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.391547Z",
+                      "at": "2026-11-23T20:34:42.590108Z",
                       "by": "cmapi-deliverer",
                       "event": "synced",
                       "note": "applied and confirmed by a read before the merge",
@@ -18173,7 +18344,7 @@
                     "submittedByClient": null
                   },
                   "status": "synced",
-                  "updatedAt": "2026-11-23T15:43:11.187647Z"
+                  "updatedAt": "2026-11-23T20:34:42.402215Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -18520,63 +18691,63 @@
                 "example": {
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:11.042463Z",
+                      "at": "2026-11-23T20:34:42.257528Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.125878Z",
+                      "at": "2026-11-23T20:34:42.344635Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
                       "note": "cmapi/CRC/req-20261123-0001 at 95fc380a on aaaaaaaa (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.177779Z",
+                      "at": "2026-11-23T20:34:42.394582Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
                       "note": "cmapi/CRC/req-20261123-0001 #1",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.224864Z",
+                      "at": "2026-11-23T20:34:42.435874Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.284103Z",
+                      "at": "2026-11-23T20:34:42.488561Z",
                       "by": "cmapi-deliverer",
                       "event": "apply_started",
                       "note": "applying 95fc380a before the merge",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.324758Z",
+                      "at": "2026-11-23T20:34:42.526109Z",
                       "by": "cmapi-deliverer",
                       "event": "applied",
                       "note": "5 objects from cmapi/CRC/req-20261123-0001 at 95fc380a, before the merge, confirmed by a read: quota matches the plan",
                       "status": "applied"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.368384Z",
+                      "at": "2026-11-23T20:34:42.566770Z",
                       "by": "worker",
                       "event": "merge_verified",
                       "note": "merged 95fc380a; the folder at it is the plan's",
                       "status": "applied"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.379049Z",
+                      "at": "2026-11-23T20:34:42.577612Z",
                       "by": "cmapi-bot",
                       "event": "merged",
                       "note": "merged 95fc380a",
                       "status": "merged"
                     },
                     {
-                      "at": "2026-11-23T15:43:11.391547Z",
+                      "at": "2026-11-23T20:34:42.590108Z",
                       "by": "cmapi-deliverer",
                       "event": "synced",
                       "note": "applied and confirmed by a read before the merge",
@@ -18779,7 +18950,7 @@
                   "approval": {
                     "approvals": [
                       {
-                        "at": "2026-11-23T15:43:12.592877Z",
+                        "at": "2026-11-23T20:34:43.844568Z",
                         "comment": "sizing reviewed",
                         "relayedBy": null,
                         "sub": "sub-amy",
@@ -18807,25 +18978,25 @@
                   "baseSha": "95fc380aba05a9fda1073a63b683180aa64d6ba6",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:12.346871Z",
+                  "createdAt": "2026-11-23T20:34:43.546065Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:12.424691Z",
+                      "at": "2026-11-23T20:34:43.625512Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-23T15:43:12.619010Z",
+                      "at": "2026-11-23T20:34:43.875737Z",
                       "by": "amy",
                       "event": "approval",
                       "note": "sizing reviewed",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-23T15:43:12.629819Z",
+                      "at": "2026-11-23T20:34:43.886912Z",
                       "by": "amy",
                       "event": "approved",
                       "note": "approval count met",
@@ -18869,7 +19040,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-23T15:43:12.428053Z"
+                  "updatedAt": "2026-11-23T20:34:43.701018Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -18877,6 +19048,27 @@
               }
             },
             "description": "The request with this approval recorded; `status` says whether more approvals are needed."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "dry-run-not-supported": {
+                    "value": {
+                      "code": "dry-run-not-supported",
+                      "detail": "This call has no dry run, and nothing was done",
+                      "status": 400,
+                      "title": "dry run not supported",
+                      "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `dry-run-not-supported`."
           },
           "401": {
             "content": {
@@ -19116,18 +19308,18 @@
                   "baseSha": "f2d6ec8033de631fe772fe1f5c292e03abe1bc0e",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:17.021362Z",
+                  "createdAt": "2026-11-23T20:34:47.848451Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:17.053509Z",
+                      "at": "2026-11-23T20:34:47.880127Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-23T15:43:17.360605Z",
+                      "at": "2026-11-23T20:34:48.211542Z",
                       "by": "ola",
                       "event": "cancel",
                       "note": "",
@@ -19171,7 +19363,7 @@
                     "submittedByClient": null
                   },
                   "status": "cancelled",
-                  "updatedAt": "2026-11-23T15:43:17.155249Z"
+                  "updatedAt": "2026-11-23T20:34:48.023355Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -19179,6 +19371,27 @@
               }
             },
             "description": "The request, now cancelled; its pull request is closed."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "dry-run-not-supported": {
+                    "value": {
+                      "code": "dry-run-not-supported",
+                      "detail": "This call has no dry run, and nothing was done",
+                      "status": 400,
+                      "title": "dry run not supported",
+                      "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `dry-run-not-supported`."
           },
           "401": {
             "content": {
@@ -19404,18 +19617,18 @@
                   "baseSha": "f2d6ec8033de631fe772fe1f5c292e03abe1bc0e",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:17.158718Z",
+                  "createdAt": "2026-11-23T20:34:47.987507Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:17.187052Z",
+                      "at": "2026-11-23T20:34:48.019083Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-23T15:43:17.273982Z",
+                      "at": "2026-11-23T20:34:48.114684Z",
                       "by": "amy",
                       "event": "rejected",
                       "note": "Use the medium tier",
@@ -19459,7 +19672,7 @@
                     "submittedByClient": null
                   },
                   "status": "rejected",
-                  "updatedAt": "2026-11-23T15:43:17.070887Z"
+                  "updatedAt": "2026-11-23T20:34:47.926391Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -19467,6 +19680,27 @@
               }
             },
             "description": "The request, now rejected."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "dry-run-not-supported": {
+                    "value": {
+                      "code": "dry-run-not-supported",
+                      "detail": "This call has no dry run, and nothing was done",
+                      "status": 400,
+                      "title": "dry run not supported",
+                      "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `dry-run-not-supported`."
           },
           "401": {
             "content": {
@@ -19669,67 +19903,67 @@
                   "baseSha": "f2d6ec8033de631fe772fe1f5c292e03abe1bc0e",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:18.534498Z",
+                  "createdAt": "2026-11-23T20:34:49.676090Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:18.562995Z",
+                      "at": "2026-11-23T20:34:49.704994Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-23T15:43:18.662647Z",
+                      "at": "2026-11-23T20:34:49.817440Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
                       "note": "cmapi/CRC/req-20261123-0007 at a685e60e on f2d6ec80 (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-23T15:43:18.747522Z",
+                      "at": "2026-11-23T20:34:49.918298Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
                       "note": "cmapi/CRC/req-20261123-0007 #5",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:18.892758Z",
+                      "at": "2026-11-23T20:34:50.082998Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: fail",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:18.910035Z",
+                      "at": "2026-11-23T20:34:50.104992Z",
                       "by": "ci",
                       "event": "head_moved",
                       "note": "PR head moved from a685e60e to 07698d60 after approval",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:18.921648Z",
+                      "at": "2026-11-23T20:34:50.119038Z",
                       "by": "ci",
                       "event": "pr_failed",
                       "note": "checks failed",
                       "status": "failed"
                     },
                     {
-                      "at": "2026-11-23T15:43:18.921689Z",
+                      "at": "2026-11-23T20:34:50.119091Z",
                       "by": "worker",
                       "event": "pr_closed",
                       "note": "#5: its checks failed; the request is failed and may be retried",
                       "status": "failed"
                     },
                     {
-                      "at": "2026-11-23T15:43:19.008857Z",
+                      "at": "2026-11-23T20:34:50.210970Z",
                       "by": "worker",
                       "event": "branch_deleted",
                       "note": "cmapi/CRC/req-20261123-0007 at 07698d60",
                       "status": "failed"
                     },
                     {
-                      "at": "2026-11-23T15:43:19.922448Z",
+                      "at": "2026-11-23T20:34:51.198662Z",
                       "by": "opal",
                       "event": "retry",
                       "note": "retry requested",
@@ -19779,7 +20013,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-23T15:43:19.719541Z"
+                  "updatedAt": "2026-11-23T20:34:51.010810Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -19787,6 +20021,27 @@
               }
             },
             "description": "The request, with the next delivery step queued for the worker: the pull request again (from failed), the merge (merge_failed), or the apply, the prune or the sync watch (sync_failed)."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "dry-run-not-supported": {
+                    "value": {
+                      "code": "dry-run-not-supported",
+                      "detail": "This call has no dry run, and nothing was done",
+                      "status": 400,
+                      "title": "dry run not supported",
+                      "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `dry-run-not-supported`."
           },
           "401": {
             "content": {
@@ -19998,60 +20253,60 @@
                   "baseSha": "f2d6ec8033de631fe772fe1f5c292e03abe1bc0e",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-23T15:43:23.415781Z",
+                  "createdAt": "2026-11-23T20:34:55.077515Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-23T15:43:23.447440Z",
+                      "at": "2026-11-23T20:34:55.106856Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-23T15:43:23.564510Z",
+                      "at": "2026-11-23T20:34:55.210625Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
                       "note": "cmapi/CRC/req-20261123-0009 at fbe58033 on f2d6ec80 (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-23T15:43:23.609071Z",
+                      "at": "2026-11-23T20:34:55.266081Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
                       "note": "cmapi/CRC/req-20261123-0009 #8",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:23.647653Z",
+                      "at": "2026-11-23T20:34:55.316092Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:23.687811Z",
+                      "at": "2026-11-23T20:34:55.368972Z",
                       "by": "worker",
                       "event": "merge_verified",
                       "note": "merged fbe58033; the folder at it is the plan's",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-23T15:43:23.695464Z",
+                      "at": "2026-11-23T20:34:55.379459Z",
                       "by": "cmapi-bot",
                       "event": "merged",
                       "note": "merged fbe58033",
                       "status": "merged"
                     },
                     {
-                      "at": "2026-11-23T15:43:23.746111Z",
+                      "at": "2026-11-23T20:34:55.445562Z",
                       "by": "worker",
                       "event": "sync_timeout",
                       "note": "orders-dev exists on the cluster and cmapi does not manage it; nothing applied",
                       "status": "sync_failed"
                     },
                     {
-                      "at": "2026-11-23T15:43:23.913363Z",
+                      "at": "2026-11-23T20:34:55.668447Z",
                       "by": "opal",
                       "event": "revert_requested",
                       "note": "",
@@ -20101,7 +20356,7 @@
                     "submittedByClient": null
                   },
                   "status": "sync_failed",
-                  "updatedAt": "2026-11-23T15:43:23.708146Z"
+                  "updatedAt": "2026-11-23T20:34:55.479947Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -20109,6 +20364,27 @@
               }
             },
             "description": "The request, with its revert queued: the worker marks it reverted and opens a new request that restores the folder."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "dry-run-not-supported": {
+                    "value": {
+                      "code": "dry-run-not-supported",
+                      "detail": "This call has no dry run, and nothing was done",
+                      "status": 400,
+                      "title": "dry run not supported",
+                      "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `dry-run-not-supported`."
           },
           "401": {
             "content": {

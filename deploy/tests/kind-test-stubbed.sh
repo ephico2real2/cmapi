@@ -19,7 +19,7 @@ STUB
 chmod +x "$W/repo/deploy/"*.sh
 if [ -z "${KT_CNPG:-}" ]; then
   KT_CNPG=$W/cnpg-1.30.1.yaml
-  curl -fsSL "$(sed -n 's/^CNPG_URL=//p' "$SRC/kind-test.sh")" -o "$KT_CNPG" || { echo "ERROR: could not download the CNPG manifest" >&2; exit 1; }
+  curl -fsSL --retry 5 "$(sed -n 's/^CNPG_URL=//p' "$SRC/kind-test.sh")" -o "$KT_CNPG" || { echo "ERROR: could not download the CNPG manifest" >&2; exit 1; }
 fi
 export KT_CNPG
 one() { # label, must-exit (0|nonzero), then VAR=VALUE...

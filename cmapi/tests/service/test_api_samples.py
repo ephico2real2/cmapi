@@ -293,6 +293,9 @@ def test_each_operation_has_a_sample_from_a_run(world):
 
     # ---- a delete: approved, merged, then the prune that an operator confirms
     etag = client.get(f"{base}/search-dev", headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}"}).json()["etag"]
+    planned_delete = rec.call("namespaces_delete_namespace:dryRun", "DELETE", f"{base}/search-dev?dryRun=true", ola,
+                              headers={"If-Match": f'"{etag}"'})
+    assert planned_delete.status_code == 200, planned_delete.text
     deleted = rec.call("namespaces_delete_namespace", "DELETE", f"{base}/search-dev", ola, headers={"If-Match": f'"{etag}"'}, key=True)
     assert deleted.status_code == 202, deleted.text
     client.post(f"/api/v1/requests/{deleted.json()['requestId']}:approve", json={}, headers={"Authorization": f"Bearer {keys.token('amy', **AMY)}"})
@@ -335,6 +338,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
     # ---- the refusals a client meets most
     rec.call("core_me", "GET", "/api/v1/me", None)                                                            # 401
     rec.call("admin_pause", "POST", "/api/v1/admin/auto-approval:pause", ola, json_body={"reason": "x"})     # 403
+    rec.call("admin_pause", "POST", "/api/v1/admin/auto-approval:pause?dryRun=true", admin, json_body={"reason": "x"})  # 400: no dry run
     rec.call("requests_get_request", "GET", "/api/v1/requests/req-00000000-0000", ola)                        # 404
     rec.call("namespaces_create_namespace", "POST", base, ola, json_body=NS)                                  # 400: no Idempotency-Key
     rec.call("namespaces_create_namespace", "POST", base, ola, json_body=NS, key=True)                        # 409: exists

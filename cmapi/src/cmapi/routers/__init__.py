@@ -20,8 +20,9 @@ NamespaceName = Annotated[str, Path(description="The name of the namespace on th
 RequestId = Annotated[str, Path(description="The request's ID, as the write that opened the request returned it.",
                                 examples=["req-20261105-0001"])]
 DryRun = Annotated[bool, Query(alias="dryRun", examples=[True],
-                               description="With `true`, the call returns the plan with status 200, writes nothing and needs no "
-                                           "Idempotency-Key.")]
+                               description="With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. "
+                                           "It opens no change request, takes no lock or reservation and opens no pull "
+                                           "request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.")]
 Limit = Annotated[int, Query(examples=[50],
                              description="The number of rows in one page: 25, 50 or 100, and never more than 200. A larger "
                                          "result is not cut: `page.nextCursor` gives the next page.")]
@@ -84,10 +85,10 @@ def idempotency_key(idempotency_key: str | None = Header(default=None, alias="Id
 def delete_idempotency_key(idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",
                                                                   examples=["0d5f3c1e-7a44-4f0b-9b55-3f1a2c8e6d10"],
                                                                   description="A new random value for each new request, such as a UUID, of at most "
-                                                                              "100 characters. Required: a delete has no dry run. For 24 hours, the "
+                                                                              "100 characters. Required, except with `dryRun=true`. For 24 hours, the "
                                                                               "same caller retrying the same request with the same key gets the "
                                                                               "original request in its current state.")) -> str | None:
-    """The delete's key: the same header, described without the dry run that a delete does not take (_idem(key, False))."""
+    """The delete's key: the same header, described without what the delete does not take (onBehalfOf, justification)."""
     return idempotency_key
 
 
