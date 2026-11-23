@@ -128,7 +128,7 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | Async | POST, PUT, PATCH and DELETE return 202 with a ChangeRequest and a Location header for GET /requests/{requestId} |
 | Dry run | ?dryRun=true returns 200 with the Plan (validations, rendered YAML, diff, approval requirement, capacity check); no PR, no row |
 | Idempotency | Idempotency-Key header required on writes; the same key and caller return the original ChangeRequest for 24 hours |
-| Optimistic concurrency | GET returns an ETag (the Git blob SHA of the object's file); PUT, PATCH and DELETE need If-Match, else 428; a stale ETag returns 412 |
+| Optimistic concurrency | GET of a namespace returns an ETag: the first 16 hexadecimal characters of the SHA-256 of the namespace's Git folder (the path and content of every file in it), or `0` for a folder with no files (`folder_etag`, `cmapi/src/cmapi/core/pipeline.py:98-100`). The caller treats it as opaque (RFC 9110, section 8.8.3). It is in the `ETag` header and the `etag` field of the body. PUT, PATCH and DELETE need If-Match, else 428; a stale ETag returns 412 with the current `etag`. The plan compares the value with its surrounding double quotes removed. A weak tag (`W/"..."`) never matches, as RFC 9110, section 13.1.1 requires: If-Match uses the strong comparison (`cmapi/src/cmapi/core/pipeline.py:218`) |
 | One open change per object | A second write to an object with an open request returns 409 with a link to it |
 | Patch format | application/merge-patch+json; null removes a key |
 
@@ -931,7 +931,7 @@ class NamespaceCreate(ClusterScoped):
 ALTER TABLE change_requests
   ADD COLUMN plugin           VARCHAR(40)  NOT NULL,
   ADD COLUMN idempotency_key  VARCHAR(100) NOT NULL,
-  ADD COLUMN base_etag        CHAR(40),           -- Git blob SHA the change was planned against
+  ADD COLUMN base_sha         VARCHAR(64),        -- Git commit the plan read; no ETag is stored
   ADD COLUMN plan             JSONB        NOT NULL;  -- the Plan returned at submit time
 
 CREATE UNIQUE INDEX uq_cr_idempotency ON change_requests (requested_by, idempotency_key);
@@ -1164,7 +1164,7 @@ NamespaceCreate and the service account create body type their labels and annota
 | Call | Effect | Notes |
 | --- | --- | --- |
 | POST create (namespace or service account) | Sets the initial labels and annotations | Governed required keys must be present |
-| GET .../metadata | Every live key with its value and class; keys on the cluster but not in Git show as unmanaged | Returns the ETag of the Git file |
+| GET .../metadata | Every live key with its value and class; keys on the cluster but not in Git show as unmanaged | Returns the ETag of the namespace's Git folder |
 | PATCH .../metadata | Merge patch: set, change or remove (null) individual keys | application/merge-patch+json; If-Match required |
 | PUT .../metadata | Replaces the whole governed and team set; keys left out are removed | If-Match required |
 
@@ -1175,7 +1175,7 @@ curl -s -X PATCH "$CMAPI/clusters/OCP_GF1/namespaces/payments-dev/metadata" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/merge-patch+json" \
   -H "Idempotency-Key: $(uuidgen)" \
-  -H 'If-Match: "3c7e91ab52d0"' \
+  -H 'If-Match: "3f9a1c0b7e2d4a68"' \
   -d '{
         "clusterId": "OCP_GF1",
         "labels": {
