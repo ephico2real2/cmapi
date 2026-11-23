@@ -813,7 +813,7 @@ One PostgreSQL, two schemas, each owned by one service: cmapi (API and worker) o
 
 | Schema | Table | Holds | Written by |
 | --- | --- | --- | --- |
-| cmapi | change\_requests | One row per write: plugin, plan, idempotency key, base ETag, status, Keycloak sub | API, worker |
+| cmapi | change\_requests | One row per write: plugin, plan, idempotency key, base Git commit, status, Keycloak sub | API, worker |
 | cmapi | request\_events | Every state change of a request | API, worker |
 | cmapi | approvals | Required rule and each approval, including auto:\<policy> | API, worker |
 | cmapi | jobs | Work queue (open\_pr, sync\_pr\_state, watch\_sync, notify, expire\_check, operation\_step) | API, worker |
