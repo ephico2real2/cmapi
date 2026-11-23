@@ -127,7 +127,7 @@ def test_the_precondition_failed_page_says_what_a_read_and_a_change_do():
     """The 412 of a read has the same `type` as a write's, so its page tells both callers what to do (problem_docs.py)."""
     page = problem_html("precondition-failed", "https://x.test/problems/", "t")
     action = re.search(r'<td id="action">(.*?)</td>', page)[1]
-    assert "For a read, send it again without <code>If-Match</code>." in action
+    assert "For a read, send it again without <code>If-Match</code> or <code>If-Unmodified-Since</code>." in action
     assert "For a change, read the object again" in action
 
 
