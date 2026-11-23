@@ -1,0 +1,6 @@
+E       AssertionError: a cited file changed. Run `python scripts/doc-citations.py --relocate`; for what it cannot move, read the code, correct the citation and run --write.
+E         doc-citations: docs/14-authorization.md:104: `cmapi/tests/service/test_review_c_authz.py:43` moved to line 45: run --relocate
+E         doc-citations: docs/14-authorization.md:191: `cmapi/tests/service/test_review_c_authz.py:112-175` moved to line 114: run --relocate
+E         doc-citations: docs/14-authorization.md:205: `cmapi/tests/service/test_review_c_authz.py:190-200` moved to line 192: run --relocate
+FAILED tests/service/test_doc_citations.py::test_each_citation_of_the_documents_is_the_text_that_was_recorded_for_it
+1 failed, 2195 passed in 1407.68s (0:23:27)
