@@ -507,7 +507,9 @@ class Pipeline:
             team=plan.facts.get("team"), plan=plan.stored(), plan_hash=plan_hash(files), base_sha=plan.base_sha,
             requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,
             requester_kind=who.kind, requester_client=who.client_id, requester_username=plan.requester.username,
-            idempotency_key=idempotency_key, idempotency_fingerprint=body_fingerprint)
+            idempotency_key=idempotency_key, idempotency_fingerprint=body_fingerprint,
+            # The key is the caller's, which `_replay` looks up (#592): the service, not the person, with onBehalfOf.
+            idempotency_sub=who.sub if idempotency_key else None)
         auto = req.approved_at_plan
         note = req.auto or f"waiting for {[(s.group, s.count) for s in req.slots]}"
         repo.insert(row, E.PLAN_AUTO_APPROVED if auto else E.PLAN_NEEDS_APPROVAL, who.username, note)

@@ -47,6 +47,17 @@ def requirement_from_json(d: Mapping[str, Any] | None) -> Requirement | None:
 
 
 IDEMPOTENCY_HOURS = 24      # how long an Idempotency-Key returns its original request (docs/02, API contract)
+# The two unique indexes of an Idempotency-Key in release 1 of #592: the requester's (0001) and the caller's (0008).
+# Release 2 (0009, #603) keeps only the caller's.
+IDEMPOTENCY_INDEXES = ("uq_cr_idempotency_caller", "uq_cr_idempotency")
+
+
+def key_owner():
+    """The caller that a row's Idempotency-Key belongs to (#592). This code writes `idempotency_sub`. A keyed row that a
+    0007 pod wrote after migration 0008 has none, so its caller comes from `requester`, as 0008's backfill takes it:
+    `submittedBySub` for a service that sent it for a person, otherwise the requester, who sent it."""
+    return func.coalesce(ChangeRequestRow.idempotency_sub, ChangeRequestRow.requester["submittedBySub"].astext,
+                         ChangeRequestRow.requester_sub)
 
 
 class LeaseLost(RuntimeError):
@@ -121,16 +132,27 @@ class RequestRepo:
             q = q.where(ChangeRequestRow.cluster_id == cluster_id)
         return {(c, n): r for c, n, r in self.s.execute(q)}
 
-    def by_idempotency(self, requester_sub: str, key: str) -> ChangeRequestRow | None:
-        """The caller's request for this key, if the key is still held. A key is held for IDEMPOTENCY_HOURS (docs/02) from
-        the request's creation, by the database's clock and not a pod's. Past that the key and its fingerprint are cleared
-        here, in the caller's transaction, so the unique index on (requester_sub, idempotency_key) lets the key be used again."""
+    def by_idempotency(self, caller_sub: str, key: str) -> ChangeRequestRow | None:
+        """The caller's request for this key, if the key is still held. The key belongs to the caller that sent it, the
+        service on a write sent with onBehalfOf, not the person the request is for (#592, `key_owner`). A key is held for
+        IDEMPOTENCY_HOURS (docs/02) from the request's creation, by the database's clock and not a pod's.
+
+        Past that, every row's hold on this key is cleared here, in the caller's transaction, whoever's caller or requester
+        it was, so that neither unique index (IDEMPOTENCY_INDEXES) refuses the key on an expired row. Clearing only the
+        caller's own rows left the requester's index holding (person, key) after a service's key expired, and the person
+        was refused that key for good (#601 review). An expired key never replays on any pod version, which clears it
+        before it reads, so clearing another caller's expired row returns and changes nothing that a caller sees.
+
+        The oldest row comes first. Two live rows of one owner exist only when a 0007 pod wrote one of them in release 1's
+        window: its insert has no `idempotency_sub`, which the caller's index cannot refuse (docs/12, #603)."""
         self.s.execute(update(ChangeRequestRow)
-                       .where(ChangeRequestRow.requester_sub == requester_sub, ChangeRequestRow.idempotency_key == key,
+                       .where(ChangeRequestRow.idempotency_key == key,
                               ChangeRequestRow.created_at < func.now() - text(f"interval '{IDEMPOTENCY_HOURS} hours'"))
-                       .values(idempotency_key=None, idempotency_fingerprint=None, updated_at=ChangeRequestRow.updated_at))
-        return self.s.scalars(select(ChangeRequestRow).where(ChangeRequestRow.requester_sub == requester_sub,
-                                                            ChangeRequestRow.idempotency_key == key)).first()
+                       .values(idempotency_key=None, idempotency_fingerprint=None, idempotency_sub=None,
+                               updated_at=ChangeRequestRow.updated_at))
+        return self.s.scalars(select(ChangeRequestRow).where(ChangeRequestRow.idempotency_key == key,
+                                                            key_owner() == caller_sub)
+                              .order_by(ChangeRequestRow.created_at, ChangeRequestRow.request_id)).first()
 
     def auto_approvals_today(self, team: str) -> int:
         start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -162,7 +184,10 @@ class RequestRepo:
             self.s.flush()
         except IntegrityError as exc:
             self.s.rollback()
-            if "uq_cr_open_namespace" in str(exc.orig):
+            # The index that refused, from PostgreSQL's diagnostics and not its message: the message's DETAIL quotes the
+            # key, which may be any text, so a key named after an index chose the wrong 409 (#601 review).
+            constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+            if constraint == "uq_cr_open_namespace":
                 holder = self.open_for(row.cluster_id, row.namespace)
                 if holder is None:
                     # The holder closed after this INSERT failed and before the read (#496): nothing holds the
@@ -171,7 +196,7 @@ class RequestRepo:
                                            "read the namespace again and resend the change") from exc
                 raise Problem.conflict("change-pending", f"{holder.request_id} holds {row.namespace}",
                                        requestId=holder.request_id) from exc
-            if "uq_cr_idempotency" in str(exc.orig):
+            if constraint in IDEMPOTENCY_INDEXES:
                 raise Problem.conflict("idempotency-replay", "Idempotency-Key is in use for another request") from exc
             raise
         self.event(row, first_event.value, by, note)

@@ -198,6 +198,8 @@ def test_readiness_refuses_garbage_and_a_divergent_revision(world, monkeypatch):
     assert client.get("/readyz").status_code == 503, "0005 has no policy_rejections table (#302)"
     monkeypatch.setattr(ctx.db, "schema_version", lambda: "0006")
     assert client.get("/readyz").status_code == 503, "0006 timestamps events at the transaction's start (#551)"
+    monkeypatch.setattr(ctx.db, "schema_version", lambda: "0007")
+    assert client.get("/readyz").status_code == 503, "0007 holds an Idempotency-Key under the person, not the caller (#592)"
     monkeypatch.setattr(ctx.db, "schema_version", lambda: REQUIRED_REVISION)
     assert client.get("/readyz").status_code == 200
 

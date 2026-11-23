@@ -253,12 +253,13 @@ def _row(path: str, term: str) -> str:
 @pytest.mark.parametrize("path", ["docs/04-api-examples.md", "docs/GLOSSARY.md"])
 def test_the_api_docs_describe_the_replay_and_the_one_field(path):
     """#587 and #582 in the hand-written docs: the `If-Match` row of docs/04's rules table and of the glossary says to send
-    one field, and the `Idempotency-Key` row says what a replay returns and when a retry is not one (#592, the expiry
-    writes' fingerprint without `justification`)."""
+    one field, and the `Idempotency-Key` row says what a replay returns, whose key it is (#592), and when a retry is not
+    one (the expiry writes' fingerprint without `justification`)."""
     match, idem = _row(path, "`If-Match`"), _row(path, "`Idempotency-Key`")
     assert "one comma-separated" in match and "second `If-Match` line" in match, match
     assert CURRENT_STATE in idem, idem
     assert "`onBehalfOf`" in idem and "#592" in idem, idem
+    assert "gets 409 `idempotency-replay` instead" not in idem, ("#592 is fixed: a delegated retry replays", path)
     assert "do not compare `justification`" in idem, idem
     for row in (match, idem):
         for stale in ("first answer", "first response again", "stored answer"):

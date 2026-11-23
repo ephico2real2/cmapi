@@ -1,0 +1,9 @@
+# Session A runs 0008's first DDL in an open transaction; session B, with lock_timeout 100ms, reads and writes change_requests. PostgreSQL 16.15, database cmapi_592_mixed at 0008.
+0008 downgrade's first statement: B 'SELECT request_id FROM change_requests LIMIT 1': SQLSTATE 55P03 (LockNotAvailable) after 0.10s
+0008 downgrade's first statement: B 'UPDATE change_requests SET attempts = attempts WHERE false': SQLSTATE 55P03 (LockNotAvailable) after 0.10s
+  A holds: [('AccessExclusiveLock',)]
+  after A's rollback, B reads again
+0008 upgrade's first statement (on a scratch copy of the column): B 'SELECT request_id FROM change_requests LIMIT 1': SQLSTATE 55P03 (LockNotAvailable) after 0.10s
+0008 upgrade's first statement (on a scratch copy of the column): B 'UPDATE change_requests SET attempts = attempts WHERE false': SQLSTATE 55P03 (LockNotAvailable) after 0.10s
+  A holds: [('AccessExclusiveLock',)]
+  after A's rollback, B reads again

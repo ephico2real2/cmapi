@@ -1,0 +1,34 @@
+# The 12 reworked #592 tests on 8a5b41c (main, before #592). Database cmapi_592_main, otherwise as above.
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/idempotency-replay","title":"idempotency replay","status":409,"detail":"Idempotency-Key is in use for another request","code":"idempotency-replay"}
+E       assert (409 == 202)
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/idempotency-replay","title":"idempotency replay","status":409,"detail":"Idempotency-Key is in use for another request","code":"idempotency-replay"}
+E       assert (409 == 202)
+E       AssertionError: {"clusterId":"CRC","requestId":"req-20261123-0002","instance":"nonprod","namespace":"ledger-dev","env":"dev","plugin":"namespaces","action":"create","reason":null,"justification":"Payments service dev namespace","status":"approved","pla
+E       assert (202 == 409)
+E       AssertionError: {"clusterId":"CRC","requestId":"req-20261123-0001","instance":"nonprod","namespace":"payments-dev","env":"dev","plugin":"namespaces","action":"create","reason":null,"justification":"Payments service dev namespace","status":"approved","p
+E       assert (202 == 422)
+E           psycopg.errors.UndefinedColumn: column "idempotency_sub" does not exist
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/idempotency-replay","title":"idempotency replay","status":409,"detail":"Idempotency-Key is in use for another request","code":"idempotency-replay"}
+E       assert (409 == 202)
+E           psycopg.errors.UndefinedColumn: column "idempotency_sub" of relation "change_requests" does not exist
+E           AssertionError: {'uq_cr_idempotency': 'CREATE UNIQUE INDEX uq_cr_idempotency ON mig.change_requests USING btree (requester_sub, idempotency_key) WHERE (idempotency_key IS NOT NULL)'}
+E           assert ('0007' == '0008'
+E       AssertionError: migrated to head
+E       assert 0 != 0
+E       AssertionError: migrated to head
+E       assert 0 != 0
+E           psycopg.errors.UndefinedColumn: column "idempotency_sub" of relation "change_requests" does not exist
+E           psycopg.errors.UndefinedColumn: column "idempotency_sub" does not exist
+FAILED tests/service/test_idempotency_caller_592.py::test_a_service_retry_on_behalf_of_a_person_replays_its_request
+FAILED tests/service/test_idempotency_caller_592.py::test_a_service_retry_that_loses_the_race_gets_the_closed_winner
+FAILED tests/service/test_idempotency_caller_592.py::test_one_service_key_for_a_second_person_is_refused_by_the_caller_index
+FAILED tests/service/test_idempotency_caller_592.py::test_the_person_cannot_replay_the_service_request_with_its_key
+FAILED tests/service/test_idempotency_caller_592.py::test_a_person_own_retry_still_replays
+FAILED tests/service/test_idempotency_caller_592.py::test_a_service_key_is_free_again_after_24_hours
+FAILED tests/service/test_idempotency_caller_592.py::test_a_row_that_a_0007_pod_wrote_after_0008_belongs_to_its_caller
+FAILED tests/service/test_idempotency_caller_592.py::test_the_upgrade_keys_each_stored_key_on_its_caller_and_keeps_the_old_index
+FAILED tests/service/test_idempotency_caller_592.py::test_the_upgrade_refuses_a_live_collision_and_succeeds_once_it_expires
+FAILED tests/service/test_idempotency_caller_592.py::test_the_upgrade_refuses_a_live_delegated_row_without_its_caller
+FAILED tests/service/test_idempotency_caller_592.py::test_the_downgrade_keeps_every_key_and_the_old_index
+FAILED tests/service/test_idempotency_caller_592.py::test_keys_written_by_this_code_replay_after_a_schema_round_trip
+12 failed in 40.21s
