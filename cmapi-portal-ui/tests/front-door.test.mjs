@@ -19,6 +19,7 @@ import { createServer, request as httpRequest } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { startApi, startIssuer, USERS } from "./api/standin.mjs";
@@ -178,8 +179,16 @@ try {
         const operations = await p.locator(".opblock").count();
         // All the toggles in one step in the page: Playwright's own click waits on each, too slow for 40 operations.
         await p.evaluate(() => document.querySelectorAll(".opblock-summary-control").forEach((b) => b.click()));
-        const extensionsHeaders = () => [...document.querySelectorAll(".opblock-section-header h4")].filter((h) => h.textContent === "Extensions");
-        await p.waitForFunction(`(${extensionsHeaders})().length >= ${operations}`, null, { polling: 1000, timeout: OPEN_DOCS_WAIT_MS });
+        // Polled from Node with page.evaluate, not page.waitForFunction (#561). Playwright 1.64.1 runs a string predicate with
+        // eval() on each poll; the first poll runs inside the DevTools call, which CSP exempts, but the later ones run from a
+        // timer in the page, and the docs' CSP (no 'unsafe-eval') refuses them. Each page.evaluate is a DevTools call.
+        const extensionsShown = () => [...document.querySelectorAll(".opblock-section-header h4")].filter((h) => h.textContent === "Extensions").length;
+        const deadline = Date.now() + OPEN_DOCS_WAIT_MS;
+        let shown;
+        while ((shown = await p.evaluate(extensionsShown)) < operations) {
+          if (Date.now() > deadline) throw new Error(`${shown} of ${operations} Extensions tables shown after ${OPEN_DOCS_WAIT_MS / 1000} s`);
+          await sleep(1000);
+        }
         const seen = await p.evaluate(() => {
           const page = document.documentElement;
           // The nearest ancestor that does not let overflow show decides: it must scroll, and it must end inside the window.

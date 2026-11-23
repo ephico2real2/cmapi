@@ -381,3 +381,109 @@ path also answer without a token (`test_review_c_authz.py` `PUBLIC`). This preda
 - `r2-outputs/docs-08.diff`: M1.
 - The PR body: M2.
 - File the docs/14:131 issue (outside this PR).
+
+---
+
+# Addendum, 2026-11-23: #561, `waitForFunction` refused by the docs CSP
+
+## Cause, from source and measurement
+
+- Playwright 1.64.1, `playwright-core/lib/coreBundle.js:25672-25735` (`waitForFunctionExpression`): the predicate is
+  `evaledExpression ?? globalThis.eval(expression3)`.
+  - For a **string**, `isFunction` is false, so `evaledExpression` is never set and every poll calls `eval`.
+  - For a **function**, the first eval's result is cached, so later polls make no eval call.
+  - The first poll runs synchronously inside the DevTools call. Each later poll runs from
+    `injected.utils.builtins.setTimeout(next, polling)`, which is a task of the page.
+- The CDP protocol (`js_protocol.json`, Runtime.evaluate `allowUnsafeEvalBlockedByCSP`): "This flag bypasses CSP for this evaluation and
+  allows unsafe-eval. Defaults to true." An `eval` inside the DevTools-initiated evaluation is allowed. One from a later page
+  timer is not part of that evaluation, and `$cmapi_csp_docs` (no `'unsafe-eval'`) refuses it.
+- `page.evaluate` also runs `this.global.eval(expression)` (the utility script), but synchronously inside the DevTools call, so it is allowed.
+  That is why the test's other `p.evaluate` calls work under this CSP.
+
+`harness/csp-eval.mjs`: a page with the exact docs CSP header, Chromium 156.0.8078.4:
+
+```
+== header already there
+ok   string timeout=0
+ok   string timeout=5000
+ok   function timeout=0
+ok   function timeout=5000
+== header appears after 2.5 s
+FAIL string timeout=0: page.waitForFunction: EvalError: Evaluating a string as JavaScript violates the following Content Security Policy directive because 'unsafe-eval' is not an allo
+FAIL string timeout=5000: page.waitForFunction: EvalError: ...
+ok   function timeout=0
+ok   function timeout=5000
+```
+
+So the string predicate fails only when it must poll a second time. `timeout` makes no difference.
+
+## Why it passed before, and locally
+
+`harness/race.mjs` on cmapi's `/docs` at 390 px records every predicate call and every long task over 200 ms
+(`561-race-first-call.txt`):
+
+```
+{"timeout":0,     "clicked":2130,"firstCall":[85997,40],"calls":1,"longTasksOver200ms":[...,[2183,83364,40]]}
+{"timeout":240000,"clicked":2011,"firstCall":[89248,40],"calls":1,"longTasksOver200ms":[...,[2064,86521,40]]}
+```
+
+- Locally, the 40 clicks are followed by **one** long task of 83-87 s that renders all 40 Extensions tables.
+- The first predicate call is queued behind that task. It sees 40, the predicate holds on the first poll, and `eval` never runs from a timer.
+- This is the same with `timeout: 0` and with `240000`. **The option is ruled out.**
+- So the old code passes whenever the first poll sees every table. Locally that is always so: plain 70a305e passed again here
+  (`front-door-561-r2-70a.txt`, failed 0).
+
+In CI, the string predicate passed on 827a137 (run 45114512089) and fb24158 (run 45116977360). It failed on 70a305e in both
+attempts of run 45123674107, at 35.9/35.8 s and 32.8/32.8 s, about when a passing check ends (37.0 s). That fits a first poll
+that saw fewer than 40 tables right after the render, then a second poll from a timer that the CSP refused. Between fb24158 and
+70a305e the lines before the wait differ only by `try {` and the `timeout` value (`git diff fb24158 70a305e`). The `timeout`
+value is ruled out above. **What made CI's first poll come before the render finished on 70a305e and not on fb24158 is not
+established.** I cannot watch CI's page tasks. A re-run of fb24158's job would show whether it is runner timing. That re-run
+writes to GitHub, so it is the coordinator's call. Either way, the code had a latent race that only passed when the first poll
+won it.
+
+## Fix: `review-559/r2-outputs/fix-561.diff` (against 70a305e)
+
+The fix polls from Node with `page.evaluate`, bounded by `OPEN_DOCS_WAIT_MS`. This is the workaround in microsoft/playwright#7395 ("I used
+`evaluate` and implemented the waiting logic separately"). A function predicate would also pass on 1.64.1, but only because of
+Playwright's internal cache of the first eval. Each `page.evaluate` is its own DevTools call, so the fix does not depend on that
+cache.
+
+```diff
+@@ -19,6 +19,7 @@
+ import { connect } from "node:net";
+ import { tmpdir } from "node:os";
+ import { dirname, join } from "node:path";
++import { setTimeout as sleep } from "node:timers/promises";
+ import { fileURLToPath } from "node:url";
+@@ -178,8 +179,16 @@
+         await p.evaluate(() => document.querySelectorAll(".opblock-summary-control").forEach((b) => b.click()));
+-        const extensionsHeaders = () => [...document.querySelectorAll(".opblock-section-header h4")].filter((h) => h.textContent === "Extensions");
+-        await p.waitForFunction(`(${extensionsHeaders})().length >= ${operations}`, null, { polling: 1000, timeout: OPEN_DOCS_WAIT_MS });
++        // Polled from Node with page.evaluate, not page.waitForFunction (#561). Playwright 1.64.1 runs a string predicate with
++        // eval() on each poll; the first poll runs inside the DevTools call, which CSP exempts, but the later ones run from a
++        // timer in the page, and the docs' CSP (no 'unsafe-eval') refuses them. Each page.evaluate is a DevTools call.
++        const extensionsShown = () => [...document.querySelectorAll(".opblock-section-header h4")].filter((h) => h.textContent === "Extensions").length;
++        const deadline = Date.now() + OPEN_DOCS_WAIT_MS;
++        let shown;
++        while ((shown = await p.evaluate(extensionsShown)) < operations) {
++          if (Date.now() > deadline) throw new Error(`${shown} of ${operations} Extensions tables shown after ${OPEN_DOCS_WAIT_MS / 1000} s`);
++          await sleep(1000);
++        }
+```
+
+## Proof: through nginx with the image's template, under `$cmapi_csp_docs`, at 390 and 1440 px
+
+`front-door-test.py render` writes the configuration from `cmapi-portal-ui/nginx/templates/cmapi.conf.template` (`TEMPLATE`,
+l.37), the template the image uses. It runs under native nginx 1.30.6 with Playwright 1.64.1's Chromium and the pinned bundles.
+To make every run take the second poll that CI took, the proof trees open the last operation 5 s after the other 39. That edit
+is in `561-proof-old-late.diff` and `561-proof-new-late.diff`, and only there.
+
+| Run | 390 px | 1440 px | Whole file |
+|---|---|---|---|
+| Old wait (70a305e), last operation late (`front-door-561-mut_old-late.txt`) | `FAIL ... page.waitForFunction: EvalError: Evaluating a string as JavaScript violates the following Content Security Policy directive because 'unsafe-eval'...` | the same FAIL | failed: 2, exit 1 |
+| New wait, last operation late (`front-door-561-mut_new-late.txt`) | ok | ok | failed: 0, exit 0 |
+| Old wait, unmodified (`front-door-561-r2-70a.txt`) | ok (the local single render task, above) | ok | failed: 0 |
+| New wait, unmodified (`front-door-561-r2-561.txt`) | ok | ok | failed: 0 |
+
+Not run: the CI `front-door` job on the fix (nothing pushed), and Firefox and WebKit.
