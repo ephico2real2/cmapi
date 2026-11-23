@@ -50,9 +50,10 @@ def test_a_cancel_with_dry_run_is_refused_before_the_request_is_looked_up(local)
         refused(client.post(f"/api/v1/requests/missing:cancel?dryRun={value}"))
     r = client.post("/api/v1/requests/missing:cancel")
     assert (r.status_code, r.json()["code"]) == (404, "object-not-found"), r.text
-    # The guard answers before the token is checked, as the service's does: it says only that the call has no dry run.
+    # Sign-in comes first, as in the service (#618 review): a call without a token is 401, with or without dryRun.
     local.app.dependency_overrides.clear()
-    refused(client.post("/api/v1/requests/missing:cancel?dryRun=true"))
+    r = client.post("/api/v1/requests/missing:cancel?dryRun=true")
+    assert (r.status_code, r.json()["code"]) == (401, "unauthenticated"), r.text
     assert client.post("/api/v1/requests/missing:cancel").status_code == 401
 
 
@@ -98,3 +99,27 @@ def test_the_previews_still_answer_dry_run(local, monkeypatch):
     r = TestClient(local.app).post("/api/v1/clusters/OCP_LOCAL/namespaces?dryRun=true", json={"namespace": "x"})
     assert (r.status_code, r.json()) == (200, {"preview": True}), r.text
     assert not local.REQS
+
+
+AUTH_CASES = [
+    ("POST", "/api/v1/clusters/OCP_LOCAL/namespaces/x/expiration:extend", {"days": 1}),
+    ("DELETE", "/api/v1/clusters/OCP_LOCAL/namespaces/x", None),
+    ("POST", "/api/v1/requests/missing:approve", {}),
+    ("POST", "/api/v1/requests/missing:reject", {"comment": "no"}),
+    ("POST", "/api/v1/requests/missing:cancel", None),
+    ("POST", "/api/v1/admin/prune:confirm", {"namespace": "x"}),
+]
+
+
+@pytest.mark.parametrize("method,url,body", AUTH_CASES)
+@pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer broken"}])
+def test_sign_in_comes_before_the_dry_run_guard(local, monkeypatch, method, url, body, headers):
+    """#618 review (Codex gpt-6.1-sol): without a valid token each guarded write is 401, not 400, and deletes nothing."""
+    import jwt
+    from unittest.mock import Mock
+
+    local.app.dependency_overrides.clear()
+    monkeypatch.setattr(local.JWKS, "get_signing_key_from_jwt", Mock(side_effect=jwt.InvalidTokenError("invalid test token")))
+    r = TestClient(local.app).request(method, url + "?dryRun=true", json=body, headers=headers)
+    assert (r.status_code, r.json()["code"]) == (401, "unauthenticated"), r.text
+    local.CLUSTER.delete_namespace.assert_not_called()

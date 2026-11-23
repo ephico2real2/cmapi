@@ -169,13 +169,14 @@ def caller(cred: HTTPAuthorizationCredentials | None = Depends(BEARER)) -> Ident
     return Identity.from_claims(claims, AUDIENCE)
 
 
-def refuse_dry_run(request: Request) -> None:
+def refuse_dry_run(request: Request, _who: Identity = Depends(caller)) -> None:
     """The guard of a write that has no dry run (#613), as the service's (core/docs.py, refuse_dry_run; #606). FastAPI
     ignores a query parameter that a route does not declare, so without it `?dryRun=true` would act for real. Any dryRun
     is refused, whatever its value, as the Kubernetes API server refuses one on a call that cannot honour it
-    (apiserver, endpoints/handlers/rest.go, ConnectResource and isDryRun). It runs before the token is checked."""
+    (apiserver, endpoints/handlers/rest.go, ConnectResource and isDryRun). Sign-in comes first, as in the service, whose
+    router adds it to every route (main.py, include_router): a call without a token is 401 (#618 review)."""
     if "dryRun" in request.query_params:
-        raise Problem.bad_request("dry-run-not-supported", "This call has no dry run: send it without dryRun")
+        raise Problem.bad_request("dry-run-not-supported", "This call has no dry run, and nothing was done")
 
 
 NO_DRY_RUN = [Depends(refuse_dry_run)]
