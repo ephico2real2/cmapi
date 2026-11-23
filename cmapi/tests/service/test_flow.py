@@ -375,8 +375,8 @@ def test_validator_findings_refuse_the_plan(world):
 
 
 def test_an_idempotency_key_is_free_again_after_24_hours(world):
-    """#142: docs/02 gives a key 24 hours. Within them the first response comes back and another body is 409; after
-    them the key is free, by the database's clock, and the old request keeps everything but its key."""
+    """#142: docs/02 gives a key 24 hours. Within them the original request comes back, in its current state, and another
+    body is 409; after them the key is free, by the database's clock, and the old request keeps everything but its key."""
     from sqlalchemy import text
     client, ctx, git, kube, validator, keys = world
     h = {"Authorization": f"Bearer {keys.token('ola', **OLA)}", "Idempotency-Key": "one-key"}

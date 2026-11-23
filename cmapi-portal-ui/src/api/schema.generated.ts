@@ -331,11 +331,13 @@ export interface paths {
          *     **If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,
          *     a namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,
          *     missing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi
-         *     refuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags passes when one of them
-         *     is the current etag, by the strong comparison, so a weak tag (`W/"..."`) never matches. Otherwise the answer is 412
-         *     `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the namespace again, apply the change
-         *     to it and send it. An Idempotency-Key replay still requires If-Match, but does not compare it again: a retry with its
-         *     original ETag returns the stored answer even after Git moves, and `*` is 428 there too. A non-dry-run submission also requires Idempotency-Key (400 without it).
+         *     refuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags, sent in one If-Match
+         *     field, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/"..."`) never matches.
+         *     Otherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the
+         *     namespace again, apply the change to it and send it.
+         *     An Idempotency-Key replay still requires If-Match, but does not compare it again: it returns the
+         *     original request in its current state even after Git moves, and `*` is 428 there too. The Idempotency-Key parameter
+         *     says when a retry is a replay. A non-dry-run submission also requires Idempotency-Key (400 without it).
          *     One request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.
          *
          *     **Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,
@@ -3091,7 +3093,7 @@ export interface components {
             env: string | null;
             /**
              * Etag
-             * @description The namespace's entity tag: the `ETag` header without its quotes. Send it back unchanged, in double quotes, as `If-Match` on a change or a delete. A list of tags passes when one of them is this one; another value is 412 `precondition-failed`, except on an Idempotency-Key replay, which returns the request that key opened. A weak tag (`W/"..."`) never matches, and `*` is 428 `precondition-required`, on a replay too. It changes when the `.yaml` files directly in the namespace's folder in Git change. Compare it; never parse it. Null on the list, which reads no Git
+             * @description The namespace's entity tag: the `ETag` header without its quotes. Send it back unchanged, in double quotes, as `If-Match` on a change or a delete. A list of tags passes when one of them is this one; another value is 412 `precondition-failed`, except on an Idempotency-Key replay, which returns the original request in its current state. A weak tag (`W/"..."`) never matches, and `*` is 428 `precondition-required`, on a replay too. It changes when the `.yaml` files directly in the namespace's folder in Git change. Compare it; never parse it. Null on the list, which reads no Git
              * @example 3f9a1c0b7e2d4a68
              */
             etag: string | null;
@@ -4615,7 +4617,7 @@ export interface operations {
                      * @example {
                      *       "paused": true,
                      *       "reason": "incident 1234",
-                     *       "setAt": "2026-11-23T14:18:32.737487+00:00",
+                     *       "setAt": "2026-11-23T15:43:17.434763+00:00",
                      *       "setBy": "ada"
                      *     }
                      */
@@ -4704,7 +4706,7 @@ export interface operations {
                      * @example {
                      *       "paused": false,
                      *       "reason": "incident 1234 closed",
-                     *       "setAt": "2026-11-23T14:18:32.748530+00:00",
+                     *       "setAt": "2026-11-23T15:43:17.314227+00:00",
                      *       "setBy": "ada"
                      *     }
                      */
@@ -4959,7 +4961,7 @@ export interface operations {
                      *           "cpuThrottledPeriods": null,
                      *           "cpuThrottledSeconds": null,
                      *           "cpuUsageSeconds": null,
-                     *           "measuredAt": 1795443508.208222,
+                     *           "measuredAt": 1795448591.9235451,
                      *           "memoryBytes": null,
                      *           "memoryLimitBytes": null
                      *         }
@@ -4970,7 +4972,7 @@ export interface operations {
                      *         "oldestTransactionSeconds": 0,
                      *         "poolInUse": 0,
                      *         "poolSize": 5,
-                     *         "sizeBytes": 8641559,
+                     *         "sizeBytes": 9632791,
                      *         "walBytes": 83886080
                      *       },
                      *       "instance": "nonprod",
@@ -4982,7 +4984,7 @@ export interface operations {
                      *           "target": "under 10 min",
                      *           "targetStatus": "proposed",
                      *           "unit": "seconds",
-                     *           "value": 0.280092
+                     *           "value": 0.215315
                      *         },
                      *         {
                      *           "id": "lead-time-approved-p90",
@@ -5262,7 +5264,7 @@ export interface operations {
                      *       "approval": {
                      *         "approvals": [
                      *           {
-                     *             "at": "2026-11-23T14:18:36.749244Z",
+                     *             "at": "2026-11-23T15:43:21.173292Z",
                      *             "comment": "",
                      *             "relayedBy": null,
                      *             "sub": "sub-amy",
@@ -5289,74 +5291,74 @@ export interface operations {
                      *       "baseSha": "a685e60e04b8eeed05c82d699cb9cff596459f39",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:36.656868Z",
+                     *       "createdAt": "2026-11-23T15:43:21.090851Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:36.669116Z",
+                     *           "at": "2026-11-23T15:43:21.100893Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:36.768675Z",
+                     *           "at": "2026-11-23T15:43:21.189856Z",
                      *           "by": "amy",
                      *           "event": "approval",
                      *           "note": "",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:36.778147Z",
+                     *           "at": "2026-11-23T15:43:21.198235Z",
                      *           "by": "amy",
                      *           "event": "approved",
                      *           "note": "approval count met",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:36.900419Z",
+                     *           "at": "2026-11-23T15:43:21.343032Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261123-0008 at f2d6ec80 on a685e60e (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:37.025889Z",
+                     *           "at": "2026-11-23T15:43:21.504880Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261123-0008 #7",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:37.116176Z",
+                     *           "at": "2026-11-23T15:43:21.600618Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:37.200602Z",
+                     *           "at": "2026-11-23T15:43:21.681592Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged f2d6ec80; the folder at it is the plan's",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:37.208542Z",
+                     *           "at": "2026-11-23T15:43:21.689502Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged f2d6ec80",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:37.302781Z",
+                     *           "at": "2026-11-23T15:43:21.777337Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "prune_pending",
                      *           "note": "Prune=confirm: waiting for an operator to confirm the prune",
                      *           "status": "awaiting_prune"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:37.732588Z",
+                     *           "at": "2026-11-23T15:43:22.219419Z",
                      *           "by": "opal",
                      *           "event": "prune_confirm",
                      *           "note": "operator confirmed the prune",
@@ -5406,7 +5408,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "awaiting_prune",
-                     *       "updatedAt": "2026-11-23T14:18:37.657296Z"
+                     *       "updatedAt": "2026-11-23T15:43:22.013913Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -5512,7 +5514,7 @@ export interface operations {
                      * @example {
                      *       "clusters": [
                      *         {
-                     *           "asOf": "2026-11-23T14:18:00Z",
+                     *           "asOf": "2026-11-23T15:43:00Z",
                      *           "basis": "simulated",
                      *           "boundBy": "cpu",
                      *           "clusterId": "CRC",
@@ -5767,7 +5769,7 @@ export interface operations {
                      * @example {
                      *       "items": [
                      *         {
-                     *           "checkedAt": "2026-11-23T14:18:26.041990Z",
+                     *           "checkedAt": "2026-11-23T15:43:09.659030Z",
                      *           "clusterId": "CRC",
                      *           "environment": "dev",
                      *           "findingDetails": [],
@@ -5776,11 +5778,11 @@ export interface operations {
                      *           "labels": {
                      *             "region": "us-central"
                      *           },
-                     *           "lastProbeAt": "2026-11-23T14:18:26.041990Z",
+                     *           "lastProbeAt": "2026-11-23T15:43:09.659030Z",
                      *           "secretName": "cmapi-cluster-crc",
                      *           "serverVersion": "v1.35.6-fake",
                      *           "status": "connected",
-                     *           "statusSince": "2026-11-23T14:18:26.041990Z",
+                     *           "statusSince": "2026-11-23T15:43:09.659030Z",
                      *           "tokenExpiresAt": null,
                      *           "trust": {
                      *             "downgrade": false,
@@ -5984,7 +5986,7 @@ export interface operations {
                 dryRun?: boolean;
             };
             header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request. */
                 "Idempotency-Key"?: string | null;
             };
             path: {
@@ -6161,11 +6163,11 @@ export interface operations {
                      *       "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:27.227227Z",
+                     *       "createdAt": "2026-11-23T15:43:10.969205Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:27.293545Z",
+                     *           "at": "2026-11-23T15:43:11.042463Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
@@ -6209,7 +6211,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-23T14:18:27.218827Z"
+                     *       "updatedAt": "2026-11-23T15:43:10.836996Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -6544,11 +6546,11 @@ export interface operations {
     namespaces_delete_namespace: {
         parameters: {
             query?: never;
-            header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required: a delete has no dry run. The same key and caller get the first answer again for 24 hours. */
+            header: {
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required: a delete has no dry run. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. */
                 "Idempotency-Key"?: string | null;
-                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag. */
-                "If-Match"?: string | null;
+                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
+                "If-Match": string;
             };
             path: {
                 /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
@@ -6596,11 +6598,11 @@ export interface operations {
                      *       "baseSha": "a685e60e04b8eeed05c82d699cb9cff596459f39",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:36.656868Z",
+                     *       "createdAt": "2026-11-23T15:43:21.090851Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:36.669116Z",
+                     *           "at": "2026-11-23T15:43:21.100893Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -6644,7 +6646,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-23T14:18:36.597185Z"
+                     *       "updatedAt": "2026-11-23T15:43:20.899513Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -6788,11 +6790,11 @@ export interface operations {
                 /** @description With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key. */
                 dryRun?: boolean;
             };
-            header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+            header: {
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request. */
                 "Idempotency-Key"?: string | null;
-                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag. */
-                "If-Match"?: string | null;
+                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
+                "If-Match": string;
             };
             path: {
                 /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
@@ -6929,11 +6931,11 @@ export interface operations {
                      *       "baseSha": "95fc380aba05a9fda1073a63b683180aa64d6ba6",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:28.526516Z",
+                     *       "createdAt": "2026-11-23T15:43:12.346871Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:28.608128Z",
+                     *           "at": "2026-11-23T15:43:12.424691Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -6977,7 +6979,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-23T14:18:28.536234Z"
+                     *       "updatedAt": "2026-11-23T15:43:12.222541Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -7121,11 +7123,11 @@ export interface operations {
                 /** @description With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key. */
                 dryRun?: boolean;
             };
-            header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+            header: {
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request. */
                 "Idempotency-Key"?: string | null;
-                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag. */
-                "If-Match"?: string | null;
+                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
+                "If-Match": string;
             };
             path: {
                 /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
@@ -7238,11 +7240,11 @@ export interface operations {
                      *       "baseSha": "f390b02e68a83254d0df67e57d3eface7ff1a33f",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:31.109532Z",
+                     *       "createdAt": "2026-11-23T15:43:15.730973Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:31.185311Z",
+                     *           "at": "2026-11-23T15:43:15.842612Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "none-required",
@@ -7286,7 +7288,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-23T14:18:31.113725Z"
+                     *       "updatedAt": "2026-11-23T15:43:15.640472Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -7430,11 +7432,11 @@ export interface operations {
                 /** @description With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key. */
                 dryRun?: boolean;
             };
-            header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+            header: {
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request. */
                 "Idempotency-Key"?: string | null;
-                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag. */
-                "If-Match"?: string | null;
+                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
+                "If-Match": string;
             };
             path: {
                 /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
@@ -7570,11 +7572,11 @@ export interface operations {
                      *       "baseSha": "8dab0bad411d81a696ed074b67b5f8fdbe640f64",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:42.052046Z",
+                     *       "createdAt": "2026-11-23T15:43:26.715544Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:42.129599Z",
+                     *           "at": "2026-11-23T15:43:26.791465Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -7618,7 +7620,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-23T14:18:42.058984Z"
+                     *       "updatedAt": "2026-11-23T15:43:26.590060Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -7762,11 +7764,11 @@ export interface operations {
                 /** @description With `true`, the call returns the plan with status 200, writes nothing and needs no Idempotency-Key. */
                 dryRun?: boolean;
             };
-            header?: {
-                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. The same key and caller get the first answer again for 24 hours. */
+            header: {
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. For now a retry sent with `onBehalfOf` gets 409 `idempotency-replay` instead (#592). The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request. */
                 "Idempotency-Key"?: string | null;
-                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the request that its key opened without comparing the tag. */
-                "If-Match"?: string | null;
+                /** @description The namespace's etag from `GET .../namespaces/{ns}`, in double quotes as its `ETag` header gives it. Required on a change or a delete. A list of tags passes when one of them is the current etag (RFC 9110, section 13.1.1). Send the tags in one comma-separated If-Match field (`If-Match: "a", "b"`): the front door answers 400 to a second If-Match line. `*` is 428 `precondition-required`: If-Match must name the etag that was read. A weak tag (`W/"..."`) never matches. An Idempotency-Key replay returns the original request in its current state without comparing the tag. */
+                "If-Match": string;
             };
             path: {
                 /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
@@ -7879,11 +7881,11 @@ export interface operations {
                      *       "baseSha": "3871ec0a8cd09f496e4a2934858f19cd3b0dfcac",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:41.253475Z",
+                     *       "createdAt": "2026-11-23T15:43:25.887910Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:41.326249Z",
+                     *           "at": "2026-11-23T15:43:25.958976Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "none-required",
@@ -7927,7 +7929,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-23T14:18:41.254512Z"
+                     *       "updatedAt": "2026-11-23T15:43:25.757471Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -8085,7 +8087,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "checkedAt": "2026-11-23T14:18:26.444143Z",
+                     *       "checkedAt": "2026-11-23T15:43:10.044573Z",
                      *       "clusterId": "CRC",
                      *       "environment": "dev",
                      *       "findingDetails": [],
@@ -8094,11 +8096,11 @@ export interface operations {
                      *       "labels": {
                      *         "region": "us-central"
                      *       },
-                     *       "lastProbeAt": "2026-11-23T14:18:26.444143Z",
+                     *       "lastProbeAt": "2026-11-23T15:43:10.044573Z",
                      *       "secretName": "cmapi-cluster-crc",
                      *       "serverVersion": "v1.35.6-fake",
                      *       "status": "connected",
-                     *       "statusSince": "2026-11-23T14:18:26.041990Z",
+                     *       "statusSince": "2026-11-23T15:43:09.659030Z",
                      *       "tokenExpiresAt": null,
                      *       "trust": {
                      *         "downgrade": false,
@@ -9049,7 +9051,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "from": "2026-11-16T14:18:42.455026Z",
+                     *       "from": "2026-11-16T15:43:27.035215Z",
                      *       "items": [
                      *         {
                      *           "action": "create",
@@ -9068,9 +9070,9 @@ export interface operations {
                      *               "source": "cmapi"
                      *             }
                      *           ],
-                     *           "firstAt": "2026-11-23T14:18:40.054167Z",
+                     *           "firstAt": "2026-11-23T15:43:24.664453Z",
                      *           "id": "rej-2",
-                     *           "lastAt": "2026-11-23T14:18:40.054167Z",
+                     *           "lastAt": "2026-11-23T15:43:24.664453Z",
                      *           "namespace": "kube-tools",
                      *           "outcome": "refused",
                      *           "plugin": "namespaces",
@@ -9096,9 +9098,9 @@ export interface operations {
                      *               "source": "cmapi"
                      *             }
                      *           ],
-                     *           "firstAt": "2026-11-23T14:18:34.226045Z",
+                     *           "firstAt": "2026-11-23T15:43:18.883522Z",
                      *           "id": "rej-1",
-                     *           "lastAt": "2026-11-23T14:18:34.226045Z",
+                     *           "lastAt": "2026-11-23T15:43:18.883522Z",
                      *           "namespace": "search-dev",
                      *           "outcome": "refused",
                      *           "plugin": "namespaces",
@@ -9230,7 +9232,7 @@ export interface operations {
                      * @example {
                      *       "clusters": [
                      *         {
-                     *           "asOf": "2026-11-23T14:18:42.340756Z",
+                     *           "asOf": "2026-11-23T15:43:26.923908Z",
                      *           "bundle": {
                      *             "actionsDiffer": [],
                      *             "actionsDifferTotal": 0,
@@ -10430,11 +10432,11 @@ export interface operations {
                      *           "baseSha": "95fc380aba05a9fda1073a63b683180aa64d6ba6",
                      *           "beyondTier": null,
                      *           "clusterId": "CRC",
-                     *           "createdAt": "2026-11-23T14:18:28.526516Z",
+                     *           "createdAt": "2026-11-23T15:43:12.346871Z",
                      *           "env": "dev",
                      *           "events": [
                      *             {
-                     *               "at": "2026-11-23T14:18:28.608128Z",
+                     *               "at": "2026-11-23T15:43:12.424691Z",
                      *               "by": "ola",
                      *               "event": "plan_needs_approval",
                      *               "note": "waiting for [('approver-platform', 1)]",
@@ -10478,7 +10480,7 @@ export interface operations {
                      *             "submittedByClient": null
                      *           },
                      *           "status": "pending_approval",
-                     *           "updatedAt": "2026-11-23T14:18:28.536234Z"
+                     *           "updatedAt": "2026-11-23T15:43:12.222541Z"
                      *         }
                      *       ],
                      *       "letters": {
@@ -10602,67 +10604,67 @@ export interface operations {
                      *       "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:27.227227Z",
+                     *       "createdAt": "2026-11-23T15:43:10.969205Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:27.293545Z",
+                     *           "at": "2026-11-23T15:43:11.042463Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.367528Z",
+                     *           "at": "2026-11-23T15:43:11.125878Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261123-0001 at 95fc380a on aaaaaaaa (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.407346Z",
+                     *           "at": "2026-11-23T15:43:11.177779Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261123-0001 #1",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.445984Z",
+                     *           "at": "2026-11-23T15:43:11.224864Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.493019Z",
+                     *           "at": "2026-11-23T15:43:11.284103Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "apply_started",
                      *           "note": "applying 95fc380a before the merge",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.527671Z",
+                     *           "at": "2026-11-23T15:43:11.324758Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "applied",
                      *           "note": "5 objects from cmapi/CRC/req-20261123-0001 at 95fc380a, before the merge, confirmed by a read: quota matches the plan",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.564611Z",
+                     *           "at": "2026-11-23T15:43:11.368384Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged 95fc380a; the folder at it is the plan's",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.572685Z",
+                     *           "at": "2026-11-23T15:43:11.379049Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged 95fc380a",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.582999Z",
+                     *           "at": "2026-11-23T15:43:11.391547Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "synced",
                      *           "note": "applied and confirmed by a read before the merge",
@@ -10712,7 +10714,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "synced",
-                     *       "updatedAt": "2026-11-23T14:18:27.510167Z"
+                     *       "updatedAt": "2026-11-23T15:43:11.187647Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -10903,63 +10905,63 @@ export interface operations {
                      * @example {
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:27.293545Z",
+                     *           "at": "2026-11-23T15:43:11.042463Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.367528Z",
+                     *           "at": "2026-11-23T15:43:11.125878Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261123-0001 at 95fc380a on aaaaaaaa (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.407346Z",
+                     *           "at": "2026-11-23T15:43:11.177779Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261123-0001 #1",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.445984Z",
+                     *           "at": "2026-11-23T15:43:11.224864Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.493019Z",
+                     *           "at": "2026-11-23T15:43:11.284103Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "apply_started",
                      *           "note": "applying 95fc380a before the merge",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.527671Z",
+                     *           "at": "2026-11-23T15:43:11.324758Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "applied",
                      *           "note": "5 objects from cmapi/CRC/req-20261123-0001 at 95fc380a, before the merge, confirmed by a read: quota matches the plan",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.564611Z",
+                     *           "at": "2026-11-23T15:43:11.368384Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged 95fc380a; the folder at it is the plan's",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.572685Z",
+                     *           "at": "2026-11-23T15:43:11.379049Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged 95fc380a",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:27.582999Z",
+                     *           "at": "2026-11-23T15:43:11.391547Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "synced",
                      *           "note": "applied and confirmed by a read before the merge",
@@ -11073,7 +11075,7 @@ export interface operations {
                      *       "approval": {
                      *         "approvals": [
                      *           {
-                     *             "at": "2026-11-23T14:18:28.775536Z",
+                     *             "at": "2026-11-23T15:43:12.592877Z",
                      *             "comment": "sizing reviewed",
                      *             "relayedBy": null,
                      *             "sub": "sub-amy",
@@ -11101,25 +11103,25 @@ export interface operations {
                      *       "baseSha": "95fc380aba05a9fda1073a63b683180aa64d6ba6",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:28.526516Z",
+                     *       "createdAt": "2026-11-23T15:43:12.346871Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:28.608128Z",
+                     *           "at": "2026-11-23T15:43:12.424691Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:28.798639Z",
+                     *           "at": "2026-11-23T15:43:12.619010Z",
                      *           "by": "amy",
                      *           "event": "approval",
                      *           "note": "sizing reviewed",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:28.807829Z",
+                     *           "at": "2026-11-23T15:43:12.629819Z",
                      *           "by": "amy",
                      *           "event": "approved",
                      *           "note": "approval count met",
@@ -11163,7 +11165,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-23T14:18:28.736627Z"
+                     *       "updatedAt": "2026-11-23T15:43:12.428053Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -11297,18 +11299,18 @@ export interface operations {
                      *       "baseSha": "f2d6ec8033de631fe772fe1f5c292e03abe1bc0e",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:32.340029Z",
+                     *       "createdAt": "2026-11-23T15:43:17.021362Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:32.368621Z",
+                     *           "at": "2026-11-23T15:43:17.053509Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:32.665859Z",
+                     *           "at": "2026-11-23T15:43:17.360605Z",
                      *           "by": "ola",
                      *           "event": "cancel",
                      *           "note": "",
@@ -11352,7 +11354,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "cancelled",
-                     *       "updatedAt": "2026-11-23T14:18:32.591749Z"
+                     *       "updatedAt": "2026-11-23T15:43:17.155249Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -11495,18 +11497,18 @@ export interface operations {
                      *       "baseSha": "f2d6ec8033de631fe772fe1f5c292e03abe1bc0e",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:32.467695Z",
+                     *       "createdAt": "2026-11-23T15:43:17.158718Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:32.496989Z",
+                     *           "at": "2026-11-23T15:43:17.187052Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:32.583482Z",
+                     *           "at": "2026-11-23T15:43:17.273982Z",
                      *           "by": "amy",
                      *           "event": "rejected",
                      *           "note": "Use the medium tier",
@@ -11550,7 +11552,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "rejected",
-                     *       "updatedAt": "2026-11-23T14:18:32.510753Z"
+                     *       "updatedAt": "2026-11-23T15:43:17.070887Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -11674,67 +11676,67 @@ export interface operations {
                      *       "baseSha": "f2d6ec8033de631fe772fe1f5c292e03abe1bc0e",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:33.822832Z",
+                     *       "createdAt": "2026-11-23T15:43:18.534498Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:33.847326Z",
+                     *           "at": "2026-11-23T15:43:18.562995Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:33.993584Z",
+                     *           "at": "2026-11-23T15:43:18.662647Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261123-0007 at a685e60e on f2d6ec80 (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:34.082036Z",
+                     *           "at": "2026-11-23T15:43:18.747522Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261123-0007 #5",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:34.233713Z",
+                     *           "at": "2026-11-23T15:43:18.892758Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: fail",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:34.249922Z",
+                     *           "at": "2026-11-23T15:43:18.910035Z",
                      *           "by": "ci",
                      *           "event": "head_moved",
                      *           "note": "PR head moved from a685e60e to 07698d60 after approval",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:34.265849Z",
+                     *           "at": "2026-11-23T15:43:18.921648Z",
                      *           "by": "ci",
                      *           "event": "pr_failed",
                      *           "note": "checks failed",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:34.265891Z",
+                     *           "at": "2026-11-23T15:43:18.921689Z",
                      *           "by": "worker",
                      *           "event": "pr_closed",
                      *           "note": "#5: its checks failed; the request is failed and may be retried",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:34.350418Z",
+                     *           "at": "2026-11-23T15:43:19.008857Z",
                      *           "by": "worker",
                      *           "event": "branch_deleted",
                      *           "note": "cmapi/CRC/req-20261123-0007 at 07698d60",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:35.397433Z",
+                     *           "at": "2026-11-23T15:43:19.922448Z",
                      *           "by": "opal",
                      *           "event": "retry",
                      *           "note": "retry requested",
@@ -11784,7 +11786,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-23T14:18:35.323195Z"
+                     *       "updatedAt": "2026-11-23T15:43:19.719541Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -11908,60 +11910,60 @@ export interface operations {
                      *       "baseSha": "f2d6ec8033de631fe772fe1f5c292e03abe1bc0e",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-23T14:18:38.824040Z",
+                     *       "createdAt": "2026-11-23T15:43:23.415781Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-23T14:18:38.852378Z",
+                     *           "at": "2026-11-23T15:43:23.447440Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:38.969434Z",
+                     *           "at": "2026-11-23T15:43:23.564510Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261123-0009 at fbe58033 on f2d6ec80 (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:39.011530Z",
+                     *           "at": "2026-11-23T15:43:23.609071Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261123-0009 #8",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:39.051945Z",
+                     *           "at": "2026-11-23T15:43:23.647653Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:39.093557Z",
+                     *           "at": "2026-11-23T15:43:23.687811Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged fbe58033; the folder at it is the plan's",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:39.101624Z",
+                     *           "at": "2026-11-23T15:43:23.695464Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged fbe58033",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:39.150110Z",
+                     *           "at": "2026-11-23T15:43:23.746111Z",
                      *           "by": "worker",
                      *           "event": "sync_timeout",
                      *           "note": "orders-dev exists on the cluster and cmapi does not manage it; nothing applied",
                      *           "status": "sync_failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-23T14:18:39.310547Z",
+                     *           "at": "2026-11-23T15:43:23.913363Z",
                      *           "by": "opal",
                      *           "event": "revert_requested",
                      *           "note": "",
@@ -12011,7 +12013,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "sync_failed",
-                     *       "updatedAt": "2026-11-23T14:18:39.235924Z"
+                     *       "updatedAt": "2026-11-23T15:43:23.708146Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
