@@ -147,7 +147,7 @@ against the symlinked reference modules; section 2 is what replaces each stand-i
 
 ## 4. Not built yet
 
-**Service:** config hot reload; `core/kpi.py` beyond the system figures and four database KPIs; the metadata
+**Service:** config hot reload; `core/kpi.py` beyond the system figures and the seven database KPIs of `database_kpis` (`cmapi/src/cmapi/core/kpi.py:188-228`, `lead-time-auto-p90` to `change-failure-rate`); the metadata
 plugin; `/admin/reload`, `/tiers/{tier}`, the webhooks; OpenTelemetry (none in the code);
 rate limits on routes (`core/ratelimit.py` holds the limiter, and no route calls it).
 
@@ -156,7 +156,7 @@ directory provider; Argo CD mode proven against a real Argo CD (none has run).
 
 **Endpoints not yet wired:** `GET .../namespaces/{ns}/expiration`; `/tiers/{tier}`,
 `/tiers/{tier}/namespaces`; quota writes other than the namespace PATCH; metadata; service accounts,
-grants, SCC grants, SA tokens; cluster import endpoint; capacity and placement; adoption,
+grants, SCC grants, SA tokens; cluster import endpoint; the placement operation `POST /api/v1/capacity:place` (`GET /api/v1/capacity` is built: `cmapi/src/cmapi/plugins/capacity/router.py:177`); adoption,
 reports, operations; admin reload.
 
 **Worker jobs:** `expire_check`, `reservation_expiry`, `policy_report_sweep`, `import_clusters` (the
