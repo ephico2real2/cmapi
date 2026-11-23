@@ -46,7 +46,7 @@ The CI job `api-contract` fails when the part below is not what `scripts/api-exa
 - Policies: `GET /policies`. Only `GET /policies/results` and `GET /policies/rejections` are built.
 - Reports (`/reports/*`), operations (`/operations`, `/operations/{id}`, `:cancel`), `/changesets`, the webhooks (`/webhooks/git`, `/webhooks/argocd`) and `POST /admin/reload`.
 
-The routes `/healthz`, `/readyz`, `/problems`, `/problems/{code}`, `/openapi.json`, `/openapi.yaml`, `/docs`, `/docs/oauth2-redirect`, `/docs/redoc-start.js`, `/redoc` and `/docs/changelog`, and the files under `/static/swagger` and `/static/redoc`, are built and have no example, because they are not in the OpenAPI document (`include_in_schema=False` in `cmapi/main.py` and `routers/health.py`; the static files are mounts). `docs/08-code-status.md`, section 4, lists the same gaps and may lag the code.
+The routes `/healthz`, `/readyz`, `/problems`, `/problems/{code}`, `/openapi.json`, `/openapi.yaml`, `/docs`, `/docs/oauth2-redirect`, `/docs/redoc-start.js`, `/docs/swagger.css`, `/redoc` and `/docs/changelog`, and the files under `/static/swagger` and `/static/redoc`, are built and have no example, because they are not in the OpenAPI document (`include_in_schema=False` in `cmapi/main.py` and `routers/health.py`; the static files are mounts). `docs/08-code-status.md`, section 4, lists the same gaps and may lag the code.
 
 <!-- examples:begin -->
 ## Namespaces and metadata

@@ -16,6 +16,8 @@ PUBLIC = {("GET", "/api/v1/version"), ("GET", "/healthz"), ("GET", "/readyz"), (
           ("GET", "/openapi.json"), ("GET", "/openapi.yaml"), ("GET", "/redoc"), ("GET", "/docs/changelog"),
           # The module that starts ReDoc with its telemetry off (#235): public as /redoc is, behind docs.public with it.
           ("GET", "/docs/redoc-start.js"),
+          # Swagger UI's stylesheet (#556): public as /docs is, behind docs.public with it.
+          ("GET", "/docs/swagger.css"),
           # The page of a problem type: a caller with no token gets `unauthenticated`, and its type must resolve for that caller (#182).
           ("GET", "/problems"), ("GET", "/problems/{code}")}
 
