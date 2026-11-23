@@ -58,7 +58,9 @@ HEADER_TOKEN = re.compile(r"[\x21-\x7e]+")      # visible ASCII: what a bearer t
 # Kubernetes date-time annotations carry a full timestamp with an explicit offset.
 TOKEN_EXPIRY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?"
                           r"(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])")
-PEM_CERTIFICATE = re.compile(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", re.S)
+# RFC 7468 section 2: a certificate's encapsulation boundaries; the base64 between them is the block's body.
+PEM_BEGIN = "-----BEGIN CERTIFICATE-----"
+PEM_END = "-----END CERTIFICATE-----"
 
 
 @dataclass
@@ -290,8 +292,22 @@ class HubImportSource(ImportSource):
 
 
 def _valid_ca_data(ca_data: str) -> bool:
-    """Each PEM block by itself: a service account's ca.crt is usually a bundle, and base64 padding may end any block, so the blocks joined are not base64 even when each one is."""
-    bodies = PEM_CERTIFICATE.findall(ca_data) or ["".join(l for l in ca_data.splitlines() if not l.startswith("-----"))]
+    """Each PEM block by itself: a service account's ca.crt is usually a bundle, and base64 padding may end any block, so
+    the blocks joined are not base64 even when each one is. Every BEGIN line needs an END line after it (#585): OpenSSL
+    refuses a block that is not closed. Text before, between and after the blocks is ignored, as RFC 7468 section 2 and
+    OpenSSL allow. A value with no BEGIN line is read as bare base64, as before, unless it has an END line, which only a
+    broken block leaves; the client finds no certificate in bare base64 and says so (#419). split and partition read the
+    value once, in linear time: the regex this replaces rescanned the rest of the value from every BEGIN line."""
+    preamble, *blocks = ca_data.split(PEM_BEGIN)
+    if blocks:
+        parts = [block.partition(PEM_END) for block in blocks]
+        if not all(end for _, end, _ in parts):
+            return False
+        bodies = [body for body, _, _ in parts]
+    elif PEM_END in preamble:
+        return False
+    else:
+        bodies = ["".join(l for l in ca_data.splitlines() if not l.startswith("-----"))]
     try:
         return all(base64.b64decode("".join(b.split()), validate=True) for b in bodies)
     except (binascii.Error, ValueError):
