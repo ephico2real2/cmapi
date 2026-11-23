@@ -2578,7 +2578,7 @@ try {
     await changeCard(page).getByRole("button", { name: "Submit change" }).click();
     await changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "412 precondition-failed · nothing written" }).waitFor();
     const writes = () => patches().filter((c) => c.query.dryRun !== "true");
-    // docs/04 and problem_docs.py: "Read the object again, and send the change with the new ETag in If-Match".
+    // problem_docs.py, precondition-failed: "For a change, read the object again, and send the change with the new ETag in If-Match".
     await until(() => reads() > readsBefore, () => `the namespace was not read again after the 412 (GETs: ${reads()})`);
     await until(() => patches().some((c) => c.query.dryRun === "true" && c.ifMatch === `"${now}"`),
       () => `the change was not planned again on the new etag; the PATCHes were ${JSON.stringify(patches().map((c) => [c.query.dryRun ?? "write", c.ifMatch]))}`);
