@@ -149,7 +149,7 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 
 | Problem type | Status | When |
 | --- | --- | --- |
-| validation-failed | 422 | Schema, name or label rules fail |
+| validation-failed | 422 | Schema, name or label rules fail. A body that is not JSON is this problem with `json_invalid`, also one that is not UTF-8 or is nested deeper than the decoder goes, with or without a token (#646) |
 | policy-violation | 422 | Allowlist, subject rule, reserved prefix, limits below requests |
 | capacity-exceeded | 422 | Requested quota does not fit the cluster's headroom (capacity check in the plan) |
 | unauthenticated | 401 | No or invalid token |
@@ -169,7 +169,7 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | precondition-required / failed | 428 / 412 | Missing If-Match, or `If-Match: *` (428); no strong tag it lists is the current ETag (412). A conditional read answers 412 too, in the order of RFC 9110, section 13.2.2: an If-Match that is not `*` and lists no strong tag equal to the answer's ETag, and, on a file under `/static/swagger` or `/static/redoc`, an If-Unmodified-Since earlier than its Last-Modified (`not_modified`, `cmapi/src/cmapi/core/etag.py`; #590, #604, #619) |
 | cluster-unreachable | 503 | Cluster API down; Retry-After set |
 | git-unavailable | 502 | Git host error; the request row is marked failed |
-| internal-error | 500 | An exception that no handler takes. The answer has no text of the exception; the log line `unhandled` has it, with the X-Request-Id of the answer. The answer has the CORS headers, so the portal shows the problem and not a network error |
+| internal-error | 500 | An exception that no handler takes. The answer has no text of the exception; the log line `unhandled` has it, with the X-Request-Id of the answer. The answer has the CORS headers, so the portal shows the problem and not a network error. A refusal of FastAPI or Starlette that is the service's fault is this problem too, with the log line `framework_refusal`: a file under `/static` that the process cannot read (Starlette's 401), or any status other than 400, 404 and 405 (#646) |
 
 **Problem type URIs.** The type of a problem is a base and the code of the problem. The base is problems.typeBase in instance.yaml, and its default is https://cmapi.ephico2real.com/problems/. An organisation uses one base for all its instances, because the type is the identifier that a client compares (RFC 9457, section 3.1.1). Each instance serves GET /problems and GET /problems/{code} as HTML, with no token: the type, the title, the status, an example and what the caller does. So the type resolves when the host of the base points at an instance. On CRC the base is the Route of the API.
 

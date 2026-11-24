@@ -12,6 +12,7 @@ from typing import Any, Mapping
 
 import yaml
 from fastapi import Depends, FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -205,6 +206,10 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
                            expose_headers=EXPOSED_HEADERS, allow_credentials=False, max_age=MAX_AGE)
     app.state.cors_origins = origins
 
+    def validation_failed(errors: list[dict[str, Any]]) -> Problem:
+        return Problem(422, "validation-failed",
+                       "The request is not valid: " + "; ".join(f"{e['field']}: {e['message']}" for e in errors)[:400], errors)
+
     @app.exception_handler(Problem)
     async def problem_handler(_: Request, exc: Problem) -> Response:
         return problem_response(exc, dict(unauthenticated_headers(exc)))
@@ -215,9 +220,7 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         # left out: it can hold what the caller did not mean to send back, and the field names it.
         errors = [{"field": ".".join(str(part) for part in e.get("loc", ())), "message": e.get("msg", ""), "code": e.get("type", "")}
                   for e in exc.errors()]
-        p = Problem(422, "validation-failed", "The request is not valid: " + "; ".join(f"{e['field']}: {e['message']}" for e in errors)[:400],
-                    errors)
-        return problem_response(p)
+        return problem_response(validation_failed(errors))
 
     @app.exception_handler(TierError)
     async def tier_error_handler(_: Request, exc: TierError) -> Response:
@@ -255,6 +258,26 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         if allow:   # one Allow field: Starlette's, whatever its case, gives way to the whole list
             headers = {k: v for k, v in headers.items() if k.lower() != "allow"} | {"Allow": allow}
         return problem_response(Problem(405, "method-not-allowed", PROBLEMS["method-not-allowed"][1]), headers)
+
+    @app.exception_handler(HTTPException)
+    async def framework_refusal(request: Request, exc: HTTPException) -> Response:
+        """Every other HTTPException, which only FastAPI and Starlette raise: cmapi's own refusals are Problems (#646).
+
+        A 400 is a body that could not be read (fastapi/routing.py:285, and starlette/requests.py:271 for a form, which no
+        route of cmapi takes): not UTF-8 (RFC 8259, section 8.1), nested deeper than the decoder goes, or cut short. It is
+        the 422 validation-failed with json_invalid that FastAPI gives a body JSON cannot decode, so a client gets one
+        answer for a body that is not JSON (core/docs.py, DocumentedRouter._register). Any other status is the service's
+        fault: StaticFiles' 401 (staticfiles.py:119) is a file of the image that the process cannot read, which no
+        credential changes, and no other site is reachable. It is internal-error, with the cause in the log line. An
+        HTTPException below 400 is no refusal and keeps FastAPI's answer."""
+        if exc.status_code < 400:
+            return await http_exception_handler(request, exc)
+        if exc.status_code == 400:
+            return problem_response(validation_failed([{"field": "body", "message": "the body cannot be read as JSON",
+                                                        "code": "json_invalid"}]))
+        log.error("framework_refusal", method=request.method, status=exc.status_code, detail=str(exc.detail)[:200],
+                  route=getattr(request.scope.get("route"), "path_format", "unmatched"))
+        return problem_response(Problem(500, "internal-error", PROBLEMS["internal-error"][1]))
 
     _add_problem_pages(app, ctx, problem_base)
     if docs_enabled:
