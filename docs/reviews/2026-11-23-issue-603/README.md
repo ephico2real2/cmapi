@@ -99,7 +99,11 @@ The test removed: `test_a_row_that_a_0007_pod_wrote_after_0008_belongs_to_its_ca
 setting `idempotency_sub` to NULL, which the check now refuses; `test_rows_that_a_0007_pod_wrote_replay_for_their_caller_after_0009`
 covers the same rows through 0009.
 
-FULLSUITE
+**The full service suite** on this branch (`4354598`..`a527367`, the same code), in its own database `cmapi_603`, from
+2026-11-24T03:55:49Z to 04:27:04Z, after the gate (no other suite, 1-minute load 8.19): **2494 passed in 1871.40 s**,
+rc 0. Also `test_api_standard.py`, `test_api_docs.py` and `test_api_samples.py`: 206 passed. The contract lint, the
+portal types check, `changelog.py --check`, `api-examples-doc.py --check`, `deploy/tests/doc12-test.py` (0 failed) and
+`doc-citations.py --check` (0 problems) pass.
 
 ## Measured, inferred, not tested
 
