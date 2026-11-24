@@ -1,0 +1,22 @@
+starlette 0.41.3
+  parse n=2000: best of 3 0.052262 s
+  parse n=4000: best of 3 0.223633 s
+  parse n=8000: best of 3 0.825677 s
+  parse n=16000: best of 3 3.001779 s
+  GET Range 'bytes=0-3': 206 0.0369s content-range='bytes 0-3/17' content-type='text/javascript; charset=utf-8' crlf=False body=b'/* t'
+  GET Range 'bytes=100-': 416 0.0040s content-range='*/17' content-type='text/plain; charset=utf-8' crlf=False body=b''
+  GET Range 'bytes=0-1,4-5': 206 0.0066s content-range='multipart/byteranges; boundary=bd3a6f3baa1683a5f455c3737e' content-type='text/javascript; charset=utf-8' crlf=False body=b'--bd3a6f3baa1683a5f455c3737e\nContent-Type: text/javascript; '
+  GET Range 'widgets=1-2': 400 0.0040s content-range=None content-type='text/plain; charset=utf-8' crlf=False body=b'Only support bytes range'
+  GET Range 'bytes=x': 400 0.0038s content-range=None content-type='text/plain; charset=utf-8' crlf=False body=b'Range header: range must be requested'
+  GET Range 'bytes=00000000000000': 400 2.9045s content-range=None content-type='text/plain; charset=utf-8' crlf=False body=b'Range header: range must be requested'
+starlette 1.10.0
+  parse n=2000: best of 3 0.000025 s
+  parse n=4000: best of 3 0.000038 s
+  parse n=8000: best of 3 0.000069 s
+  parse n=16000: best of 3 0.000134 s
+  GET Range 'bytes=0-3': 206 0.0423s content-range='bytes 0-3/17' content-type='text/javascript; charset=utf-8' crlf=False body=b'/* t'
+  GET Range 'bytes=100-': 416 0.0056s content-range='bytes */17' content-type='text/plain; charset=utf-8' crlf=False body=b''
+  GET Range 'bytes=0-1,4-5': 206 0.0130s content-range=None content-type='multipart/byteranges; boundary=ce3972de5415233cf48b941c45' crlf=True body=b'--ce3972de5415233cf48b941c45\r\nContent-Type: text/javascript;'
+  GET Range 'widgets=1-2': 400 0.0069s content-range=None content-type='text/plain; charset=utf-8' crlf=False body=b'Only support bytes range'
+  GET Range 'bytes=x': 400 0.0072s content-range=None content-type='text/plain; charset=utf-8' crlf=False body=b'Range header: range must be requested'
+  GET Range 'bytes=00000000000000': 400 0.0074s content-range=None content-type='text/plain; charset=utf-8' crlf=False body=b'Range header: range must be requested'

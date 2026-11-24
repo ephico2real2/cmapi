@@ -100,7 +100,7 @@ Both calls verify Keycloak's certificate against the CA in ConfigMap `cmapi-trus
 
 ## From sign-in to a permitted call
 
-Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:167-168`, `core/auth.py:189-194`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
+Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:169-170`, `core/auth.py:189-194`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
 
 ```text
 Browser (Swagger UI at /docs)            Keycloak, realm cmapi                 cmapi-api
@@ -209,15 +209,15 @@ The owner decided on 2026-11-14 (#226): each instance gets one front door, nginx
 | Credentials | `Access-Control-Allow-Credentials` is never sent | The API reads no cookie. The token is in `Authorization`, which a page of another origin does not have |
 | Methods | `GET`, `HEAD`, `POST`, `PATCH`, `DELETE` | The methods of the API. `HEAD` is a `GET` without its body, on every `GET` (#605); a `HEAD` with `Authorization` is preflighted, and Starlette refuses a preflight for a method that is not listed |
 | Request headers | `Authorization`, `Content-Type`, `Idempotency-Key`, `If-Match`, `If-None-Match`, `X-Request-Id` | The headers that the API reads. Each call with `Authorization` needs a preflight, so a page of an origin that is not listed cannot send the call at all |
-| Response headers a page can read | `ETag`, `Location`, `Retry-After`, `WWW-Authenticate`, `X-Request-Id` | `ETag` is the value of `If-Match` on a change. The others say what to do after a 401, a 429 or a 503, and which log line to find |
+| Response headers a page can read | `Allow`, `ETag`, `Location`, `Retry-After`, `WWW-Authenticate`, `X-Request-Id` | `ETag` is the value of `If-Match` on a change. The others say what to do after a 405, a 401, a 429 or a 503, and which log line to find (`Allow`: #644) |
 | Preflight cache | `Access-Control-Max-Age: 600` | Ten minutes, which is WebKit's limit |
-| `Vary: Origin` | On each answer when CORS is on, also on an answer with no CORS header | A shared cache must not give the copy for one origin to another (review finding F2) |
+| `Vary: Origin` | On each answer when CORS is on, also on an answer with no CORS header. A preflight's answer also varies on `Access-Control-Request-Method`, `Access-Control-Request-Headers` and `Access-Control-Request-Private-Network` (Starlette 1.7.0, #651) | A shared cache must not give the copy for one origin to another (review finding F2). An answer to `OPTIONS` is not cacheable (RFC 9110, section 9.3.7), so the preflight's longer `Vary` changes no cache |
 
 A preflight from an origin that is not listed gets 400 and no CORS header, and the browser does not send the call. A problem (401, 403, 422, 429) from a listed origin has the header. An exception that no handler takes is the problem `internal-error` (500), made inside the CORS middleware, so it has the header and `X-Request-Id` too (#216). Starlette's own 500 is sent outside each middleware and has neither. A cancelled request and a client that went away are not failures of the service: they get no 500 and no `unhandled` log line (review finding F3).
 
 **Measured**, on this Mac with the service suite (`cmapi/tests/service/test_cors.py`, 55 tests). Not measured: a browser on another origin against a deployed API. The walk on CRC is same-origin, so it sent no `Origin` header to the API. The review is in `docs/reviews/2026-11-14-issue-206/`.
 
-**Sources**, each read on 2026-11-14: RFC 10017 (BCP 212, August 2026), sections 6.3.3.4 and 9.4, <https://www.rfc-editor.org/rfc/rfc10017>. The Fetch standard, "CORS protocol", <https://fetch.spec.whatwg.org/#http-cors-protocol>: "`*` is not allowed when credentials are involved". Starlette 0.41.3, `starlette/middleware/cors.py` and `starlette/middleware/base.py`, read from the installed package.
+**Sources**, each read on 2026-11-14: RFC 10017 (BCP 212, August 2026), sections 6.3.3.4 and 9.4, <https://www.rfc-editor.org/rfc/rfc10017>. The Fetch standard, "CORS protocol", <https://fetch.spec.whatwg.org/#http-cors-protocol>: "`*` is not allowed when credentials are involved". Starlette 0.41.3, `starlette/middleware/cors.py` and `starlette/middleware/base.py`, read from the installed package; Starlette 1.10.0's `starlette/middleware/cors.py` again on 2026-11-24 (#651), with RFC 9110, section 9.3.7, <https://www.rfc-editor.org/rfc/rfc9110>.
 
 ## Get a token from a script
 

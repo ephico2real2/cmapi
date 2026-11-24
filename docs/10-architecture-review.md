@@ -29,7 +29,7 @@ incubating projects only).
 
 | Tool | Version | Licence | Open source | CNCF | Portable alternative |
 | --- | --- | --- | --- | --- | --- |
-| FastAPI / Starlette / uvicorn | 0.115.6 / 0.41.3 / 0.32.1 | MIT / BSD-3 / BSD-3 | yes | none | any ASGI framework |
+| FastAPI / Starlette / uvicorn | 0.162.2 / 1.10.0 / 0.32.1 (#651) | MIT / BSD-3 / BSD-3 | yes | none | any ASGI framework |
 | Pydantic (+ settings) | 2.14.2 / 2.16.2 | MIT | yes | none | — |
 | SQLAlchemy / psycopg / Alembic | 2.1.8 / 3.3.8 / 1.20.1 | MIT / LGPL-3 / MIT | yes | none | — |
 | PyJWT, httpx, PyYAML, structlog, prometheus-client | 2.10.1, 0.28.1, 6.0.2, 26.1.0, 0.24.1 | MIT, BSD-3, MIT, MIT/Apache-2.0, Apache-2.0 | yes | none | — |
