@@ -3,8 +3,7 @@
 The migrations make the schema. The models say the same schema, each index included, so that `alembic check`
 finds no difference between them (tests/service/test_models_match_migrations.py, #185). The indexes that carry
 correctness: one open request per namespace (a partial unique index on cluster_id and namespace), one idempotency
-key per requester and one per caller (release 1 of #592 keeps both), one approval per person, and one pending job of a
-kind per request.
+key per caller (#592, #603), one approval per person, and one pending job of a kind per request.
 """
 from __future__ import annotations
 
@@ -25,6 +24,11 @@ class Base(DeclarativeBase):
 
 class ChangeRequestRow(Base):
     __tablename__ = "change_requests"
+    # A row that holds an Idempotency-Key names its caller (0009, #603): uq_cr_idempotency_caller is the key's only unique
+    # index, and NULLs are distinct in it, so a keyed row with no caller would escape it and the lookup.
+    __table_args__ = (
+        CheckConstraint("idempotency_key IS NULL OR idempotency_sub IS NOT NULL", name="ck_cr_idempotency_caller"),
+    )
     request_id: Mapped[str] = mapped_column(String(40), primary_key=True)
     instance: Mapped[str] = mapped_column(String(40), nullable=False)
     cluster_id: Mapped[str] = mapped_column(String(63), nullable=False)
@@ -48,8 +52,7 @@ class ChangeRequestRow(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(100))
     idempotency_fingerprint: Mapped[str | None] = mapped_column(String(64))
     # The subject of the caller that sent the key: the service, not the person, on a write sent with onBehalfOf (#592,
-    # migration 0008). Null when the row holds no key, and on a keyed row that a 0007 pod wrote after 0008, which
-    # key_owner (core/db/repo.py) reads from `requester` instead. Release 2 (0009, #603) fills those rows.
+    # migration 0008). Null exactly when the row holds no key (ck_cr_idempotency_caller, 0009).
     idempotency_sub: Mapped[str | None] = mapped_column(String(100))
     pr: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     merge_sha: Mapped[str | None] = mapped_column(String(64))
@@ -198,8 +201,6 @@ class PolicyRejectionRow(Base):
 # Each index of the migrations, in the same words, so that autogenerate has nothing to add and nothing to drop.
 Index("uq_cr_open_namespace", ChangeRequestRow.cluster_id, ChangeRequestRow.namespace, unique=True,
       postgresql_where=text("status IN ('" + "', '".join(OPEN_STATES) + "')"))
-Index("uq_cr_idempotency", ChangeRequestRow.requester_sub, ChangeRequestRow.idempotency_key, unique=True,
-      postgresql_where=text("idempotency_key IS NOT NULL"))
 Index("uq_cr_idempotency_caller", ChangeRequestRow.idempotency_sub, ChangeRequestRow.idempotency_key, unique=True,
       postgresql_where=text("idempotency_key IS NOT NULL"))
 Index("idx_cr_namespace", ChangeRequestRow.cluster_id, ChangeRequestRow.namespace, ChangeRequestRow.created_at)
