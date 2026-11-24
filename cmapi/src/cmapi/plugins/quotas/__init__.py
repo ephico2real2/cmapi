@@ -144,10 +144,11 @@ def export(request: Request, q: Text = "", env: Env = None, cluster_id: ClusterF
     head = request.method == "HEAD"
     rows = [{**r, "cpuUsed": r["cpu"][0], "cpuHard": r["cpu"][1], "memoryUsed": r["memory"][0], "memoryHard": r["memory"][1],
              "podsUsed": r["pods"][0], "podsHard": r["pods"][1]} for r in quota_rows(c, who)]
+    query = _query(q, env, cluster_id, team, tier, sort, 50, None, None, state)
+    # The refusals first (a state, 422; a sort, 400): a refused export is no export, so it writes no audit event.
+    lines = c.lister.export_csv(_in_state(rows, state), query, COLUMNS)
     if not head:
         with c.db.session() as s:
             AuditRepo(s).record(who, "quotas.export", "csv", {"rows": len(rows), "q": q, "env": env, "clusterId": cluster_id})
-    query = _query(q, env, cluster_id, team, tier, sort, 50, None, None, state)
-    lines = c.lister.export_csv(_in_state(rows, state), query, COLUMNS)
     return StreamingResponse(iter(()) if head else lines, media_type="text/csv",
                              headers={"Content-Disposition": 'attachment; filename="quotas.csv"'})

@@ -151,3 +151,51 @@ def test_a_head_of_the_export_exports_nothing(world, monkeypatch):
     seen = ("content-type", "content-disposition", "content-length", "etag", "cache-control")
     assert {h: head.headers.get(h) for h in seen} == {h: get.headers.get(h) for h in seen}
     assert head.headers.get("content-length") is None
+
+
+def test_405_lists_the_methods_of_the_resource(world):
+    """RFC 9110, section 15.5.6: the Allow of a 405 lists "the target resource's currently supported methods", every route
+    of the path, not the first one only (Starlette 0.41.3)."""
+    client, *_ = world
+    cases = [("PUT", "/api/v1/version", {"GET", "HEAD"}),
+             ("HEAD", "/api/v1/clusters/CRC:probe", {"POST"}),
+             ("PUT", "/api/v1/clusters/CRC/namespaces", {"GET", "HEAD", "POST"}),
+             ("PUT", "/api/v1/clusters/CRC/namespaces/demo", {"GET", "HEAD", "PATCH", "DELETE"})]
+    for method, path, allowed in cases:
+        response = client.request(method, path)
+        assert response.status_code == 405, (method, path, response.status_code)
+        assert set(response.headers["allow"].split(", ")) == allowed, (method, path, response.headers["allow"])
+
+
+@pytest.mark.parametrize("action", ["approve", "reject", "cancel", "retry", "revert"])
+def test_a_request_action_is_post_only(world, action):
+    """GET and HEAD on a request's action are 405 with Allow: POST, not a read of a request named "x:approve"; the read of
+    a request still needs the sign-in, and its metric label is still the document's path."""
+    from cmapi.core.observability import HTTP_REQUESTS
+
+    client, *_ = world
+    for method in ("GET", "HEAD"):
+        response = client.request(method, f"/api/v1/requests/req-x:{action}")
+        assert (response.status_code, response.headers.get("allow")) == (405, "POST"), (method, action)
+    counted = HTTP_REQUESTS.labels("HEAD", "/api/v1/requests/{request_id}", "401")
+    before = counted._value.get()
+    assert client.head("/api/v1/requests/req-x").status_code == 401
+    assert counted._value.get() == before + 1
+    assert "/api/v1/requests/{request_id}" in client.app.openapi()["paths"]
+
+
+def test_a_refused_export_is_refused_before_its_audit_and_its_200(world, monkeypatch):
+    """An unknown state (422) or sort (400) is refused before the export is audited, and the sort before the stream's 200:
+    it was read only while the CSV was written, after the status had gone."""
+    import cmapi.plugins.quotas as quotas
+    from cmapi.core.db.repo import AuditRepo
+    from fastapi.testclient import TestClient
+
+    client, ctx, *_, keys = world
+    monkeypatch.setattr(quotas, "quota_rows", lambda c, who: [])
+    c, headers = TestClient(client.app, raise_server_exceptions=False), auth(keys, "ola", **OLA)
+    for query, status in (("state=bogus", 422), ("sort=bogus", 400)):
+        for method in ("GET", "HEAD"):
+            assert c.request(method, f"/api/v1/quotas:export?{query}", headers=headers).status_code == status, (method, query)
+    with ctx.db.session() as s:
+        assert not [e for e in AuditRepo(s).recent() if e.action == "quotas.export"]

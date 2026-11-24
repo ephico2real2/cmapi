@@ -12,13 +12,16 @@ from typing import Any, Mapping
 
 import yaml
 from fastapi import Depends, FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import Headers
+from starlette.exceptions import HTTPException
 from starlette.requests import ClientDisconnect
+from starlette.routing import Match
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from cmapi import __version__
@@ -103,7 +106,7 @@ class UnhandledToProblemMiddleware:
             if disconnected:
                 return
             request = Request(scope)
-            log.exception("unhandled", method=request.method, route=getattr(scope.get("route"), "path", "unmatched"))
+            log.exception("unhandled", method=request.method, route=getattr(scope.get("route"), "path_format", "unmatched"))
             if started:
                 raise  # A stream/background failure cannot replace a status already sent.
             response = self.problem_response(Problem(500, "internal-error", PROBLEMS["internal-error"][1]))
@@ -224,6 +227,22 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     @app.exception_handler(ValueError)
     async def value_error_handler(_: Request, exc: ValueError) -> Response:
         return problem_response(Problem.unprocessable("validation-failed", str(exc)[:300]))
+
+    @app.exception_handler(405)
+    async def method_not_allowed(request: Request, exc: HTTPException) -> Response:
+        """RFC 9110, section 15.5.6: a 405's Allow lists "the target resource's currently supported methods". Starlette
+        0.41.3 names the methods of the first route that matches the path only (routing.py:737 and :281), and cmapi gives
+        each method of a path its own route, so PUT on a namespace said "GET, HEAD" without PATCH and DELETE. StaticFiles
+        sends none (staticfiles.py:113); it serves GET and HEAD."""
+        response = await http_exception_handler(request, exc)
+        if isinstance(request.scope.get("endpoint"), StaticFiles):
+            response.headers["Allow"] = "GET, HEAD"
+        else:
+            methods = {m for r in app.routes if isinstance(r, APIRoute) and r.matches(request.scope)[0] == Match.PARTIAL
+                       for m in r.methods}
+            if methods:
+                response.headers["Allow"] = ", ".join(sorted(methods))
+        return response
 
     _add_problem_pages(app, ctx, problem_base)
     if docs_enabled:

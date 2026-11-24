@@ -531,29 +531,29 @@
   "        # part of the public contract, so it stays in the row and out of the response.",
   "        \"approval\": approval_view(req, ledger), \"requester\": {k: v for k, v in row.requester.items() if k != \"submittedBySub\"},"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|138-139": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|141-142": [
   "    app.include_router(health.router)",
   "    app.include_router(health.version_router)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|141-143": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|144-146": [
   "    authed_routers = (me.router, requests.router, admin.router, *cfg.plugins.routers())",
   "    for r in authed_routers:",
   "        app.include_router(r, dependencies=[Depends(authed)])"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|176-177": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|179-180": [
   "        if s.metrics_port:",
   "            start_metrics(s.metrics_port, ctx.cfg.name, s.component)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|206-208": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|209-211": [
   "    @app.exception_handler(Problem)",
   "    async def problem_handler(_: Request, exc: Problem) -> Response:",
   "        return problem_response(exc, dict(unauthenticated_headers(exc)))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|229-230": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|248-249": [
   "    if docs_enabled:",
   "        _add_docs(app, ctx, docs_cfg, authed, problem_response)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|250-264": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|269-283": [
   "def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None:",
   "    \"\"\"/problems and /problems/{code}: what the `type` of a problem resolves to (RFC 9457, section 4; #182).",
   "",
@@ -570,10 +570,10 @@
   "            raise Problem(404, \"object-not-found\", \"No such problem type. /problems lists each one\")",
   "        return HTMLResponse(problem_html(code, problem_base, ctx.cfg.name))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|275-275": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|294-294": [
   "    guard = [] if docs_cfg.get(\"public\", True) else [Depends(authed)]"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|325-327": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|344-346": [
   "    @app.get(\"/docs/oauth2-redirect\", include_in_schema=False)",
   "    def docs_redirect() -> Response:",
   "        return get_swagger_ui_oauth2_redirect_html()"
@@ -629,35 +629,35 @@
   "            \"instance\": c.cfg.name, \"operator\": roles.is_operator(who),",
   "            \"operatorEnvironments\": roles.operator_environments(who)}"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|104-104": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|103-103": [
   "        c.cfg.roles.require(who, \"requests:read\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|118-118": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|116-116": [
   "        c.cfg.roles.require(who, \"requests:read\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|139-139": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|130-130": [
+  "        c.cfg.roles.require(who, \"requests:read\", row.env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|151-151": [
   "        c.cfg.roles.require(who, \"requests:approve\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|170-170": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|182-182": [
   "        c.cfg.roles.require(who, \"requests:reject\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|188-188": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|200-200": [
   "        c.cfg.roles.require(who, \"requests:cancel\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|193-193": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|205-205": [
   "                  actor_is_operator=c.cfg.roles.is_operator(who, row.env))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|213-213": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|225-225": [
   "        c.cfg.roles.require(who, \"requests:retry\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|245-245": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|257-257": [
   "        c.cfg.roles.require(who, \"requests:retry\", row.env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|28-28": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|29-29": [
   "    envs = c.cfg.roles.environments(who, \"requests:read\")"
- ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|91-91": [
-  "        c.cfg.roles.require(who, \"requests:read\", row.env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/tools/realm_sync.py|260-261": [
   "    if cfg.get(\"usersFilter\"):",
@@ -866,7 +866,7 @@
  "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|66-66": [
   "            groups=frozenset(claims.get(\"groups\", [])),"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|136-137": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|139-140": [
   "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
   "                                         \"scopes\": \"openid\"})"
  ],

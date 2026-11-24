@@ -128,7 +128,7 @@ request with a bearer token
 
 ### Step 1: the token
 
-The core routers and the plugin routers have the token check as a dependency (`cmapi/src/cmapi/main.py:141-143`). These routes answer without a token. `/healthz`, `/readyz` and `/api/v1/version` come from the health routers, which have no such dependency (`cmapi/src/cmapi/main.py:138-139`). `/problems` and `/problems/{code}` are always public (`cmapi/src/cmapi/main.py:250-264`). `/docs/oauth2-redirect` has no guard, and exists unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:325-327`). The seven other docs paths are public unless `docs.public` is `false` (`cmapi/src/cmapi/main.py:275`). They are `/docs`, `/redoc`, `/openapi.json`, `/openapi.yaml`, `/docs/changelog`, `/docs/redoc-start.js` and `/docs/swagger.css`. They exist unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:229-230`). `cmapi/tests/service/test_review_c_authz.py:15-22` lists these routes as `PUBLIC`, with the `HEAD` of each (#605), and every other route must answer 401 with no token. `/metrics` is not an API route: it is served on its own port (`cmapi/src/cmapi/main.py:176-177`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:150-186`). It verifies the token offline against the signing keys of the realm.
+The core routers and the plugin routers have the token check as a dependency (`cmapi/src/cmapi/main.py:144-146`). These routes answer without a token. `/healthz`, `/readyz` and `/api/v1/version` come from the health routers, which have no such dependency (`cmapi/src/cmapi/main.py:141-142`). `/problems` and `/problems/{code}` are always public (`cmapi/src/cmapi/main.py:269-283`). `/docs/oauth2-redirect` has no guard, and exists unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:344-346`). The seven other docs paths are public unless `docs.public` is `false` (`cmapi/src/cmapi/main.py:294`). They are `/docs`, `/redoc`, `/openapi.json`, `/openapi.yaml`, `/docs/changelog`, `/docs/redoc-start.js` and `/docs/swagger.css`. They exist unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:248-249`). `cmapi/tests/service/test_review_c_authz.py:15-22` lists these routes as `PUBLIC`, with the `HEAD` of each (#605), and every other route must answer 401 with no token. `/metrics` is not an API route: it is served on its own port (`cmapi/src/cmapi/main.py:179-180`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:150-186`). It verifies the token offline against the signing keys of the realm.
 
 | Check | Source | Refusal |
 |---|---|---|
@@ -143,7 +143,7 @@ The core routers and the plugin routers have the token check as a dependency (`c
 | `iss` is the issuer of the instance | `auth.py:173-175` | 401 `unauthenticated`, "Token issuer is not trusted" |
 | The token is an access token: its JOSE header `typ` is `at+jwt` or `application/at+jwt` (RFC 9068, section 4), and its claim `typ` is `Bearer` or absent. With `auth.acceptLegacyTokenType: true` in `instance.yaml`, the header `JWT` with the claim `Bearer` passes also | `auth.py:180-185` | 401 `unauthenticated`, "Token is not an access token" |
 
-Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:211-212`, `main.py:206-208`). The tests are in `cmapi/tests/service/test_auth.py`.
+Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:211-212`, `main.py:209-211`). The tests are in `cmapi/tests/service/test_auth.py`.
 
 ### Step 2: the claims
 
@@ -176,10 +176,10 @@ A role can have a list of environments. The route checks the permission again wh
 |---|---|---|
 | Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:250`, `:473` |
 | Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:193`, `:232` |
-| Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:91`, `:104`, `:118` |
-| Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:139`, `:170`, `:188`, `:213`, `:245` |
+| Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:103`, `:116`, `:130` |
+| Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:151`, `:182`, `:200`, `:225`, `:257` |
 | Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:135` |
-| List requests | Only the environments where the caller has `requests:read` | `requests.py:28` |
+| List requests | Only the environments where the caller has `requests:read` | `requests.py:29` |
 | List quotas | Only the environments where the caller has `objects:read` | `cmapi/src/cmapi/plugins/quotas/__init__.py:49` |
 | List expirations | Only the environments where the caller has `objects:read`; where expiration is off, only a namespace that kept a date (#479) | `cmapi/src/cmapi/plugins/expiration/router.py:117` |
 | List policy results (#302) | Only the clusters of the environments where the caller has `objects:read`; of those, only the results on namespaces that cmapi manages, of the bundle's policies that are on the cluster. The rest is counted in `hidden`, with no name | `cmapi/src/cmapi/plugins/policies/router.py`, `results` |
@@ -196,7 +196,7 @@ An approval has more checks than the permission (`approvals.py:321-348`). They a
 
 | Check | Refusal |
 |---|---|
-| The caller has `requests:approve` in the environment of the request (`requests.py:139`) | 403 `environment-forbidden` |
+| The caller has `requests:approve` in the environment of the request (`requests.py:151`) | 403 `environment-forbidden` |
 | The caller has not approved this request before | 409 `already-approved` |
 | The caller did not file the request for another person, and does not own the client that filed it | 409 `self-approval`, "The operation starter or client owner cannot approve" |
 | The caller is not the requester, unless the rule has `selfApproval: true` | 409 `self-approval`, "Requesters cannot approve their own request here" |
@@ -359,7 +359,7 @@ The code `forbidden` has two more causes. Each is a refusal of the code, not of 
 
 | Cause | Detail | Source |
 |---|---|---|
-| A caller cancels a request that is not theirs and does not hold `namespaces:protect` in its environment | "Only the requester or an operator can cancel" | `cmapi/src/cmapi/core/lifecycle.py:124`, `cmapi/src/cmapi/routers/requests.py:193` |
+| A caller cancels a request that is not theirs and does not hold `namespaces:protect` in its environment | "Only the requester or an operator can cancel" | `cmapi/src/cmapi/core/lifecycle.py:124`, `cmapi/src/cmapi/routers/requests.py:205` |
 | A write sets or removes an operator-only label or annotation (`cmapi.net/protected`, `do-not-delete`) and the caller does not hold `namespaces:protect` in the environment | "Needs namespaces:protect in <environment>. Keys: <keys>." (the cluster's environment, #532) | `cmapi/src/cmapi/core/metadata.py:1332` |
 
 The ledger also refuses a relay client without `approvals:relay` with this code ("Relay client lacks approvals:relay", `cmapi/src/cmapi/core/approvals.py:331`), but no route can reach it: the approve route in `routers/requests.py` passes no relay to `ApprovalLedger.approve` (see "What is not built").

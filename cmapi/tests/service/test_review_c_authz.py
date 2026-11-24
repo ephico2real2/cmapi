@@ -38,7 +38,7 @@ def table(app):
     for r in app.routes:
         if isinstance(r, APIRoute):
             for m in r.methods:
-                out.append((m, r.path, (r.openapi_extra or {}).get("x-cmapi-permission"), closure_permission(r), r))
+                out.append((m, r.path_format, (r.openapi_extra or {}).get("x-cmapi-permission"), closure_permission(r), r))
     return out
 
 
