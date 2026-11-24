@@ -81,7 +81,7 @@ Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin ca
 
 ### Which route needs which permission
 
-Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:308-313`). A `HEAD` is answered by the route of its `GET`, so it needs the same permission and gets the same 401 or 403 (#605).
+Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:311-316`). A `HEAD` is answered by the route of its `GET`, so it needs the same permission and gets the same 401 or 403 (#605).
 
 | Permission | Routes |
 |---|---|
@@ -128,7 +128,7 @@ request with a bearer token
 
 ### Step 1: the token
 
-The core routers and the plugin routers have the token check as a dependency (`cmapi/src/cmapi/main.py:144-146`). These routes answer without a token. `/healthz`, `/readyz` and `/api/v1/version` come from the health routers, which have no such dependency (`cmapi/src/cmapi/main.py:141-142`). `/problems` and `/problems/{code}` are always public (`cmapi/src/cmapi/main.py:269-283`). `/docs/oauth2-redirect` has no guard, and exists unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:344-346`). The seven other docs paths are public unless `docs.public` is `false` (`cmapi/src/cmapi/main.py:294`). They are `/docs`, `/redoc`, `/openapi.json`, `/openapi.yaml`, `/docs/changelog`, `/docs/redoc-start.js` and `/docs/swagger.css`. They exist unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:248-249`). `cmapi/tests/service/test_review_c_authz.py:15-22` lists these routes as `PUBLIC`, with the `HEAD` of each (#605), and every other route must answer 401 with no token. `/metrics` is not an API route: it is served on its own port (`cmapi/src/cmapi/main.py:179-180`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:150-186`). It verifies the token offline against the signing keys of the realm.
+The core routers and the plugin routers have the token check as a dependency (`cmapi/src/cmapi/main.py:144-146`). These routes answer without a token. `/healthz`, `/readyz` and `/api/v1/version` come from the health routers, which have no such dependency (`cmapi/src/cmapi/main.py:141-142`). `/problems` and `/problems/{code}` are always public (`cmapi/src/cmapi/main.py:318-332`). `/docs/oauth2-redirect` has no guard, and exists unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:393-395`). The seven other docs paths are public unless `docs.public` is `false` (`cmapi/src/cmapi/main.py:343`). They are `/docs`, `/redoc`, `/openapi.json`, `/openapi.yaml`, `/docs/changelog`, `/docs/redoc-start.js` and `/docs/swagger.css`. They exist unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:297-298`). `cmapi/tests/service/test_review_c_authz.py:15-22` lists these routes as `PUBLIC`, with the `HEAD` of each (#605), and every other route must answer 401 with no token. `/metrics` is not an API route: it is served on its own port (`cmapi/src/cmapi/main.py:179-180`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:150-186`). It verifies the token offline against the signing keys of the realm.
 
 | Check | Source | Refusal |
 |---|---|---|
@@ -143,7 +143,7 @@ The core routers and the plugin routers have the token check as a dependency (`c
 | `iss` is the issuer of the instance | `auth.py:173-175` | 401 `unauthenticated`, "Token issuer is not trusted" |
 | The token is an access token: its JOSE header `typ` is `at+jwt` or `application/at+jwt` (RFC 9068, section 4), and its claim `typ` is `Bearer` or absent. With `auth.acceptLegacyTokenType: true` in `instance.yaml`, the header `JWT` with the claim `Bearer` passes also | `auth.py:180-185` | 401 `unauthenticated`, "Token is not an access token" |
 
-Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:211-212`, `main.py:209-211`). The tests are in `cmapi/tests/service/test_auth.py`.
+Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:211-212`, `main.py:213-215`). The tests are in `cmapi/tests/service/test_auth.py`.
 
 ### Step 2: the claims
 
@@ -309,9 +309,9 @@ A tool signs in with the client credentials grant. It is a service client, or an
 
 | Case | What cmapi does | Source |
 |---|---|---|
-| The tool sends no `onBehalfOf` | The tool is the requester. The request is recorded as automated. If `identity.requireOnBehalfOf` is `true`, the tool must name a person, and without one the answer is 422 `on-behalf-of-required` | `checks.py:83-88`; `problem_docs.py:62` |
+| The tool sends no `onBehalfOf` | The tool is the requester. The request is recorded as automated. If `identity.requireOnBehalfOf` is `true`, the tool must name a person, and without one the answer is 422 `on-behalf-of-required` | `checks.py:83-88`; `problem_docs.py:66` |
 | The tool sends `onBehalfOf`: a username or an employee ID | cmapi looks the value up in the directory. The person must be enabled, or the answer is 422 `unknown-user`. The person is recorded as the requester and the tool as the caller. The request is recorded as automated | `checks.py:89-95` |
-| A person sends `onBehalfOf` | 422 `on-behalf-of-not-allowed` | `checks.py:74-78`; `problem_docs.py:61` |
+| A person sends `onBehalfOf` | 422 `on-behalf-of-not-allowed` | `checks.py:74-78`; `problem_docs.py:65` |
 
 Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:528`, `approvals.py:339-340`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:232-234`, `approvals.py:337-338`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
 

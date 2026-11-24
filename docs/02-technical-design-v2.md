@@ -133,23 +133,22 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | One open change per object | A second write to an object with an open request returns 409 with a link to it |
 | Patch format | application/merge-patch+json; null removes a key |
 
-**Errors.** RFC 9457 problem details (application/problem+json), always with clusterId and requestId:
+**Errors.** RFC 9457 problem details (application/problem+json): `type`, `title`, `status`, `detail` and `code`, with `errors` and the fields of the problem type where it has them (`cmapi/src/cmapi/core/errors.py`, `Problem.body`). The ID of the request is the `X-Request-Id` header of the answer. A refusal of the router comes before cmapi knows a cluster or a change request; an unknown path on an instance with the default type base answers:
 
 ```json
 {
-  "type": "https://cmapi.ephico2real.com/problems/policy-violation",
-  "title": "Grant not allowed",
-  "status": 422,
-  "detail": "ClusterRole cluster-admin is not on the ServiceAccount allowlist",
-  "clusterId": "OCP_GF1",
-  "requestId": "req-20261103-7f3a",
-  "errors": [{"field": "roleRef.name", "code": "not_allowlisted"}]
+  "type": "https://cmapi.ephico2real.com/problems/not-found",
+  "title": "not found",
+  "status": 404,
+  "detail": "No resource of this API has this path",
+  "code": "not-found"
 }
 ```
 
 | Problem type | Status | When |
 | --- | --- | --- |
-| validation-failed | 422 | Schema, name or label rules fail |
+| validation-failed | 422 | Schema, name or label rules fail. A body that the JSON decoder cannot read is this problem with `json_invalid`, with or without a token: one that does not parse, bytes that are not Unicode text, nesting deeper than the decoder goes, or an integer longer than 4300 digits (#646). The decoder reads UTF-16 and UTF-32 too, which RFC 8259 allows a parser (section 9); a client sends UTF-8 (section 8.1) |
+| bad-request | 400 | FastAPI or Starlette refused the request itself before a route read it, for example a form with too many fields; `detail` is the framework's (#646) |
 | policy-violation | 422 | Allowlist, subject rule, reserved prefix, limits below requests |
 | capacity-exceeded | 422 | Requested quota does not fit the cluster's headroom (capacity check in the plan) |
 | unauthenticated | 401 | No or invalid token |
@@ -163,11 +162,13 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | capacity-service-unavailable | 503 | cmapi-capacity cannot be reached or its circuit is open; Retry-After set. Placement and creates are unaffected |
 | cluster-not-found | 404 | clusterId not in the registry |
 | object-not-found | 404 | Live object missing |
+| not-found | 404 | No route and no file of the instance has the path, under `/static` too: the router's own 404, before any route runs (#644) |
+| method-not-allowed | 405 | The path does not take the method. `Allow` lists every method of the path, also on a HEAD, which has no content (#634, #644) |
 | change-pending | 409 | An open request already targets this object |
 | precondition-required / failed | 428 / 412 | Missing If-Match, or `If-Match: *` (428); no strong tag it lists is the current ETag (412). A conditional read answers 412 too, in the order of RFC 9110, section 13.2.2: an If-Match that is not `*` and lists no strong tag equal to the answer's ETag, and, on a file under `/static/swagger` or `/static/redoc`, an If-Unmodified-Since earlier than its Last-Modified (`not_modified`, `cmapi/src/cmapi/core/etag.py`; #590, #604, #619) |
 | cluster-unreachable | 503 | Cluster API down; Retry-After set |
 | git-unavailable | 502 | Git host error; the request row is marked failed |
-| internal-error | 500 | An exception that no handler takes. The answer has no text of the exception; the log line `unhandled` has it, with the X-Request-Id of the answer. The answer has the CORS headers, so the portal shows the problem and not a network error |
+| internal-error | 500 | An exception that no handler takes. The answer has no text of the exception; the log line `unhandled` has it, with the X-Request-Id of the answer. The answer has the CORS headers, so the portal shows the problem and not a network error. A refusal of FastAPI or Starlette that is the service's fault is this problem too, with the log line `framework_refusal`, which names the status and the cause: a file under `/static` that the process cannot read (Starlette's 401), a body that could not be read for a reason other than its JSON, or any status other than 400, 404 and 405. A client that goes away while it sends the body gets no answer (#646) |
 
 **Problem type URIs.** The type of a problem is a base and the code of the problem. The base is problems.typeBase in instance.yaml, and its default is https://cmapi.ephico2real.com/problems/. An organisation uses one base for all its instances, because the type is the identifier that a client compares (RFC 9457, section 3.1.1). Each instance serves GET /problems and GET /problems/{code} as HTML, with no token: the type, the title, the status, an example and what the caller does. So the type resolves when the host of the base points at an instance. On CRC the base is the Route of the API.
 
