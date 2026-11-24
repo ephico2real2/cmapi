@@ -34,6 +34,10 @@ def _worse(a: CheckState | None, b: CheckState) -> CheckState:
     return max(a or b, b, key=("success", "pending", "failure").index)
 
 
+# "This API has an upper limit of 1,000 files for a directory" (REST docs, Repository contents): a listing this long may be cut.
+CONTENTS_DIRECTORY_LIMIT = 1000
+
+
 class GitHubProvider(HostGitProvider):
     name = "github"
     MAX_PAGES = 100      # 10,000 entries: past this a host is not answering a list, and a partial list must not read as complete
@@ -72,11 +76,37 @@ class GitHubProvider(HostGitProvider):
         files: dict[str, str] = {}
         if r.status_code == 200:
             entries = r.json()
+            if isinstance(entries, list) and len(entries) >= CONTENTS_DIRECTORY_LIMIT:
+                return self._tree_manifests(path, head), head
             for e in (entries if isinstance(entries, list) else [entries]):
                 if e.get("type") == "file" and e["name"].endswith(".yaml"):
                     f = self._call("read_file", "GET", f"{self._repo()}/contents/{e['path']}", params={"ref": head})
                     files[e["path"]] = base64.b64decode(f.json()["content"]).decode()
         return files, head
+
+    def _tree_manifests(self, path: str, head: str) -> dict[str, str]:
+        """read_folder past the Contents cap: the folder's own tree, its regular .yaml blobs, as workspace._folder reads them.
+        "This API has an upper limit of 1,000 files for a directory. If you need to retrieve more files, use the Git Trees API"
+        (REST docs, Repository contents, 2026-11)."""
+        directory = path.strip("/")
+        c = self._call("read_folder", "GET", f"{self._repo()}/git/commits/{head}")
+        if c.status_code != 200:
+            raise GitUnavailable(f"read commit {head[:8]}: HTTP {c.status_code}")
+        tree = c.json()["tree"]["sha"]
+        for part in filter(None, directory.split("/")):
+            entry = next((e for e in self._tree(tree) if e["path"] == part), None)
+            if entry is None or entry["type"] != "tree":
+                return {}
+            tree = entry["sha"]
+        prefix = f"{directory}/" if directory else ""
+        files: dict[str, str] = {}
+        for e in self._tree(tree):
+            if e["type"] == "blob" and e["mode"] in ("100644", "100755") and e["path"].endswith(".yaml"):
+                b = self._call("read_file", "GET", f"{self._repo()}/git/blobs/{e['sha']}")
+                if b.status_code != 200:
+                    raise GitUnavailable(f"read blob {e['sha'][:8]}: HTTP {b.status_code}")
+                files[prefix + e["path"]] = base64.b64decode(b.json()["content"]).decode()
+        return files
 
     def _tree(self, oid: str, *, recursive: bool = False) -> list[dict[str, Any]]:
         """GET git/trees/{oid}: the entries of one tree, or of every tree under it. "If truncated is true in the response then
