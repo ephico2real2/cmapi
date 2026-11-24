@@ -140,3 +140,12 @@ accepted, and one gap in finding 2's fix is closed here.
   create one.
 - LDAP federation and the test-user step of realm-sync were off in the podman run; they build their paths through the same
   `Realm.call`.
+
+## The coordinator's rulings and run
+
+- **Rulings (Opus 5.5).** The coordinator accepts reviewer 1's findings 1 to 3 (Fable 5.2) and reviewer 2's R2-1 (Opus 5.5 high). The issuer `.../realms/x?y=/realms/cmapi` sent the client secret to another realm. Both reviewers' recommendations stand on the two open decisions:
+  - the issuer is parsed only when the Keycloak directory is on;
+  - `realm_sync` keeps stripping the trailing `/`.
+- **How the change was put together.** Reviewer 2's patch was applied with `patch -p1 -F0`, and `main` was merged in. The coordinator read the two moved `realm_sync` citations before writing them.
+- **The full service suite.** Database `cmapi_coord_659`, on the old pins, on the branch merged with `main` `b97ebb5`. It ran from 2026-11-24T20:48:33Z to 21:34:06Z: **2826 passed in 2718.41 s** (`coord-suite.txt`).
+- **After merging #654 (FastAPI 0.162.2, Starlette 1.10.0).** The tests were run on the new pins: the identity, realm-sync, authz, HEAD and API-standard files gave **324 passed** (`merged-newpins.txt`). `doc-citations.py --check` reports 0 problems.
