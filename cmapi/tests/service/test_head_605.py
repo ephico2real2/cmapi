@@ -1,4 +1,4 @@
-"""HEAD on every GET route (#605): main.py, _head_for_each_get; core/docs.py, build_openapi; core/cors.py, METHODS.
+"""HEAD on every GET route (#605): main.py, _serve_head_with_get; core/docs.py, build_openapi; core/cors.py, METHODS.
 
 RFC 9110 (https://www.rfc-editor.org/rfc/rfc9110.txt, read 2026-11-23), section 9.1: "All general-purpose servers MUST
 support the methods GET and HEAD." Section 9.3.2: "The HEAD method is identical to GET except that the server MUST NOT send
@@ -31,7 +31,7 @@ def _credentials(path: str, keys) -> dict[str, str]:
 def _same_answer(client, path: str, headers) -> tuple[int, dict[str, str | None]]:
     """GET and HEAD of `path` with the same request headers: HEAD has GET's status and SAME headers, and no content."""
     get, head = client.get(path, headers=headers), client.head(path, headers=headers)
-    assert head.status_code == get.status_code, (path, headers, get.status_code, head.status_code)
+    assert head.status_code == get.status_code, (path, get.status_code, head.status_code)    # never the token
     assert head.content == b"", (path, head.content[:200])
     seen = {h: get.headers.get(h) for h in SAME}
     assert {h: head.headers.get(h) for h in SAME} == seen, (path, get.status_code)
@@ -93,3 +93,61 @@ def test_a_head_from_the_listed_portal_passes_its_preflight(test_config, tmp_pat
         assert "HEAD" in r.headers["access-control-allow-methods"].split(", ")
         h = client.head("/api/v1/capacity", headers={"Origin": PORTAL, **auth(keys, "ola", **OLA)})
         assert h.status_code == 200 and h.headers["access-control-allow-origin"] == PORTAL
+
+
+def test_status_mismatch_keeps_authorization_out_of_failure():
+    """A failed comparison names the path and the two statuses, never the request headers: they hold the bearer token."""
+    from types import SimpleNamespace
+
+    client = SimpleNamespace(get=lambda *a, **kw: SimpleNamespace(status_code=401),
+                             head=lambda *a, **kw: SimpleNamespace(status_code=405))
+    with pytest.raises(AssertionError) as error:
+        _same_answer(client, "/api/v1/tiers", {"Authorization": "Bearer test-marker"})
+    assert "test-marker" not in str(error.value)
+
+
+def test_head_enforces_each_documented_read_permission(world):
+    """A signed-in caller with no role gets 403 from HEAD on every GET that declares a permission, as from the GET. An
+    anonymous HEAD stops at the sign-in (test_every_get_route_answers_head_as_its_get), before most permission checks."""
+    client, *_, keys = world
+    headers = auth(keys, "nobody", roles=[], groups=[])
+    routes = [r for r in client.app.routes if isinstance(r, APIRoute) and "GET" in r.methods
+              and (r.openapi_extra or {}).get("x-cmapi-permission")]
+    assert len(routes) > 20, [r.path for r in routes]
+    for route in routes:
+        path = re.sub(r"\{[^}]+\}", "x", route.path)
+        for method in ("GET", "HEAD"):
+            response = client.request(method, path, headers=headers)
+            assert response.status_code == 403, (method, path, response.status_code)
+
+
+def test_a_head_of_the_export_exports_nothing(world, monkeypatch):
+    """docs/01, "Audit": the audit log records exports. A HEAD sends no rows (RFC 9110, section 9.3.2), so it is not an
+    export: no quotas.export event, and no CSV made to be dropped (9.3.2: "preferable to generating and discarding the
+    content"). Its headers are the GET's, with no Content-Length: the GET streams (section 8.6). The GET still writes one."""
+    import cmapi.plugins.quotas as quotas
+    from cmapi.core.db.repo import AuditRepo
+
+    client, ctx, *_, keys = world
+    made, export_csv = [], ctx.lister.export_csv
+
+    def counted(*args):
+        for line in export_csv(*args):
+            made.append(line)
+            yield line
+
+    monkeypatch.setattr(ctx.lister, "export_csv", counted)
+    monkeypatch.setattr(quotas, "quota_rows", lambda c, who: [])
+
+    def exports() -> int:
+        with ctx.db.session() as s:
+            return sum(1 for e in AuditRepo(s).recent() if e.action == "quotas.export")
+
+    path, headers = "/api/v1/quotas:export?sort=name", auth(keys, "ola", **OLA)
+    head = client.head(path, headers=headers)
+    assert (head.status_code, head.content, exports(), made) == (200, b"", 0, [])
+    get = client.get(path, headers=headers)
+    assert get.status_code == 200 and get.text.startswith("name,") and exports() == 1 and len(made) == 1     # the header
+    seen = ("content-type", "content-disposition", "content-length", "etag", "cache-control")
+    assert {h: head.headers.get(h) for h in seen} == {h: get.headers.get(h) for h in seen}
+    assert head.headers.get("content-length") is None

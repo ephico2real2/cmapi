@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import Depends, Query
+from fastapi import Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
 from cmapi import __version__
@@ -134,14 +134,20 @@ def suggest(q: str = Query(default="", examples=["pay"],
              returns="Every row of the quota list with the same filters, in the same order, as CSV: at most 10,000 "
                      "rows.",
              permission="objects:read", media_type="text/csv")
-def export(q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team: Team = None, tier: Tier = None,
-           state: State = None, sort: Sort = "name",
+def export(request: Request, q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team: Team = None,
+           tier: Tier = None, state: State = None, sort: Sort = "name",
            who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)):
     """Every row matching the same filters in the same order, capped at 10,000 rows, written to the audit log."""
+    # A HEAD (main.py, _serve_head_with_get, #605) sends no rows, so it exports nothing: no audit event, and no CSV made to be
+    # dropped. RFC 9110, section 9.3.2: HEAD gets the metadata "without transferring its representation data", and skipping
+    # "generating and discarding the content for a HEAD request" is "preferable". The docstring is the API document's text.
+    head = request.method == "HEAD"
     rows = [{**r, "cpuUsed": r["cpu"][0], "cpuHard": r["cpu"][1], "memoryUsed": r["memory"][0], "memoryHard": r["memory"][1],
              "podsUsed": r["pods"][0], "podsHard": r["pods"][1]} for r in quota_rows(c, who)]
-    with c.db.session() as s:
-        AuditRepo(s).record(who, "quotas.export", "csv", {"rows": len(rows), "q": q, "env": env, "clusterId": cluster_id})
+    if not head:
+        with c.db.session() as s:
+            AuditRepo(s).record(who, "quotas.export", "csv", {"rows": len(rows), "q": q, "env": env, "clusterId": cluster_id})
     query = _query(q, env, cluster_id, team, tier, sort, 50, None, None, state)
-    return StreamingResponse(c.lister.export_csv(_in_state(rows, state), query, COLUMNS), media_type="text/csv",
+    lines = c.lister.export_csv(_in_state(rows, state), query, COLUMNS)
+    return StreamingResponse(iter(()) if head else lines, media_type="text/csv",
                              headers={"Content-Disposition": 'attachment; filename="quotas.csv"'})
