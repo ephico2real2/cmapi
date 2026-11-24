@@ -2,9 +2,15 @@
 worker (expand then contract, so old and new replicas run together; serialised by the lock in migrations/env.py).
 
 A database already past this code's history is not an error: migrations are expand-only, /readyz treats it as past,
-and a rollback of the image must be able to start."""
+and a rollback of the image must be able to start.
+
+Each run writes one JSON event `migrated`, as the api's and the worker's are written (#614): the revision it started from,
+each revision it applied in order with its seconds, the seconds it waited for the other migrator's advisory lock, the
+seconds of the one transaction (the table locks are held until its commit), and the run's total. A run that fails writes
+`migrate_failed` before its traceback. docs/12, section 4."""
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import time
@@ -17,6 +23,7 @@ from sqlalchemy import create_engine, pool
 from sqlalchemy.exc import OperationalError
 
 from cmapi.core.db import sqlalchemy_url
+from cmapi.core.observability import configure_logging, log
 from cmapi.settings import settings
 
 
@@ -49,12 +56,43 @@ def _wait_for_database(url: str, seconds: float) -> None:
         except OperationalError as exc:
             if time.monotonic() >= deadline:
                 raise
-            print(f"waiting for the database: {type(exc.orig).__name__}", flush=True)
+            log.info("waiting_for_database", error=type(exc.orig).__name__)
             time.sleep(min(5.0, seconds))
+
+
+def _log_run(direction: str, target: str, measured: dict, started: float) -> None:
+    """The run's one `migrated` event, from what migrations/env.py measured. Seconds are rounded to the millisecond, and
+    the total runs from after the wait for the database to the end of the command."""
+    steps = measured["steps"]
+    revision = measured["from_revision"]
+    if steps:
+        heads = steps[-1]["heads"]                  # one head: the history is linear; none after a downgrade to base
+        revision = heads[0] if heads else None
+    log.info("migrated", direction=direction, target=target, from_revision=measured["from_revision"], revision=revision,
+             applied=[{"revision": s["revision"], "seconds": round(s["seconds"], 3)} for s in steps],
+             lock_wait_seconds=round(measured["lock_wait_seconds"], 3),
+             transaction_seconds=round(measured["transaction_seconds"], 3),
+             total_seconds=round(time.perf_counter() - started, 3))
 
 
 def run(argv: list[str] | None = None) -> None:
     args = argv if argv is not None else sys.argv[1:]
+    # INFO, not CMAPI_LOG_LEVEL: a run's result is its one line, and it printed whatever the level before #614. The level
+    # set for the api's container, where an operator may run cmapi-migrate by hand, must not hide it.
+    configure_logging("INFO")
+    # The `migrated` event carries what Alembic's INFO lines say ("Running upgrade 0007 -> 0008"), with the times; its
+    # plain-text lines would break the JSON log that every other cmapi component writes.
+    logging.getLogger("alembic").setLevel(logging.WARNING)
+    try:
+        _migrate(args)
+    except (Exception, SystemExit) as exc:
+        cause = getattr(exc, "orig", exc)           # SQLAlchemy's DBAPIError wraps the driver's error, which has the SQLSTATE
+        # The class and the SQLSTATE only, never the error's text, which this code does not control. The traceback follows.
+        log.error("migrate_failed", error=type(cause).__name__, sqlstate=getattr(cause, "sqlstate", None))
+        raise
+
+
+def _migrate(args: list[str]) -> None:
     if not settings().database_url:
         sys.exit("CMAPI_DATABASE_URL is not set")
     url = os.environ.get("CMAPI_DATABASE_URL") or settings().database_url
@@ -64,15 +102,17 @@ def run(argv: list[str] | None = None) -> None:
     cfg = Config(str(Path(__file__).parent / "alembic.ini"))
     cfg.set_main_option("script_location", str(Path(__file__).parent / "migrations"))
     target = args[0] if args else "head"
+    started = time.perf_counter()
     if args[1:] == ["--downgrade"]:
         command.downgrade(cfg, target)
-    else:
-        ahead = _compatible_future(url)
-        if ahead:
-            print(f"the database is at {ahead}, a later release's revision: nothing to do")
-            return
-        command.upgrade(cfg, target)
-    print(f"migrated to {target}")
+        _log_run("downgrade", target, cfg.attributes["cmapi.run"], started)
+        return
+    ahead = _compatible_future(url)
+    if ahead:
+        log.info("migrate_skipped", revision=ahead, reason="the database is at a later release's revision")
+        return
+    command.upgrade(cfg, target)
+    _log_run("upgrade", target, cfg.attributes["cmapi.run"], started)
 
 
 if __name__ == "__main__":
