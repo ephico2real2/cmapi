@@ -14,6 +14,7 @@ carries it percent-encoded: it is decoded once there and encoded once here (#640
 """
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Callable
 from urllib.parse import quote, unquote, urlencode
@@ -25,6 +26,11 @@ from cmapi.core.identity.directory import DirectoryUnavailable
 Http = Callable[[str, str, dict[str, str], dict[str, str] | None], tuple[int, Any]]
 
 
+# One path segment of a URI that is not empty: no "/", "?" or "#", which end a segment (RFC 3986, section 3.3), no white
+# space, and "%" only as the start of a percent-encoded octet (section 2.1: pct-encoded = "%" HEXDIG HEXDIG).
+_SEGMENT = re.compile(r"(?:[^/?#%\s]|%[0-9A-Fa-f]{2})+")
+
+
 def split_issuer(issuer: str) -> tuple[str, str]:
     """A Keycloak issuer `<base>/realms/<segment>` as (base, realm name).
 
@@ -32,16 +38,32 @@ def split_issuer(issuer: str) -> tuple[str, str]:
     UriBuilder.build, which encodes template values, "%" and "/" included (Jakarta REST UriBuilder). So the segment is a URL
     part, not the name: a realm `cmapi 640` has the issuer `.../realms/cmapi%20640`. It is decoded here, exactly once, and
     realm_segment encodes the name exactly once where it goes back into a path. RFC 3986, section 2.4: "Implementations must
-    not percent-encode or decode the same string more than once". A segment that is not UTF-8 raises rather than naming
-    another realm."""
+    not percent-encode or decode the same string more than once".
+
+    Anything else raises ValueError, which names the issuer, when cmapi starts: a "?" or "#" anywhere, since an issuer has
+    "no query or fragment components" (OpenID Connect Discovery 1.0, section 3), and after the last `/realms/` a trailing
+    "/", a further path, a "%" that starts no encoded octet, octets that are not UTF-8, and the dot-segments "." and "..".
+    None of them is an issuer Keycloak serves, and each would otherwise send requests to a path outside the realm."""
     base, sep, segment = issuer.rpartition("/realms/")
-    if not sep or not segment:
-        raise ValueError(f"not a Keycloak issuer, <base>/realms/<realm>: {issuer!r}")
-    return base, unquote(segment, errors="strict")
+    try:
+        if not sep or "?" in issuer or "#" in issuer or not _SEGMENT.fullmatch(segment):
+            raise ValueError("it is not <base>/realms/<realm> with no query or fragment, the realm one percent-encoded path "
+                             "segment")
+        realm = unquote(segment, errors="strict")           # UnicodeDecodeError is a ValueError
+        realm_segment(realm)                                # refuses "", "." and ".."
+    except ValueError as exc:
+        raise ValueError(f"not a Keycloak issuer, {issuer!r}: {exc}") from exc
+    return base, realm
 
 
 def realm_segment(realm: str) -> str:
-    """A realm name as one URL path segment: every character outside RFC 3986's unreserved set encoded, "/" included."""
+    """A realm name as one URL path segment: every character outside RFC 3986's unreserved set encoded, "/" included.
+
+    "." and ".." have no such form: they are unreserved, so they stay as they are, and a complete segment "." or ".." is a
+    dot-segment, which an HTTP client removes, ".." with the segment before it (RFC 3986, section 5.2.4; httpx does). The
+    request would leave the realm's path, so they raise, and so does an empty name."""
+    if realm in ("", ".", ".."):
+        raise ValueError(f"not a realm name that can be one URL path segment: {realm!r}")
     return quote(realm, safe="")
 
 

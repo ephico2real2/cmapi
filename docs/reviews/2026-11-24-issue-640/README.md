@@ -80,6 +80,59 @@ the API uses, through `build_context` from `instance.yaml`'s issuer, and through
   `tests/core/test_identity_metadata.py`, 21 passed ([`tests-after-fix.txt`](tests-after-fix.txt)). The whole service suite
   was not run here; CI runs it.
 
+## Review by reviewer 1 (Fable 5.2), 2026-11-24
+
+Three findings, each with its fix and tests in this pull request. The sources above were fetched again and every quote
+was found as written; `Urls.java`, `ReservedCharValidator.java` and `RealmManager.java` are byte for byte the same at the
+tags 26.6.0 and 26.6.4.
+
+1. **`realm_sync.main` had no test (Medium).** With `main` put back to `issuer.rsplit("/realms/", 1)` all 28 tests passed,
+   and the Job would then send `cmapi%2520640`, since `Realm` now encodes. `test_realm_sync_main_takes_the_realm_from_the_issuer`
+   runs `main` from its environment against the local server.
+2. **`split_issuer` took what is not an issuer (Low).** `.../realms/cmapi/` gave the realm `cmapi/`, sent as `cmapi%2F`;
+   a further path, a query, a fragment, a space and a `%` that starts no encoded octet were taken the same way, and the
+   error for octets that are not UTF-8 did not name the issuer. The part after the last `/realms/` must now be one path
+   segment (RFC 3986, section 3.3: `segment = *pchar`; section 2.1: `pct-encoded = "%" HEXDIG HEXDIG`), and `build_context`
+   stops with `not a Keycloak issuer, '<the issuer>': <why>` before any request. `realm_sync.main` still drops a `/` at
+   the end of `CMAPI_REALM_ISSUER` first, as before.
+3. **A realm `.` or `..` left the realm's path (Low).** `quote` leaves both, and httpx removes a dot-segment (RFC 3986,
+   section 5.2.4): the realm `..` was sent as `GET /admin/users`. `realm_segment` refuses `.`, `..` and an empty name. Not
+   measured: whether Keycloak can create such a realm; `ReservedCharValidator` does not refuse a dot.
+
+Confirmed, with tests that pass before and after: a token's `iss` is compared with the issuer as `instance.yaml` writes
+it (`.../realms/cmapi%20640` is accepted; `.../realms/cmapi 640`, `.../realms/cmapi%2520640` and `.../realms/caf%c3%a9`
+for `caf%C3%A9` are refused with 401), and the signing keys are read from `/realms/cmapi%20640/protocol/openid-connect/certs`.
+For the realm `cmapi` every request is the same, byte for byte, on `5962830`, on this branch and with these fixes: request
+line, headers and body of eight requests of the directory and of `realm_sync.main`, recorded by a local HTTP server.
+
+The `partition` for `rpartition` mutant also survived the first 28 tests; `test_split_issuer_takes_the_last_realms_segment`
+now covers a Keycloak path that holds `/realms/` itself.
+
+## Review by reviewer 2 (Opus 5.5, high), 2026-11-24
+
+Reviewer 2 fetched the sources again; each quote reviewer 1 relies on is in the source as written. All three findings are
+accepted, and one gap in finding 2's fix is closed here.
+
+- **A query or fragment before the last `/realms/` (Low).** Finding 2's rule looked only at the part after the last
+  `/realms/`. `https://kc.test/realms/not-cmapi?x=/realms/cmapi` and `...not-cmapi#/realms/cmapi`, which
+  `deploy/secrets-test.sh` already treats as bad issuers, were accepted as the realm `cmapi`, and the directory sent its
+  client secret to `POST /realms/not-cmapi`. OpenID Connect Discovery 1.0, section 3, says an issuer has "no query or
+  fragment components", so `split_issuer` now refuses a `?` or `#` anywhere in the issuer.
+- **No working issuer is refused.** Every issuer in `deploy/`, the chart, `examples/` and `docs/` is accepted. So are
+  Keycloak under `http-relative-path` (`/auth/realms/<realm>`) and Keycloak behind a front door with a path prefix (the
+  `hostname` option takes a full URL with a path, <https://www.keycloak.org/server/hostname>). The issuers now refused
+  never matched a Keycloak token's `iss`, because the comparison is exact.
+- **The dot-segment guard stays.** At 26.6.4, `RealmManager.createRealm` and `importRealm` and
+  `RealmAdminResource.updateRealm` check a realm's name for blankness (import), a duplicate and `ReservedCharValidator`'s
+  characters, and none of those checks refuses `.` or `..`. A running Keycloak was not tried. A realm with that name
+  cannot be an issuer anyway:
+  httpx sends `.../realms/../protocol/openid-connect/certs` as `/protocol/openid-connect/certs`. The guard is one line and
+  turns that into an error at start, and it keeps `realm_segment` true to its contract.
+- **Reviewer 1's open decisions.** The issuer is still parsed only when the Keycloak directory is on, because with it off
+  the issuer is used only as written. `realm_sync.main` still drops a trailing `/`: the Job's requests are right with it,
+  and it behaves as it did on `5962830`.
+- The test module's sentence "a name stays one segment whatever it holds" now names its three exceptions.
+
 ## Not tested
 
 - CRC: nothing ran there. CRC's realm is `cmapi`, whose bytes do not change.
