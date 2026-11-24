@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo, utcnow
-from cmapi.core.git.base import IncompleteList
+from cmapi.core.git.base import IncompleteList, NotUtf8
 from cmapi.core.observability import MERGE_CONFLICTS
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.ports import PrRef
@@ -90,7 +90,15 @@ def _pr_checks(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobR
         # pass a head that keeps a path, which a person could then merge by hand (#616).
         cmapi_ok = not ctx.git.list_folder(folder(row.cluster_id, row.namespace), head)[0]
     # The default branch's folder is what this merge changes: a value that it already holds is not refused (#212).
-    base, _ = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
+    try:
+        base, _ = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
+    except NotUtf8 as exc:
+        # Main's folder holds a name or text no plan holds (#626): not the plan's base, as the merge check below would read it.
+        why = f"the folder on {ctx.git.default_branch} is no longer the plan's base: {exc}"
+        repo.move(row, E.BASE_CHANGED, "worker", why[:240])
+        end_pr(ctx, repo, jobs, row, why)
+        jobs.done(job)
+        return
     findings = ctx.pipeline.validator.validate(tree, row.cluster_id, row.env, previous=base)
     # Only an error fails a check. In audit a Kyverno finding is a warning (core/validate, #213): the plan showed it and the
     # approvers accepted it, so the PR check reports it and does not fail, as the cluster's Audit action does.

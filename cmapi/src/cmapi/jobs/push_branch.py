@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo
+from cmapi.core.git.base import NotUtf8
 from cmapi.core.git.workspace import BranchRefused, request_branch
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import GIT_ORPHANS
@@ -26,20 +27,27 @@ def push_branch(ctx: AppContext, s: Session, job: JobRow) -> None:
         jobs.done(job)
         return
     with request_context(ctx, row, job):
-        current, main = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
-        # A delete removes each path of the folder that its plan listed, each a file: a path added or removed since then, or
-        # one that became a submodule, is a changed folder too, or the merge would leave it in Git (#616).
-        moved = row.action == "delete" and \
-            ctx.git.list_folder(folder(row.cluster_id, row.namespace), main)[0] != dict.fromkeys(row.plan["files"], "blob")
-        if current != row.plan["prev"] or moved:
-            repo.move(row, E.BASE_CHANGED, "worker", f"folder changed in Git since the plan (at {main[:8]})")
-            jobs.done(job)
-            jobs.enqueue("git_cleanup", request_id=row.request_id, cluster_id=row.cluster_id)
-            return
+        changed = None
+        try:
+            current, main = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
+            # A delete removes each path of the folder that its plan listed, each a file: a path added or removed since then, or
+            # one that became a submodule, is a changed folder too, or the merge would leave it in Git (#616).
+            moved = row.action == "delete" and \
+                ctx.git.list_folder(folder(row.cluster_id, row.namespace), main)[0] != dict.fromkeys(row.plan["files"], "blob")
+            if current != row.plan["prev"] or moved:
+                changed = f"folder changed in Git since the plan (at {main[:8]})"
+        except NotUtf8 as exc:
+            # The plan refuses a folder that holds such a path, so the folder changed since: superseded, never retried (#626).
+            changed = f"folder changed in Git since the plan: {exc}"
+        if changed:
+            return _superseded(repo, jobs, job, row, changed)
         req = branch_request(ctx, row)
         jobs.fence()
         try:
             pushed = ctx.git.push_request_branch(req)
+        except NotUtf8 as exc:
+            # The Gitea stand-in reads the folder again as it writes: a name that landed since the read above (#626).
+            return _superseded(repo, jobs, job, row, f"folder changed in Git since the plan: {exc}")
         except BranchRefused as exc:
             GIT_ORPHANS.labels("foreign_branch", "refused").inc()
             repo.event(row, "branch_refused", "worker", str(exc)[:300], {"branch": request_branch(row.cluster_id, row.request_id)})
@@ -51,3 +59,10 @@ def push_branch(ctx: AppContext, s: Session, job: JobRow) -> None:
                    {"head": pushed.head, "base": pushed.base, "adopted": pushed.result == "adopted", "result": pushed.result})
         jobs.done(job)
         jobs.enqueue("open_pr", request_id=row.request_id, cluster_id=row.cluster_id, payload={"head": pushed.head, "base": pushed.base})
+
+
+def _superseded(repo: RequestRepo, jobs: JobRepo, job: JobRow, row, why: str) -> None:
+    """The folder on main is not the plan's base: superseded, the lock released, and git_cleanup for anything left."""
+    repo.move(row, E.BASE_CHANGED, "worker", why[:240])
+    jobs.done(job)
+    jobs.enqueue("git_cleanup", request_id=row.request_id, cluster_id=row.cluster_id)
