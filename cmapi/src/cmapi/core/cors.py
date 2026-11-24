@@ -23,7 +23,9 @@ from starlette.datastructures import MutableHeaders
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import Message, Receive, Scope, Send
 
-METHODS = ["GET", "POST", "PATCH", "DELETE"]
+# HEAD is a GET without content (main.py, _serve_head_with_get, #605). A HEAD with Authorization is preflighted, and
+# Starlette's CORSMiddleware answers 400 to a preflight whose Access-Control-Request-Method is not listed here.
+METHODS = ["GET", "HEAD", "POST", "PATCH", "DELETE"]
 # Each makes the request one that needs a preflight, so no page of an origin that is not listed can send it at all.
 REQUEST_HEADERS = ["Authorization", "Content-Type", "Idempotency-Key", "If-Match", "If-None-Match", "X-Request-Id"]
 # ETag is the value of If-Match on a change; Retry-After and WWW-Authenticate say what to do after a 429, a 503 or a 401;
