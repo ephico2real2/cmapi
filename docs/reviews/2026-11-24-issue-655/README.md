@@ -102,3 +102,28 @@ manylinux x86_64 wheel that matches its hash (`linux-wheels-download.txt`).
 
 `deploy/tests/ci-guard.py` checks the new job, the service job's install and the Containerfile's install; each of three
 mutants fails it (`ci-guard.txt`).
+
+## The order-dependent log test (the coordinator's full suite on the merged head)
+
+`test_the_log_of_a_skipped_key_has_no_key_material` failed in the full suite and passed alone. Measured:
+
+- **Trigger:** `test_api_contract.py::test_openapi_lists_every_route_with_summary_permission_and_problems`, the suite's first
+  test; it builds an app (the `world` fixture). Before the fix, that test and the log test together: 1 failed. Each alone: passed
+  (`outputs/658-minimal-pair.txt`).
+- **Mechanism** (`probes/structlog_cache_probe.py`, `outputs/658-structlog-cache-probe.txt`). `configure_logging` sets
+  `cache_logger_on_first_use=True`. The first log line caches the shared `log` that auth.py writes through, holding the
+  processor list of that moment. `capture_logs()` changes the list in place, so a cached logger still sees it. That holds
+  until `configure_logging` runs again and gives structlog a new list, or the cached logger filters warnings out. Then
+  nothing is captured. The coordinator's diagnosis is right about the cause, the cache, but a cached logger alone is not
+  enough: it also needs a later `configure_logging` or a level above WARNING. A pytest plugin that looked at the proxy
+  after each test found it cached on a stale list right after the trigger test. Its first version imported structlog at
+  load, and that alone changed the outcome of other tests (`test_cors.py`), so the plugin imports it lazily.
+- **The fix:** the test captures on a logger of its own. A fixture puts a `structlog.testing.LogCapture` logger, with an
+  explicit wrapper class and caching off, in place of `core.auth.log`. Neither the global configuration nor its cache then
+  decides what is captured. This follows structlog's testing docs (https://www.structlog.org/en/stable/testing.html, read
+  2026-11-24): "capture_logs() relies on changing the configuration. If you have cache_logger_on_first_use enabled for
+  performance, any cached loggers will not be affected", and "You can build your own helpers using
+  structlog.testing.LogCapture". Production keeps the cache, which the performance docs recommend.
+- **Proof:** with the trigger first, 2 passed after the fix. The file alone: 36 passed. The trigger file, the auth, JWKS,
+  PyJWT and observability files, then the 656 file: 209 passed (`outputs/658-targeted-after-fix.txt`). The assertion still
+  bites: a mutant that logs the error's message, the first fix's leak, fails it.

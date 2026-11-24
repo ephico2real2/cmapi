@@ -11,6 +11,7 @@ import pytest
 import structlog
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+from cmapi.core import auth as auth_module
 from cmapi.core.auth import JWKS_KEYS_SKIPPED, Authenticator, Jwks
 from cmapi.core.errors import Problem
 from conftest import AUDIENCE, ISSUER, Keys
@@ -131,15 +132,30 @@ def test_a_member_with_private_parameters_is_skipped(keys: Keys, other):
     assert auth.authenticate(keys.token("ola")).username == "ola"
 
 
-def test_the_log_of_a_skipped_key_has_no_key_material(other):
+@pytest.fixture
+def auth_log(monkeypatch) -> list[dict]:
+    """What core/auth.py logs, captured on a logger of its own. Not structlog.testing.capture_logs(): it "relies on changing
+    the configuration", and "If you have cache_logger_on_first_use enabled for performance, any cached loggers will not be
+    affected" (https://www.structlog.org/en/stable/testing.html, read 2026-11-24). configure_logging enables it, and the
+    shared `log` that auth.py writes through is cached by the first test that logs after building an app; a later
+    configure_logging gives structlog a new processor list, or a level above WARNING, that the cached logger never sees, so
+    capture_logs() saw nothing in the full suite (#658). The wrapper class and the processors are given here, so neither
+    the global configuration nor its cache decides what this logger keeps."""
+    capture = structlog.testing.LogCapture()
+    monkeypatch.setattr(auth_module, "log", structlog.wrap_logger(structlog.ReturnLogger(), wrapper_class=structlog.BoundLogger,
+                                                                  processors=[capture], cache_logger_on_first_use=False))
+    return capture.entries
+
+
+def test_the_log_of_a_skipped_key_has_no_key_material(other, auth_log):
     """The log line has the type of the error, the kid and the names of the member's parameters, never the error's message:
     some of PyJWT's print the member ("Unable to find an algorithm for key: {...}"), and the first fix logged 200 characters
     of it, which held the start of a private exponent (the review of #658)."""
     private, _ = other
     full = jwt.algorithms.RSAAlgorithm.to_jwk(private, as_dict=True)
     bad = {"d": full["d"], "kty": "RSA", "kid": "leak", "use": "sig", "alg": "RS256", "n": full["n"], "e": ["AQAB"]}
-    with structlog.testing.capture_logs() as logs:
-        assert Jwks._signing_keys([bad]) == {}
+    assert Jwks._signing_keys([bad]) == {}
+    logs = auth_log
     assert [{**line, "error": "?"} for line in logs] == [{"event": "jwks_key_skipped", "log_level": "warning", "kid": "leak",
                                                          "error": "?", "members": ["alg", "d", "e", "kid", "kty", "n", "use"]}]
     assert logs[0]["error"] in {"InvalidKeyError", "TypeError"}          # PyJWT 2.15.1 and 2.10.1
