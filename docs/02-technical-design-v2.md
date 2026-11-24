@@ -163,6 +163,8 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | capacity-service-unavailable | 503 | cmapi-capacity cannot be reached or its circuit is open; Retry-After set. Placement and creates are unaffected |
 | cluster-not-found | 404 | clusterId not in the registry |
 | object-not-found | 404 | Live object missing |
+| not-found | 404 | No route and no file of the instance has the path, under `/static` too: the router's own 404, before any route runs (#644) |
+| method-not-allowed | 405 | The path does not take the method. `Allow` lists every method of the path, also on a HEAD, which has no content (#634, #644) |
 | change-pending | 409 | An open request already targets this object |
 | precondition-required / failed | 428 / 412 | Missing If-Match, or `If-Match: *` (428); no strong tag it lists is the current ETag (412). A conditional read answers 412 too, in the order of RFC 9110, section 13.2.2: an If-Match that is not `*` and lists no strong tag equal to the answer's ETag, and, on a file under `/static/swagger` or `/static/redoc`, an If-Unmodified-Since earlier than its Last-Modified (`not_modified`, `cmapi/src/cmapi/core/etag.py`; #590, #604, #619) |
 | cluster-unreachable | 503 | Cluster API down; Retry-After set |

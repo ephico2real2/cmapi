@@ -12,7 +12,6 @@ from typing import Any, Mapping
 
 import yaml
 from fastapi import Depends, FastAPI, Request
-from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -228,21 +227,34 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     async def value_error_handler(_: Request, exc: ValueError) -> Response:
         return problem_response(Problem.unprocessable("validation-failed", str(exc)[:300]))
 
+    # The 404 and 405 that no route makes (#644): Starlette's router (routing.py:651, no route matches the path; :283, a route
+    # matches it with another method) and StaticFiles under /static (staticfiles.py:114, :123, :149) raise HTTPException,
+    # and FastAPI's default handler answered {"detail": ...} as application/json. Starlette 0.41.3 looks a status handler
+    # up before the class handler (_exception_handler.py:46-50), so these two take every HTTPException of their status and
+    # no other; a Problem is not an HTTPException and keeps problem_handler. Each is a problem type of the registry, as
+    # every other refusal is (docs/02, "Problem type URIs"), so its type resolves to /problems/<code>.
+    @app.exception_handler(404)
+    async def not_found(_: Request, exc: HTTPException) -> Response:
+        return problem_response(Problem(404, "not-found", PROBLEMS["not-found"][1]), dict(exc.headers or {}))
+
     @app.exception_handler(405)
     async def method_not_allowed(request: Request, exc: HTTPException) -> Response:
         """RFC 9110, section 15.5.6: a 405's Allow lists "the target resource's currently supported methods". Starlette
         0.41.3 names the methods of the first route that matches the path only (routing.py:737 and :281), and cmapi gives
         each method of a path its own route, so PUT on a namespace said "GET, HEAD" without PATCH and DELETE. StaticFiles
         sends none (staticfiles.py:113); it serves GET and HEAD."""
-        response = await http_exception_handler(request, exc)
+        headers = dict(exc.headers or {})
+        allow = None
         if isinstance(request.scope.get("endpoint"), StaticFiles):
-            response.headers["Allow"] = "GET, HEAD"
+            allow = "GET, HEAD"
         else:
             methods = {m for r in app.routes if isinstance(r, APIRoute) and r.matches(request.scope)[0] == Match.PARTIAL
                        for m in r.methods}
             if methods:
-                response.headers["Allow"] = ", ".join(sorted(methods))
-        return response
+                allow = ", ".join(sorted(methods))
+        if allow:   # one Allow field: Starlette's, whatever its case, gives way to the whole list
+            headers = {k: v for k, v in headers.items() if k.lower() != "allow"} | {"Allow": allow}
+        return problem_response(Problem(405, "method-not-allowed", PROBLEMS["method-not-allowed"][1]), headers)
 
     _add_problem_pages(app, ctx, problem_base)
     if docs_enabled:

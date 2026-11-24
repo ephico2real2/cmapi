@@ -19,6 +19,10 @@ ACTIONS: dict[str, str] = {
     "environment-forbidden": "Use an environment that your roles permit, or ask for a role that permits this one.",
     "cluster-not-found": "Use a cluster ID from `GET /api/v1/clusters`.",
     "object-not-found": "Check the identifier. The object does not exist, or this instance does not serve it.",
+    "not-found": "Check the path against the API reference (`/docs`, `/openapi.json`), which lists each path of this instance. "
+                 "No route and no file answers this one, so the answer says nothing of an object.",
+    "method-not-allowed": "Send the request with one of the methods that the `Allow` header of the answer lists. "
+                          "The API reference lists each operation of the path.",
     "change-pending": "Wait for the open request in `detail` to finish, or cancel it. One object has one open change.",
     "namespace-exists": "Use another name, or change the namespace that exists.",
     "namespace-exists-unmanaged": "Use another name. cmapi does not manage the namespace that exists on the cluster.",

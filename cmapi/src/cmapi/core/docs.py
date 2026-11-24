@@ -40,6 +40,8 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "environment-forbidden": (403, "Your roles grant namespaces:create only in ['rnd'], not dev"),
     "cluster-not-found": (404, "Unknown cluster OCP_X"),
     "object-not-found": (404, "No request req-20261105-0001"),
+    "not-found": (404, "No resource of this API has this path"),
+    "method-not-allowed": (405, "The path does not take this method. Allow lists the methods it takes"),
     "change-pending": (409, "req-20261105-0001 holds payments-dev"),
     "namespace-exists": (409, "payments-dev is already in Git"),
     "namespace-exists-unmanaged": (409, "payments-dev exists on the cluster and is not managed by cmapi"),
