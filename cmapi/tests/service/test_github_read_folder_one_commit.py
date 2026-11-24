@@ -24,10 +24,16 @@ def test_github_reads_every_file_at_one_commit_when_the_default_branch_has_40_ch
         nonlocal current
         if operation == "branch_head":
             return Mock(status_code=200, json=lambda: {"commit": {"sha": current}})
-        ref = kw["params"]["ref"]
-        revision = current if ref == branch else ref          # a branch name reads the head of that moment
-        if operation == "read_folder":
-            return Mock(status_code=200, json=lambda: [{"path": p, "name": p.split("/")[-1], "type": "file"} for p in paths])
+        if operation == "read_folder":                        # Contents: the folder's tree at the ref it names
+            ref = kw["params"]["ref"]
+            revision = current if ref == branch else ref      # a branch name reads the head of that moment
+            return Mock(status_code=200, json=lambda: {"type": "dir", "sha": f"tree-{revision}"})
+        if operation == "list_folder":                        # the folder's tree: each file's blob at that revision
+            revision = path.rsplit("/", 1)[1].removeprefix("tree-")
+            tree = [{"type": "blob", "mode": "100644", "path": p.split("/")[-1], "sha": f"{revision}-{i}"}
+                    for i, p in enumerate(paths)]
+            return Mock(status_code=200, json=lambda: {"truncated": False, "tree": tree})
+        revision = path.rsplit("/", 1)[1].split("-")[0]
         current = second                                      # the branch moves after the first file is read
         return Mock(status_code=200, json=lambda: {"content": base64.b64encode(revision.encode()).decode()})
 
@@ -60,13 +66,10 @@ def test_default_branch_and_explicit_commit_with_the_same_spelling(provider, mon
         elif "/git/blobs/" in url:
             revision = next(k for k, blob in blobs.items() if blob == oid)
             body = {"content": base64.b64encode(revision.encode()).decode()}
-        elif operation == "read_folder":
-            body = [{"path": path, "name": "namespace.yaml", "type": "file"}]
+        elif operation == "read_folder":                       # GitHub's Contents, object form: the folder's tree
+            body = {"type": "dir", "sha": trees[params["ref"]]}
         else:
-            revision = params["ref"]
-            if provider is GiteaProvider and revision == configured:
-                revision = tip  # Contents checks branches before interpreting a bare object ID.
-            body = {"content": base64.b64encode(revision.encode()).decode()}
+            pytest.fail(f"unexpected {operation} {url}")
         return Mock(status_code=200, json=lambda: body)
 
     monkeypatch.setattr(git, "_call", contents)

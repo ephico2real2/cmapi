@@ -16,13 +16,15 @@ write, Metadata read; Commit statuses read and write only with host CI or postSt
     GET  /repos/{o}/{r}/pulls?head=&state=open      POST /repos/{o}/{r}/pulls          GET /repos/{o}/{r}/pulls/{n}
     PUT  /repos/{o}/{r}/pulls/{n}/merge {sha}       PATCH /repos/{o}/{r}/pulls/{n}     POST /repos/{o}/{r}/issues/{n}/comments
     GET  /repos/{o}/{r}/commits/{sha}/status        POST /repos/{o}/{r}/statuses/{sha} GET /repos/{o}/{r}/pulls?state=open (list)
-    The API process, reads only: GET /repos/{o}/{r}/branches/{b}, /contents/{path}?ref=, /commits?sha=,
-    /git/trees/{sha}[?recursive=1] (the folder a delete lists, #616)
+    The API process, reads only: GET /repos/{o}/{r}/branches/{b}, /contents/{path}?ref= (the folder's tree sha), /commits?sha=,
+    /git/commits/{sha}, /git/trees/{sha}[?recursive=1] (the folder read_folder reads, and the one a delete lists, #616),
+    /git/blobs/{sha} (a manifest)
 """
 from __future__ import annotations
 
 import base64
 from typing import Any, Iterable, Mapping
+from urllib.parse import quote
 
 from cmapi.core.git.base import (BranchRequest, CheckState, GitUnavailable, HeadMoved, HostGitProvider, IncompleteList, MergeCheck,
                                  NotMergeable, PlatformRefused, PushResult)
@@ -65,18 +67,36 @@ class GitHubProvider(HostGitProvider):
         return r.json()["commit"]["sha"] if r.status_code == 200 else None
 
     def read_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
+        """The regular .yaml files directly in path at ref, read from the folder's tree as workspace._folder reads them (#625,
+        #632). Not from the Contents listing: version 2022-11-28 lists a submodule and a symlink to a file as "file", reads
+        that symlink as its target's text, lists at most 1,000 entries, and gives no content for a file past 1 MB. A tree
+        types each entry by its mode, and a blob read holds up to 100 MB. Contents still finds the folder in one request: its
+        object form carries the folder's tree sha (REST docs, Repository contents and Git blobs, fetched 2026-11-23)."""
         if self.workspace is not None:
             return self.workspace.read_folder(path, ref)
         head = self._folder_head(ref)
-        r = self._call("read_folder", "GET", f"{self._repo()}/contents/{path.strip('/')}", params={"ref": head}, ok=(200, 404))
-        files: dict[str, str] = {}
-        if r.status_code == 200:
-            entries = r.json()
-            for e in (entries if isinstance(entries, list) else [entries]):
-                if e.get("type") == "file" and e["name"].endswith(".yaml"):
-                    f = self._call("read_file", "GET", f"{self._repo()}/contents/{e['path']}", params={"ref": head})
-                    files[e["path"]] = base64.b64decode(f.json()["content"]).decode()
-        return files, head
+        directory = path.strip("/")
+        # A path is data in the URL: "#" or "?" would end it (RFC 3986, section 3.3), and "%41" would read as "A".
+        r = self._call("read_folder", "GET", f"{self._repo()}/contents/{quote(directory)}", params={"ref": head},
+                       headers={"Accept": "application/vnd.github.object+json"}, ok=(200, 404))
+        if r.status_code == 404:
+            return {}, head
+        if r.status_code != 200:                 # 403 is a refusal or a rate limit (REST docs), never a missing folder
+            raise GitUnavailable(f"read folder {directory} at {head[:8]}: HTTP {r.status_code}")
+        found = r.json()
+        if found["type"] != "dir":               # a file, symlink or submodule: git ls-tree of "<path>/" lists nothing either
+            return {}, head
+        prefix = f"{directory}/" if directory else ""
+        return {prefix + e["path"]: self._blob_text(e["sha"]) for e in self._tree(found["sha"])
+                if e["type"] == "blob" and e["mode"] in ("100644", "100755") and e["path"].endswith(".yaml")}, head
+
+    def _blob_text(self, sha: str) -> str:
+        """GET git/blobs/{sha}: "The content in the response will always be Base64 encoded", for blobs up to 100 MB (REST docs,
+        Git blobs, fetched 2026-11-23). Strict UTF-8, as the worker decodes a manifest."""
+        b = self._call("read_file", "GET", f"{self._repo()}/git/blobs/{sha}")
+        if b.status_code != 200:
+            raise GitUnavailable(f"read blob {sha[:8]}: HTTP {b.status_code}")
+        return base64.b64decode(b.json()["content"]).decode()
 
     def _tree(self, oid: str, *, recursive: bool = False) -> list[dict[str, Any]]:
         """GET git/trees/{oid}: the entries of one tree, or of every tree under it. "If truncated is true in the response then
