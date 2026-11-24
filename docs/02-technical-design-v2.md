@@ -120,6 +120,7 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 - **Field names.** camelCase in JSON (Pydantic aliases), snake\_case in Python.
 - **Lists.** limit 25, 50 (default) or 100, at most 200, and an opaque cursor; labelSelector where the cluster supports it. Envelope: {items, page: {limit, total, from, to, nextCursor, prevCursor}}, as defined under Lists in Design and Architecture.
 - **Time.** RFC 3339 in UTC.
+- **HEAD.** Every GET also answers HEAD, as RFC 9110, section 9.1 requires: the same route, so the same sign-in, permission, preconditions, status and headers (ETag, Cache-Control, Content-Length), and no content (section 9.3.2). The OpenAPI document lists the GETs only, and CORS allows HEAD (`_serve_head_with_get`, `cmapi/src/cmapi/main.py`; #605).
 
 **Write semantics.**
 
