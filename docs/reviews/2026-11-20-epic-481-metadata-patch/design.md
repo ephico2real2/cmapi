@@ -48,7 +48,7 @@ Decided per (kind, key) from `metadata-keys.yaml`, never from a list in code. Ch
 
 | Order | Key class (from configuration) | On an existing namespace | Reason shown |
 |---|---|---|---|
-| 1 | The namespace name (the path) | Fixed | — (the name is the path of the call; the tab has no row for it, and a body that names a namespace is 422 `validation-failed`) |
+| 1 | The namespace name (the path) | Fixed | — (The path names the namespace. The tab has no row for it. A body with a `name` or `namespace` field gets 422 `validation-failed`.) |
 | 2 | `system` | Fixed, for everyone | "Managed by cmapi." (expiry: "Change it with Extend, Set expiry or Make permanent.") |
 | 3 | `reservedPrefixes`, `adoptionLabels`, or a key no stanza allows | Fixed; kept as it is in Git. A key no stanza allows may be **removed** (`null`), never set or changed (coordinator ruling on #492 M2: otherwise, with Kyverno enforcing, a namespace holding one could never be changed). Since #497 the policy keeps such a key while its value is unchanged, so a change that leaves it passes too | "Reserved for the platform." / "Marks how the namespace was first made." / "Not allowed by this instance's rules." |
 | 4 | `operatorOnly` | Changeable only with `namespaces:protect` in that environment; fixed otherwise | "Needs namespaces:protect in dev." |
@@ -72,7 +72,8 @@ A missing required key on an old namespace (adoption, #234) is shown as a findin
   (`application/json`): a key left out is kept, a value sets it, `null` removes it. Other body fields (`tier`, `quota`,
   `limitRange`, `justification`, `onBehalfOf`) are unchanged.
 - **Headers.** `If-Match: "<etag>"` (required: 428 without it, 412 when Git moved), `Idempotency-Key` (required on submit:
-  400 without it), `Authorization`. A list of tags in `If-Match` passes when one is the current etag. `*` is 428 (the owner, #571).
+  400 without it), `Authorization`. A list of tags in `If-Match` passes when one strong tag is the current etag. `*` is 428
+  (the owner, #571).
 - **Permission.** `namespaces:write` in the target environment; `namespaces:protect` too for an operator-only key.
 - **Answers.** 200 with the plan (dry run) or 202 with the request. The plan gains `metadataDiff` (additive):
 
@@ -130,7 +131,7 @@ show Git and the cluster side by side:
   "labels":      { "…": "live, from the watch cache (as today)" },
   "annotations": { "…": "live (as today)" },
   "git": {
-    "labels":      { "company.net/cl": "1", "cmapi.net/cost-center": "cc-4410", "…": "…" },
+    "labels":      { "company.net/cl": "1", "cmapi.net/cost-center": "cc-4410", "cmapi.net/managed": "true", "…": "…" },
     "annotations": { "cmapi.net/team-dl": "payments-team@company.net", "…": "…" },
     "edits": {
       "labels":      { "cmapi.net/managed": { "mode": "fixed", "reason": "Managed by cmapi.", "sensitive": false, "removable": false } },
@@ -150,16 +151,18 @@ show Git and the cluster side by side:
 | State | When |
 |---|---|
 | `pending` | An open request holds the namespace (`openRequest` gives its ID and status), or Git was merged and the cluster does not have it yet |
-| `drift` | No request is open and a governed, extra or operator-only key differs between Git and the live namespace (each one in `driftedKeys`), or the cluster does not have the namespace |
-| `in-sync` | Git and the live namespace have the same governed and extra keys |
+| `drift` | No request is open, and cmapi can compare Git with the cluster. A governed, extra or operator-only key differs, or the cluster does not have the namespace. `driftedKeys` lists each key that differs |
+| `in-sync` | No request is open, and cmapi can compare Git with the cluster. The cluster has the namespace. Each governed, extra and operator-only key has the same value in Git and on the cluster |
 | `unknown` | The cluster's watch is not fresh (as the Policies tab's states) |
 
-`git.edits` gives the `x-cmapi-edit` of each key of Git that `metadata-keys.yaml` does not declare, and of each
-operator-only key. `removable` marks a key that no rule admits: a change may remove it and never set it (#528).
+`git.edits` gives the `x-cmapi-edit` of each key in Git that has no rule of its own in `metadata-keys.yaml`: a system,
+reserved, adoption, operator-only or `allowOther` key, or a key that no rule admits. `GET /api/v1/metadata-keys` gives
+the rules of the other keys (§4.3). The example shows one entry of `git.edits`. `removable: true` marks a key that no
+rule admits. A change may remove that key (`null`). A change cannot set it or change its value (#528).
 
-Keys cmapi or other controllers write only on the cluster (not in Git) are left out of the comparison (the stanza
-`liveOnlyKeys` of `metadata-keys.yaml`, `fnmatch` globs; default `kubernetes.io/metadata.name`, `openshift.io/*`,
-`argocd.argoproj.io/*`, `app.kubernetes.io/instance`).
+The comparison leaves out the keys that only the cluster or its controllers write. The stanza `liveOnlyKeys` of
+`metadata-keys.yaml` lists them, as case-sensitive `fnmatch` globs. Without the stanza, the list is
+`kubernetes.io/metadata.name`, `openshift.io/*`, `argocd.argoproj.io/*`, `app.kubernetes.io/instance`.
 
 ### 4.3 `GET /api/v1/metadata-keys` (exists; extended, additive)
 
