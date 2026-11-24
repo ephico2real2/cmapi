@@ -511,13 +511,13 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|256-256": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|260-260": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|264-264": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|473-473": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|477-477": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|524-524": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|528-528": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|56-56": [
@@ -531,29 +531,29 @@
   "        # part of the public contract, so it stays in the row and out of the response.",
   "        \"approval\": approval_view(req, ledger), \"requester\": {k: v for k, v in row.requester.items() if k != \"submittedBySub\"},"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|141-142": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|143-144": [
   "    app.include_router(health.router)",
   "    app.include_router(health.version_router)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|144-146": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|146-148": [
   "    authed_routers = (me.router, requests.router, admin.router, *cfg.plugins.routers())",
   "    for r in authed_routers:",
   "        app.include_router(r, dependencies=[Depends(authed)])"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|179-180": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|181-182": [
   "        if s.metrics_port:",
   "            start_metrics(s.metrics_port, ctx.cfg.name, s.component)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|209-211": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|211-213": [
   "    @app.exception_handler(Problem)",
   "    async def problem_handler(_: Request, exc: Problem) -> Response:",
   "        return problem_response(exc, dict(unauthenticated_headers(exc)))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|248-249": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|253-254": [
   "    if docs_enabled:",
   "        _add_docs(app, ctx, docs_cfg, authed, problem_response)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|269-283": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|274-288": [
   "def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None:",
   "    \"\"\"/problems and /problems/{code}: what the `type` of a problem resolves to (RFC 9457, section 4; #182).",
   "",
@@ -570,10 +570,10 @@
   "            raise Problem(404, \"object-not-found\", \"No such problem type. /problems lists each one\")",
   "        return HTMLResponse(problem_html(code, problem_base, ctx.cfg.name))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|294-294": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|299-299": [
   "    guard = [] if docs_cfg.get(\"public\", True) else [Depends(authed)]"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|344-346": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|349-351": [
   "    @app.get(\"/docs/oauth2-redirect\", include_in_schema=False)",
   "    def docs_redirect() -> Response:",
   "        return get_swagger_ui_oauth2_redirect_html()"
@@ -866,7 +866,7 @@
  "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|66-66": [
   "            groups=frozenset(claims.get(\"groups\", [])),"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|139-140": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|141-142": [
   "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
   "                                         \"scopes\": \"openid\"})"
  ],

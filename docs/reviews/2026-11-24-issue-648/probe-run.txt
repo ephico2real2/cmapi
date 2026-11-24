@@ -1,0 +1,2 @@
+1151 passed in 1200.73s (0:20:00)
+the 45 service modules that mention 422 (grep -rlE 422 tests/service), main a2a55f3 with a probe in value_error_handler that wrote probe-valueerrors.jsonl

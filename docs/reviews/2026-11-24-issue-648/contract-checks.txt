@@ -1,0 +1,8 @@
+== git diff origin/main -- contract/openapi.json src/cmapi/contract/samples.json ../docs/04-api-examples.md ../cmapi-portal-ui/src/api (expect empty)
+== gate.sh base head
+No changes detected
+exit 0
+== changelog.py --check
+exit 0
+== api-examples-doc.py --check
+exit 0

@@ -31,6 +31,8 @@ from typing import Any, Iterable, Literal, Mapping
 import yaml
 from pydantic import BaseModel, ConfigDict, StrictBool
 
+from cmapi.core.errors import Problem
+
 # --------------------------------------------------------------------------- quantities
 
 _SUFFIX = {
@@ -126,6 +128,27 @@ def flatten_limits(limits: Mapping[str, Mapping[str, Mapping[str, str]]] | None)
 def _same(a: str | None, b: str | None) -> bool:
     """Two quantities are the same amount: "1" and "1000m" are, a missing value and a value are not."""
     return (a is None and b is None) or (a is not None and b is not None and qty(a) == qty(b))
+
+
+def requested_qty(value: str) -> Decimal:
+    """qty of a value that the request sends. One that is not a quantity is the caller's to correct: 422 validation-failed
+    with qty's text (#648). A ValueError of qty elsewhere, on a value of Git, the catalog or the cluster, is the service's
+    fault, and answers 500 internal-error."""
+    try:
+        return qty(value)
+    except ValueError as exc:
+        raise Problem.unprocessable("validation-failed", str(exc)[:300]) from exc
+
+
+def _kept(value: str, approved: str | None) -> bool:
+    """Whether a value of the request is the amount that Git holds for its key (approved: None when Git holds none). A value
+    with other text than Git's is the request's own, so it is parsed as one (requested_qty); a value with Git's text is
+    Git's (#648)."""
+    if approved is None:
+        return False
+    if value != approved:
+        requested_qty(value)
+    return _same(value, approved)
 
 
 def _unequal_fixed_defaults(parts: Mapping[str, Mapping[str, str]]) -> list[str]:
@@ -497,9 +520,9 @@ class TierCatalog:
         checked again: a later, lower bound must not refuse a change of a label on a namespace that was approved before it."""
         b, bad = self.bounds(env), []
         for k in sorted(values):
-            if k in approved and _same(values[k], approved[k]):
+            if _kept(values[k], approved.get(k)):
                 continue
-            v = qty(values[k])
+            v = requested_qty(values[k])
             lo, hi, st = (qty(x) if x is not None else None for x in (b.min.get(k), b.max.get(k), b.step.get(k)))
             if (lo is not None and v < lo) or (hi is not None and v > hi) or (st and v % st != 0):
                 bad.append({"key": k, "value": values[k], "min": b.min.get(k), "max": b.max.get(k), "step": b.step.get(k)})
@@ -521,7 +544,7 @@ class TierCatalog:
         approved = approved or {}
         allowed = [*self.sizable, *self.overridable_quota]
         # A value that Git holds stays valid when the catalog no longer names its key: the approval stands until a change.
-        not_sizable = sorted(k for k in set(hard) - set(allowed) if not _same(hard[k], approved.get(k)))
+        not_sizable = sorted(k for k in set(hard) - set(allowed) if not _kept(hard[k], approved.get(k)))
         if not_sizable:
             raise TierError("quota-key-not-sizable", f"Only {allowed} can be requested",
                             keys=not_sizable, sizable=self.sizable, overridable=self.overridable_quota)
@@ -554,14 +577,14 @@ class TierCatalog:
             # A pvc value that Git holds from before the switch went off is dropped, not refused, so a change of a label
             # still goes through; the plan then removes <ns>-limits-storage. A new pvc value is refused.
             pvc = {k for k in asked if (limit_key_parts(k) or ("",))[0] == STORAGE_KIND}
-            new = sorted(k for k in pvc if not _same(asked[k], approved.get(k)))
+            new = sorted(k for k in pvc if not _kept(asked[k], approved.get(k)))
             if new:
                 raise TierError("storage-limits-off",
                                 f"Storage limits are off in environment {env}: {', '.join(new)} cannot be set",
                                 keys=new, environment=env)
             asked = {k: v for k, v in asked.items() if k not in pvc}
         not_overridable = sorted(k for k in set(asked) - set(self.overridable_limits)
-                                 if limit_key_parts(k) is None or not _same(asked[k], approved.get(k)))
+                                 if limit_key_parts(k) is None or not _kept(asked[k], approved.get(k)))
         if not_overridable:
             raise TierError("limit-key-not-overridable", f"Only {self.overridable_limits} can be requested",
                             keys=not_overridable, overridable=self.overridable_limits)

@@ -102,11 +102,13 @@ class UnhandledToProblemMiddleware:
             raise
         except ClientDisconnect:
             return
-        except Exception:
+        except Exception as exc:
             if disconnected:
                 return
             request = Request(scope)
-            log.exception("unhandled", method=request.method, route=getattr(scope.get("route"), "path_format", "unmatched"))
+            # error_type: the exception's class as a field to filter on; `exception` holds the traceback (#648).
+            log.exception("unhandled", method=request.method, route=getattr(scope.get("route"), "path_format", "unmatched"),
+                          error_type=type(exc).__name__)
             if started:
                 raise  # A stream/background failure cannot replace a status already sent.
             response = self.problem_response(Problem(500, "internal-error", PROBLEMS["internal-error"][1]))
@@ -224,9 +226,12 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     async def tier_error_handler(_: Request, exc: TierError) -> Response:
         return problem_response(Problem.policy_violation(exc.detail, [{"code": exc.code, **exc.data}]))
 
-    @app.exception_handler(ValueError)
-    async def value_error_handler(_: Request, exc: ValueError) -> Response:
-        return problem_response(Problem.unprocessable("validation-failed", str(exc)[:300]))
+    # No handler for ValueError (#648). The one before answered each ValueError that escaped a route as 422 validation-failed
+    # with its text, so a codec error of the Git layer blamed the caller and showed an implementation message (RFC 9457,
+    # sections 3.1.4 and 5). A refusal that means the request is not valid is a Problem raised where it is decided
+    # (tiers.requested_qty, the username check of Pipeline._plan_namespace); a request model's ValueError reaches
+    # request_validation_handler as RequestValidationError; TierError keeps its own handler, which Starlette finds first in
+    # the class's MRO. Any other ValueError is the service's fault: UnhandledToProblemMiddleware answers 500 internal-error.
 
     @app.exception_handler(405)
     async def method_not_allowed(request: Request, exc: HTTPException) -> Response:
