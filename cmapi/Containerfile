@@ -31,13 +31,13 @@ WORKDIR /tmp/tools
 # tar and gzip are only needed to unpack the downloads; this stage is discarded
 RUN microdnf install -y tar gzip >/dev/null && microdnf clean all
 RUN set -eu; \
-    curl -sSfL -o kyverno.tgz "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/kyverno-cli_${KYVERNO_VERSION}_linux_x86_64.tar.gz"; \
+    curl -sSfL --retry 5 -o kyverno.tgz "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/kyverno-cli_${KYVERNO_VERSION}_linux_x86_64.tar.gz"; \
     echo "${KYVERNO_SHA256}  kyverno.tgz" | sha256sum -c -; \
-    curl -sSfL -o kubeconform.tgz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"; \
+    curl -sSfL --retry 5 -o kubeconform.tgz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"; \
     echo "${KUBECONFORM_SHA256}  kubeconform.tgz" | sha256sum -c -; \
-    curl -sSfL -o swagger.tgz "https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-${SWAGGER_UI_VERSION}.tgz"; \
+    curl -sSfL --retry 5 -o swagger.tgz "https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-${SWAGGER_UI_VERSION}.tgz"; \
     echo "${SWAGGER_UI_SHA256}  swagger.tgz" | sha256sum -c -; \
-    curl -sSfL -o redoc.tgz "https://registry.npmjs.org/redoc/-/redoc-${REDOC_VERSION}.tgz"; \
+    curl -sSfL --retry 5 -o redoc.tgz "https://registry.npmjs.org/redoc/-/redoc-${REDOC_VERSION}.tgz"; \
     echo "${REDOC_SHA256}  redoc.tgz" | sha256sum -c -; \
     mkdir -p bin static/swagger-ui static/redoc schemas; \
     for pair in \
@@ -47,7 +47,7 @@ RUN set -eu; \
       serviceaccount-v1:8193d6c3561475c6d3d5c44e1faedb1df53905373d904bc17015694326d659cf \
       rolebinding-rbac-v1:87ab620d0adddcd2803b92357fce2854af752326df8c5408a7588aae98b3031d; do \
       name=${pair%%:*}; \
-      curl -sSfL -o "schemas/${name}.json" "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/${SCHEMAS_COMMIT}/${SCHEMAS_KUBERNETES}-standalone-strict/${name}.json"; \
+      curl -sSfL --retry 5 -o "schemas/${name}.json" "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/${SCHEMAS_COMMIT}/${SCHEMAS_KUBERNETES}-standalone-strict/${name}.json"; \
       echo "${pair##*:}  schemas/${name}.json" | sha256sum -c -; \
     done; \
     tar xzf kyverno.tgz -C bin kyverno; \

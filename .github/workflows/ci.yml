@@ -36,7 +36,7 @@ jobs:
         run: |
           version=$(sed -n 's/^ARG KYVERNO_VERSION=//p' cmapi/Containerfile)
           sha=$(sed -n 's/^ARG KYVERNO_SHA256=//p' cmapi/Containerfile)
-          curl -sSfL -o kyverno.tgz "https://github.com/kyverno/kyverno/releases/download/${version}/kyverno-cli_${version}_linux_x86_64.tar.gz"
+          curl -sSfL --retry 5 -o kyverno.tgz "https://github.com/kyverno/kyverno/releases/download/${version}/kyverno-cli_${version}_linux_x86_64.tar.gz"
           echo "${sha}  kyverno.tgz" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/bin" && tar xzf kyverno.tgz -C "$RUNNER_TEMP/bin" kyverno
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
@@ -83,7 +83,7 @@ jobs:
       # job's pin, and fails here rather than skip.
       - name: oasdiff v1.37.0
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/oasdiff.tar.gz" https://github.com/oasdiff/oasdiff/releases/download/v1.37.0/oasdiff_1.37.0_linux_amd64.tar.gz
+          curl -fsSL --retry 5 -o "$RUNNER_TEMP/oasdiff.tar.gz" https://github.com/oasdiff/oasdiff/releases/download/v1.37.0/oasdiff_1.37.0_linux_amd64.tar.gz
           echo "eac87307d31d08c36800c58a409c247f1c5db37fbb72e2544402f22a87cbca3c  $RUNNER_TEMP/oasdiff.tar.gz" | sha256sum -c -
           tar xzf "$RUNNER_TEMP/oasdiff.tar.gz" -C "$RUNNER_TEMP" oasdiff && sudo mv "$RUNNER_TEMP/oasdiff" /usr/local/bin/
           oasdiff --version
@@ -300,7 +300,7 @@ jobs:
           python-version: '3.12'
       - name: Tools
         run: |
-          curl -fsSL -o oasdiff.tar.gz https://github.com/oasdiff/oasdiff/releases/download/v1.37.0/oasdiff_1.37.0_linux_amd64.tar.gz
+          curl -fsSL --retry 5 -o oasdiff.tar.gz https://github.com/oasdiff/oasdiff/releases/download/v1.37.0/oasdiff_1.37.0_linux_amd64.tar.gz
           echo "eac87307d31d08c36800c58a409c247f1c5db37fbb72e2544402f22a87cbca3c  oasdiff.tar.gz" | sha256sum -c -
           tar xzf oasdiff.tar.gz oasdiff && sudo mv oasdiff /usr/local/bin/
           oasdiff --version
@@ -356,18 +356,18 @@ jobs:
           python-version: '3.12'
       - name: Tools
         run: |
-          curl -fsSL -o kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          curl -fsSL --retry 5 -o kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
           echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  kubeconform.tar.gz" | sha256sum -c -
           tar xzf kubeconform.tar.gz kubeconform && sudo mv kubeconform /usr/local/bin/
           kubeconform -v
           # Pinned like the others: apt's shellcheck is whatever the runner image's Ubuntu carries (0.9.0 on 24.04, measured),
           # so CI and a developer's machine disagreed on the same file.
-          curl -fsSL -o shellcheck.tar.gz https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz
+          curl -fsSL --retry 5 -o shellcheck.tar.gz https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz
           echo "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6  shellcheck.tar.gz" | sha256sum -c -
           tar xzf shellcheck.tar.gz --strip-components=1 shellcheck-v0.11.0/shellcheck && sudo mv shellcheck /usr/local/bin/
           shellcheck --version
           # The secrets cases read kubectl's own semantics (--ignore-not-found, error text), so not whatever the runner image carries.
-          curl -fsSL -o kubectl https://dl.k8s.io/release/v1.35.8/bin/linux/amd64/kubectl
+          curl -fsSL --retry 5 -o kubectl https://dl.k8s.io/release/v1.35.8/bin/linux/amd64/kubectl
           echo "874d5e72dbb819f43cff16bcd1e4f8bac5b7f2361fe1e55049b0a6c676fb0cbf  kubectl" | sha256sum -c -
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
           kubectl version --client
@@ -377,6 +377,8 @@ jobs:
         run: shellcheck deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh deploy/kind-import/*.sh examples/cmapi-sso/ldap/apply-test-identities.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh cmapi/contract/gate.sh cmapi/contract/gate-test.sh cmapi/contract/lint.sh
       - name: This job's own guards
         run: python deploy/tests/ci-guard.py .github/workflows/ci.yml
+      - name: Each download survives a transient 503 (#609)
+        run: python deploy/tests/download-retry-test.py
       - name: docs/12's commands and claims
         run: python deploy/tests/doc12-test.py docs/12-existing-postgresql.md
       - name: kind-test.sh's failures, on stubs
@@ -425,7 +427,7 @@ jobs:
           kubeconform -strict -summary -skip Route -kubernetes-version 1.35.0 -schema-location "$SCHEMAS" -schema-location "$CRDS" /tmp/rendered-crc
       - name: kind for the secrets cases
         run: |
-          curl -fsSL -o kind https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
+          curl -fsSL --retry 5 -o kind https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
           echo "aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  kind" | sha256sum -c -
           chmod +x kind && sudo mv kind /usr/local/bin/
           kind create cluster --name cmapi-ci --image kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0 --kubeconfig "$PWD/.ci.kubeconfig" --wait 120s

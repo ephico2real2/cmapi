@@ -169,6 +169,19 @@ def caller(cred: HTTPAuthorizationCredentials | None = Depends(BEARER)) -> Ident
     return Identity.from_claims(claims, AUDIENCE)
 
 
+def refuse_dry_run(request: Request, _who: Identity = Depends(caller)) -> None:
+    """The guard of a write that has no dry run (#613), as the service's (core/docs.py, refuse_dry_run; #606). FastAPI
+    ignores a query parameter that a route does not declare, so without it `?dryRun=true` would act for real. Any dryRun
+    is refused, whatever its value, as the Kubernetes API server refuses one on a call that cannot honour it
+    (apiserver, endpoints/handlers/rest.go, ConnectResource and isDryRun). Sign-in comes first, as in the service, whose
+    router adds it to every route (main.py, include_router): a call without a token is 401 (#618 review)."""
+    if "dryRun" in request.query_params:
+        raise Problem.bad_request("dry-run-not-supported", "This call has no dry run, and nothing was done")
+
+
+NO_DRY_RUN = [Depends(refuse_dry_run)]
+
+
 # Air-gapped hosts cannot load Swagger UI from its CDN: point CMAPI_SWAGGER_UI_DIR at an unpacked
 # swagger-ui-dist package (npm pack swagger-ui-dist) and /docs is served from it.
 SWAGGER_DIR = os.environ.get("CMAPI_SWAGGER_UI_DIR")
@@ -370,13 +383,13 @@ def update_namespace(cluster_id: str, ns: str, body: dict = Body(...), dryRun: b
     return submit(who, cluster_id, p, "update").view()
 
 
-@app.post("/api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend", status_code=202)
+@app.post("/api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend", status_code=202, dependencies=NO_DRY_RUN)
 def extend(cluster_id: str, ns: str, body: dict = Body(...), who: Identity = Depends(caller)):
     p = plan_namespace(who, cluster_id, {"namespace": ns, "extendDays": body["days"]}, action="update")
     return submit(who, cluster_id, p, "update", reason="expiration:extend").view()
 
 
-@app.delete("/api/v1/clusters/{cluster_id}/namespaces/{ns}", status_code=202)
+@app.delete("/api/v1/clusters/{cluster_id}/namespaces/{ns}", status_code=202, dependencies=NO_DRY_RUN)
 def delete_namespace(cluster_id: str, ns: str, who: Identity = Depends(caller)):
     env = CLUSTERS[cluster_id]["environment"]
     CFG.roles.require(who, "namespaces:write", env)
@@ -422,7 +435,7 @@ def get_request(rid: str, who: Identity = Depends(caller)):
     return find(rid).view()
 
 
-@app.post("/api/v1/requests/{rid}:approve")
+@app.post("/api/v1/requests/{rid}:approve", dependencies=NO_DRY_RUN)
 def approve(rid: str, body: dict = Body(default={}), who: Identity = Depends(caller)):
     with LOCK:
         r = find(rid)
@@ -437,7 +450,7 @@ def approve(rid: str, body: dict = Body(default={}), who: Identity = Depends(cal
     return r.view()
 
 
-@app.post("/api/v1/requests/{rid}:reject")
+@app.post("/api/v1/requests/{rid}:reject", dependencies=NO_DRY_RUN)
 def reject(rid: str, body: dict = Body(...), who: Identity = Depends(caller)):
     with LOCK:
         r = find(rid)
@@ -446,7 +459,7 @@ def reject(rid: str, body: dict = Body(...), who: Identity = Depends(caller)):
     return r.view()
 
 
-@app.post("/api/v1/requests/{rid}:cancel")
+@app.post("/api/v1/requests/{rid}:cancel", dependencies=NO_DRY_RUN)
 def cancel(rid: str, who: Identity = Depends(caller)):
     with LOCK:
         r = find(rid)
@@ -455,7 +468,7 @@ def cancel(rid: str, who: Identity = Depends(caller)):
     return r.view()
 
 
-@app.post("/api/v1/admin/prune:confirm")
+@app.post("/api/v1/admin/prune:confirm", dependencies=NO_DRY_RUN)
 def prune_confirm(body: dict = Body(...), who: Identity = Depends(caller)):
     CFG.roles.require(who, "operations:run")
     with LOCK:

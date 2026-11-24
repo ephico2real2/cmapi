@@ -28,6 +28,7 @@ CLUSTER=existing ./run.sh        # the cluster your kubeconfig points at
 | Argo CD | A stand-in in the worker: server-side apply of the merged folder, confirmed by a read; deletes wait in `awaiting_prune` until an operator confirms | Argo CD, `Prune=confirm` |
 | Capacity | Simulated from `config/clusters.yaml` | cmapi-capacity and Thanos |
 | Store | In memory | PostgreSQL |
+| Dry run | `?dryRun=true` on a create or a change returns the plan and records nothing; every other write answers any `dryRun` with 400 `dry-run-not-supported` | The same rule (#606, PR #607), where a delete and the three expiry calls also preview (#602) |
 
 `demo.py` runs 14 scenarios through the API with real tokens; INSTALL.md section 4.7 lists them.
 `transcript.txt` is the output of the last run, and `screenshots/` holds the images used in the
@@ -44,3 +45,7 @@ Found by running it (all fixed in the design and the code):
 - **Two more 500s.** `prune:confirm` with nothing waiting, and unknown request IDs, returned 500.
   They now return 409 `nothing-to-prune` and 404.
 - **Cancel by the requester never matched.** It read the wrong field of the request record.
+- **A write with no dry run ignored `dryRun`.** FastAPI drops a query parameter that a route does not declare, so
+  `:cancel?dryRun=true` cancelled and `prune:confirm?dryRun=true` deleted the namespace. The expiry extend, the delete,
+  `:approve`, `:reject`, `:cancel` and `prune:confirm` now refuse it with 400 `dry-run-not-supported`, as the service
+  does (#613).

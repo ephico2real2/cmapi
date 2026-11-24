@@ -58,6 +58,8 @@ ACTIONS: dict[str, str] = {
     "invalid-cursor": "Start the list again without `cursor`. A cursor is valid only for the list that gave it.",
     "invalid-sort": "Use a sort field that the operation lists in the API reference.",
     "invalid-limit": "Use a limit that the operation lists in the API reference.",
+    "dry-run-not-supported": "Nothing was done: this call has no dry run. A preview stops here. Send the call without `dryRun` "
+                             "only to do the action. Only the writes that open a change request have a dry run.",
     "rate-limited": "Wait for the number of seconds in `Retry-After`, then send the request again.",
     "idp-unavailable": "Try again after the seconds in `retryAfter`. cmapi cannot read Keycloak's signing keys.",
     "cluster-unreachable": "Try again later. The cluster did not answer.",
