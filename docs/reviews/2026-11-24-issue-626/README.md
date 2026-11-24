@@ -165,3 +165,30 @@ reads of a PR head that a person pushed to (`pr_checks`' tree and a delete's hea
 `failed`, or `sync_failed` once an apply started, as a failed check would), the retry of a `sync_failed` delete
 (`prune`), and `open_revert`. Each is bounded by the five attempts, and none leaves a lock held without a state that offers
 `:retry` or `:revert`.
+
+## Review
+
+Codex reached its usage limit during the review (`gpt-6.2-astra`, back on 2026-11-25). The owner's rule lets a separate Opus agent
+take the reviewer's place, so two Opus agents reviewed this change. Neither one wrote it.
+
+- **Reviewer 1:** Opus 5.5, high (`review/reviewer-1-opus.md`). Seven findings: F1 and F2 are Medium, F3 to F7 are Low.
+- **Reviewer 2:** Opus 5.5, high (`review/reviewer-2-opus.md`, mutants in `review/reviewer-2-mutants.txt`).
+  - It upheld F1, F2, F5, F6 and F7.
+  - It replaced F3's fix with "read before you create the branch". This also fixes an older defect: a host error after the
+    create left a branch that the retry refused.
+  - It completed F4: every shown path doubles each backslash and writes each bad byte as `\xNN`. A round trip of 5,000 names
+    proves that each shown path names exactly one file.
+  - It retracted, in so many words:
+    - reviewer 1's "the reorder breaks the tests";
+    - the comment that `git_reconcile` sweeps the branch;
+    - the claim that reviewer 1's escape was one-to-one;
+    - "pr_failed" as an end state.
+  - Its tests: on head, 19 of the review tests fail. After the fix, 438 passed in 16 files, and 13 of 13 mutants were killed.
+    The contract renders byte for byte, and oasdiff reports no breaking change.
+- **The coordinator's rulings (Opus 5.5):** each finding is accepted as reviewer 2 ruled it. The coordinator applied the
+  patch with `patch -p1 -F0` and merged in `main`. The full service suite is recorded below.
+
+- **The full service suite** in database `cmapi_wt605`, from 2026-11-24T16:34:50Z to 17:10:24Z, on the patched branch merged
+  with `main` `a2a55f3`: **2684 passed in 2130.30 s**, no failure.
+- After `main` gained #645 (`5962830`), the coordinator merged it in and relocated 8 citations. On the merged tree, the #626, #644, #646,
+  problem-registry, API-standard, API-docs, samples and #616 tests gave **305 passed**. `doc-citations.py --check`: 0 problems.
