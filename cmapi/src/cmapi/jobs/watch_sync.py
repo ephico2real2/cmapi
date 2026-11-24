@@ -13,7 +13,7 @@ from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo
 from cmapi.core.errors import Problem
-from cmapi.core.git.base import GitUnavailable
+from cmapi.core.git.base import GitUnavailable, as_plan
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import LEAD_TIME, log
 from cmapi.core.render.manifests import folder
@@ -86,8 +86,8 @@ def watch_sync(ctx: AppContext, s: Session, job: JobRow) -> None:
         return
     try:
         if mode == "apply":
-            on_main, _ = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
-            if on_main != files:
+            # A folder that holds a name or text that is not UTF-8 is never the plan's: as_plan reads it as False (#626).
+            if not as_plan(lambda: ctx.git.read_folder(folder(row.cluster_id, row.namespace))[0] == files):
                 return _refuse(repo, jobs, row, job, "Git main's folder differs from the approved plan; nothing applied")
             d = ApplyDelivery(_deliverer(ctx, row.cluster_id))
             live = d.client.get_object("Namespace", None, row.namespace)
@@ -118,8 +118,7 @@ def watch_sync(ctx: AppContext, s: Session, job: JobRow) -> None:
             # change to the folder is a new request, not this one), Argo CD has compared a revision at or after the
             # merge (status.sync.revision is the head of main, so a later merge moves it), and this folder's own objects
             # are Synced (the Application's status covers every namespace, so a neighbour's pending prune says nothing).
-            on_main, _ = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
-            if on_main != files:
+            if not as_plan(lambda: ctx.git.read_folder(folder(row.cluster_id, row.namespace))[0] == files):
                 return _refuse(repo, jobs, row, job, "Git main's folder differs from the approved plan")
             st = ctx.registry.get(row.cluster_id)
             reader = st.client                  # once: `_set` or the relist may clear it between a check and a use (#402)

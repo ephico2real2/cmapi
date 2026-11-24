@@ -25,7 +25,7 @@ from cmapi.core.db.models import ChangeRequestRow
 from cmapi.core.db.repo import JobRepo, RequestRepo, fingerprint, requirement_to_json
 from cmapi.core.errors import Problem
 from cmapi.core.etag import if_match_tags
-from cmapi.core.git.base import GitUnavailable, HostGitProvider
+from cmapi.core.git.base import GitUnavailable, HostGitProvider, NotUtf8
 from cmapi.core.identity.checks import Requester, resolve_requester
 from cmapi.core.identity.claims import Identity, label_value_of
 from cmapi.core.identity.directory import CachedDirectory
@@ -205,6 +205,8 @@ class Pipeline:
             return self.git.read_folder(folder(cluster_id, ns))
         except GitUnavailable as exc:
             raise Problem(502, "git-unavailable", str(exc)[:300]) from exc
+        except NotUtf8 as exc:
+            raise folder_not_utf8(ns, exc) from exc
 
     def removable_folder(self, cluster_id: str, ns: str, ref: str) -> dict[str, str]:
         """Every path a delete of the namespace removes: each file of its folder at ref, at any depth, whatever made it (#616).
@@ -214,6 +216,8 @@ class Pipeline:
             listed, _ = self.git.list_folder(folder(cluster_id, ns), ref)
         except GitUnavailable as exc:
             raise Problem(502, "git-unavailable", str(exc)[:300]) from exc
+        except NotUtf8 as exc:
+            raise folder_not_utf8(ns, exc) from exc
         submodules = sorted(p for p, kind in listed.items() if kind == "commit")
         if submodules:
             raise Problem.conflict("folder-holds-submodule",
@@ -255,8 +259,12 @@ class Pipeline:
             check_not_unmanaged(ns, cache.namespace(ns))
         requester = self.requester_for(who, body.get("onBehalfOf"))
         if action == "create":
-            # The label is only written at create; refuse here, not as a 422 from the API server at apply.
-            label_value_of(requester.person.username)
+            # The label is only written at create; refuse here, not as a 422 from the API server at apply. The refusal is
+            # explicit: a ValueError that escapes a route is the service's fault, 500 internal-error (#648).
+            try:
+                label_value_of(requester.person.username)
+            except ValueError as exc:
+                raise Problem.unprocessable("validation-failed", str(exc)[:300]) from exc
         operator = self.cfg.roles.is_operator(who, env)
         prev_files, base_sha = self._read_folder(cluster_id, ns)
         prev_ns = namespace_doc(prev_files)
@@ -543,6 +551,16 @@ class Pipeline:
 # counts each of its errors by its source (cmapi's metadata check, or the validator's kubeconform and Kyverno).
 CMAPI_REFUSALS = frozenset({"reserved-namespace", "invalid-namespace-name", "expiration-not-allowed", "expiration-limit",
                             "expiration-in-past"})
+
+
+def folder_not_utf8(ns: str, exc: NotUtf8) -> Problem:
+    """409: the folder in Git holds a path that no plan can carry (#626). A conflict with the folder's state that the caller can
+    resolve in Git and then send again (RFC 9110, section 15.5.10), as folder-holds-submodule is. Nothing is planned."""
+    shown = ", ".join(exc.paths[:3]) + (f" and {len(exc.paths) - 3} more" if len(exc.paths) > 3 else "")
+    action = "Rename it" if exc.part == "name" else "Write it again as UTF-8"
+    return Problem.conflict("folder-not-utf8", f"The folder of {ns} holds {shown}, whose {exc.part} {exc.rule}: cmapi carries a "
+                                               f"folder's names and manifests as UTF-8 text. {action} in Git, then send the request "
+                                               "again", paths=exc.paths)
 
 
 def count_refusal(problem: Problem) -> None:

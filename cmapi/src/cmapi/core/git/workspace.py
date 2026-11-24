@@ -35,9 +35,9 @@ import threading
 import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Literal, Mapping
+from typing import Iterable, Iterator, Literal, Mapping
 
-from cmapi.core.git.base import BranchRequest, GitUnavailable, MergeCheck, PushResult
+from cmapi.core.git.base import BranchRequest, GitUnavailable, MergeCheck, NotUtf8, PushResult, as_plan, git_name, manifest_text
 from cmapi.core.git.oplog import Op, redact, register_secret
 from cmapi.core.git.transport import Credentials, GitConfigError, Remote, check_path, git_environment, load_credentials, parse_remote
 from cmapi.core.observability import GIT_WORKDIR_BYTES, GIT_WORKTREES, SWEEPER_RUNS, log
@@ -296,28 +296,42 @@ class GitWorkspace:
             raise GitUnavailable(f"branch {ref} does not exist")
         return head
 
-    def _folder(self, treeish: str, path: str) -> dict[str, str]:
+    def _listing(self, treeish: str, path: str, *flags: str) -> Iterator[tuple[str, str, str, bytes]]:
+        """git ls-tree -z under path: (mode, type, object ID, name) of each entry. The name stays bytes: with -z "the filename
+        is output verbatim" (git-ls-tree(1)), and Git keeps a name as any non-NUL bytes, UTF-8 or not (#626)."""
         path = path.strip("/")
-        listing = self._m("ls-tree", "-z", treeish, "--", f"{path}/" if path else ".").stdout.decode()
+        listing = self._m("ls-tree", *flags, "-z", treeish, "--", f"{path}/" if path else ".").stdout
+        for entry in filter(None, listing.split(b"\0")):
+            meta, name = entry.split(b"\t", 1)
+            mode, kind, sha = meta.decode("ascii").split(" ")
+            yield mode, kind, sha, name
+
+    def _folder(self, treeish: str, path: str) -> dict[str, str]:
+        """The .yaml files directly in path. NotUtf8 when the name or the text of one is not UTF-8: a plan cannot hold it."""
         blobs: list[tuple[str, str]] = []
-        for entry in filter(None, listing.split("\0")):
-            meta, name = entry.split("\t", 1)
-            mode, kind, sha = meta.split(" ")
+        unnamed: list[str] = []
+        for mode, kind, sha, raw in self._listing(treeish, path):
             # Regular files only: a symlink (120000) or a submodule (160000) is not a manifest. GitHub's REST read_folder reads
             # the same modes from the tree; its Contents listing types both "file" (#632).
-            if kind == "blob" and mode in ("100644", "100755") and name.endswith(".yaml"):
-                blobs.append((name, sha))
+            if kind == "blob" and mode in ("100644", "100755") and raw.endswith(b".yaml"):
+                name, carried = git_name(raw)
+                if carried:
+                    blobs.append((name, sha))
+                else:
+                    unnamed.append(name)
+        if unnamed:
+            raise NotUtf8(unnamed, "name")
         if not blobs:
             return {}
         out = self._m("cat-file", "--batch", input="".join(f"{sha}\n" for _, sha in blobs).encode()).stdout
-        files: dict[str, str] = {}
+        texts: dict[str, bytes] = {}
         pos = 0
         for name, _ in blobs:
             header_end = out.index(b"\n", pos)
             size = int(out[pos:header_end].split(b" ")[2])
-            files[name] = out[header_end + 1:header_end + 1 + size].decode()
+            texts[name] = out[header_end + 1:header_end + 1 + size]
             pos = header_end + 1 + size + 1
-        return files
+        return manifest_text(texts)
 
     def read_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
         """The .yaml files directly in path at ref (default: origin's default branch after a fetch), and that commit's sha."""
@@ -327,13 +341,18 @@ class GitWorkspace:
 
     def _entries(self, treeish: str, path: str) -> dict[str, str]:
         """git ls-tree -r: every blob and submodule under path, at any depth, with its object type. Trees only: a partial clone
-        (blob:none) fetches no blob for it. Git never descends through a symlink, which is one blob."""
-        path = path.strip("/")
-        listing = self._m("ls-tree", "-r", "-z", treeish, "--", f"{path}/" if path else ".").stdout.decode()
+        (blob:none) fetches no blob for it. Git never descends through a symlink, which is one blob. NotUtf8 names every path
+        whose name is not UTF-8: a delete removes each path, so it must name each one (#626)."""
         entries: dict[str, str] = {}
-        for entry in filter(None, listing.split("\0")):
-            meta, name = entry.split("\t", 1)
-            entries[name] = meta.split(" ")[1]
+        unnamed: list[str] = []
+        for _, kind, _, raw in self._listing(treeish, path, "-r"):
+            name, carried = git_name(raw)
+            if carried:
+                entries[name] = kind
+            else:
+                unnamed.append(name)
+        if unnamed:
+            raise NotUtf8(unnamed, "name")
         return entries
 
     def list_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
@@ -364,8 +383,9 @@ class GitWorkspace:
         with self._lock:
             main = self.fetch_main()
             self._need(head)
-            out = self._m("diff", "--name-only", "--no-renames", "-z", f"{main}...{head}").stdout.decode()
-        return {p for p in out.split("\0") if p}
+            out = self._m("diff", "--name-only", "--no-renames", "-z", f"{main}...{head}").stdout
+        # Compared with the plan's paths and shown, never written: a name that is not UTF-8 shows its bytes as \xNN (#626).
+        return {p for p in out.decode(errors="backslashreplace").split("\0") if p}
 
     def log(self, n: int = 20) -> list[str]:
         with self._lock:
@@ -413,12 +433,13 @@ class GitWorkspace:
         t = self.trailers(head)
         if t[TRAILER_REQUEST] != [req.request_id] or t[TRAILER_PLAN_HASH] != [req.plan_hash]:
             return "its trailers are not this request's and plan's"
-        changed = {p for p in self._m("diff", "--name-only", "--no-renames", "-z", parent, head).stdout.decode().split("\0") if p}
+        diff = self._m("diff", "--name-only", "--no-renames", "-z", parent, head).stdout.decode(errors="backslashreplace")
+        changed = {p for p in diff.split("\0") if p}
         if not changed <= set(req.files):
             return f"it changes {sorted(changed - set(req.files))[:3]}, outside the plan"
-        if self._folder(head, folder) != {p: t for p, t in req.files.items() if t is not None}:
+        if not as_plan(lambda: self._folder(head, folder) == {p: t for p, t in req.files.items() if t is not None}):
             return "its folder is not the plan's files"
-        if self._folder(parent, folder) != dict(req.prev):
+        if not as_plan(lambda: self._folder(parent, folder) == dict(req.prev)):
             return "the folder at its parent is not the plan's base"
         return None
 
@@ -569,12 +590,13 @@ class GitWorkspace:
                             break
                         names.append(item)
                     conflicts = tuple(sorted(set(names)))
-                base_ok = self._folder(main, folder) == dict(prev)
+                # A folder that holds a name or text that is not UTF-8 is never the plan's: as_plan reads it as False (#626).
+                base_ok = as_plan(lambda: self._folder(main, folder) == dict(prev))
                 if whole_folder:
-                    base_ok = base_ok and self._entries(main, folder) == dict.fromkeys(files, "blob")
-                    result_ok = not conflicts and not self._entries(tree, folder)
+                    base_ok = base_ok and as_plan(lambda: self._entries(main, folder) == dict.fromkeys(files, "blob"))
+                    result_ok = not conflicts and as_plan(lambda: not self._entries(tree, folder))
                 else:
-                    result_ok = not conflicts and self._folder(tree, folder) == expected
+                    result_ok = not conflicts and as_plan(lambda: self._folder(tree, folder) == expected)
                 check = MergeCheck(main, head, conflicts, base_ok, result_ok, tree if not conflicts else None)
                 op.set(conflict_paths=list(conflicts), base_matches=base_ok, result_matches=result_ok, tree=check.tree,
                        reason=check.reason(self.default_branch))

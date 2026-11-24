@@ -2,6 +2,8 @@
 
 Run from cmapi/:  PYTHONPATH=src:tests/core python -m pytest -q tests/core/test_tiers.py
 """
+from decimal import Decimal
+
 import pytest
 import yaml
 
@@ -333,6 +335,25 @@ def test_a_quantity_keeps_each_digit_and_rounds_up_to_the_nano_unit_as_kubernete
     hard = cat.quota_for("dev", "custom", SIZES)
     tiny = cat.limits_for("dev", "custom", {"container": {"max": {"cpu": "2.0000000000000000000000000001"}}}, hard)
     assert list(cat.beyond("dev", "custom", hard, tiny)) == ["limitRange.container.max.cpu"]      # a new value, not the tier's 2
+
+
+def test_a_quantity_too_large_to_hold_is_refused_before_it_takes_memory():
+    """#648, review of PR #652: qty quantizes to the nano-unit, one digit for each power of ten, so "1e2147483647" (an
+    exponent that apimachinery takes) took 904 MB of tracemalloc's peak before decimal refused it. The bound is checked
+    first; everything below it parses as before."""
+    import tracemalloc
+
+    assert qty("9.999e999999") > qty("1e999999") and qty("9" * 1000) == Decimal("9" * 1000)
+    tracemalloc.start()
+    try:
+        for value in ("1e2147483647", "1e1000000", "9" * 999_982 + "Ei", "9" * 1_000_000 + "." + "9" * 9 + "1"):
+            tracemalloc.reset_peak()
+            with pytest.raises(ValueError) as refused:
+                qty(value)
+            assert tracemalloc.get_traced_memory()[1] < 50_000_000, value[:20]
+            assert str(refused.value).startswith("quantity out of range (cmapi takes one below 1e1000000): "), refused.value
+    finally:
+        tracemalloc.stop()
 
 
 def test_rounding_cannot_reuse_an_approval_for_a_larger_value():

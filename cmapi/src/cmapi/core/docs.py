@@ -39,6 +39,8 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "environment-forbidden": (403, "Your roles grant namespaces:create only in ['rnd'], not dev"),
     "cluster-not-found": (404, "Unknown cluster OCP_X"),
     "object-not-found": (404, "No request req-20261105-0001"),
+    "not-found": (404, "No resource of this API has this path"),
+    "method-not-allowed": (405, "The path does not take this method. Allow lists the methods it takes"),
     "change-pending": (409, "req-20261105-0001 holds payments-dev"),
     "namespace-exists": (409, "payments-dev is already in Git"),
     "namespace-exists-unmanaged": (409, "payments-dev exists on the cluster and is not managed by cmapi"),
@@ -48,6 +50,9 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "self-approval": (409, "Requesters cannot approve their own request here"),
     "nothing-to-prune": (409, "No delete of payments-dev is awaiting a prune"),
     "folder-holds-submodule": (409, "The folder of payments-dev holds the submodule clusters/CRC/namespaces/payments-dev/vendor"),
+    "folder-not-utf8": (409, "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not "
+                             "UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the "
+                             "request again"),
     "idempotency-replay": (409, "Idempotency-Key was used for a different request"),
     "precondition-failed": (412, "The namespace changed in Git since you read it"),
     "validation-failed": (422, "Request body is not valid"),
@@ -78,6 +83,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "invalid-sort": (400, "Unknown sort used2"),
     "invalid-limit": (400, "limit is one of (25, 50, 100), at most 200"),
     "dry-run-not-supported": (400, "This call has no dry run, and nothing was done"),
+    "bad-request": (400, "Too many fields. Maximum number of fields is 1000."),
     "rate-limited": (429, "Too many requests"),
     "idp-unavailable": (503, "Keycloak signing keys are unreachable and this key is not cached"),
     "cluster-unreachable": (503, "CRC did not answer"),
@@ -166,6 +172,8 @@ PROBLEM_EXTRAS: dict[str, dict[str, Any]] = {
     "idp-unavailable": {"retryAfter": 30},
     "cluster-unreachable": {"retryAfter": 30},
     "validator-unavailable": {"retryAfter": 60},
+    "folder-holds-submodule": {"paths": ["clusters/CRC/namespaces/payments-dev/vendor"]},
+    "folder-not-utf8": {"paths": ["clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"]},
 }
 
 

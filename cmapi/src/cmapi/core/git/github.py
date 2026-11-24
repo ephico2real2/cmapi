@@ -27,7 +27,7 @@ from typing import Any, Iterable, Mapping
 from urllib.parse import quote
 
 from cmapi.core.git.base import (BranchRequest, CheckState, GitUnavailable, HeadMoved, HostGitProvider, IncompleteList, MergeCheck,
-                                 NotMergeable, PlatformRefused, PushResult)
+                                 NotMergeable, PlatformRefused, PushResult, manifest_text, refuse_lost_names)
 from cmapi.core.ports import PrRef, PrStatus
 
 
@@ -88,16 +88,18 @@ class GitHubProvider(HostGitProvider):
         if found["type"] != "dir":               # a file, symlink or submodule: git ls-tree of "<path>/" lists nothing either
             return {}, head
         prefix = f"{directory}/" if directory else ""
-        return {prefix + e["path"]: self._blob_text(e["sha"]) for e in self._tree(found["sha"])
-                if e["type"] == "blob" and e["mode"] in ("100644", "100755") and e["path"].endswith(".yaml")}, head
+        manifests = {prefix + e["path"]: e["sha"] for e in self._tree(found["sha"])
+                     if e["type"] == "blob" and e["mode"] in ("100644", "100755") and e["path"].endswith(".yaml")}
+        refuse_lost_names(manifests)             # a byte that is not UTF-8 came as U+FFFD: no plan can name the file (#626)
+        return manifest_text({p: self._blob_bytes(sha) for p, sha in manifests.items()}), head
 
-    def _blob_text(self, sha: str) -> str:
+    def _blob_bytes(self, sha: str) -> bytes:
         """GET git/blobs/{sha}: "The content in the response will always be Base64 encoded", for blobs up to 100 MB (REST docs,
-        Git blobs, fetched 2026-11-23). Strict UTF-8, as the worker decodes a manifest."""
+        Git blobs, fetched 2026-11-23). manifest_text reads it as strict UTF-8, as the worker reads a manifest."""
         b = self._call("read_file", "GET", f"{self._repo()}/git/blobs/{sha}")
         if b.status_code != 200:
             raise GitUnavailable(f"read blob {sha[:8]}: HTTP {b.status_code}")
-        return base64.b64decode(b.json()["content"]).decode()
+        return base64.b64decode(b.json()["content"])
 
     def _tree(self, oid: str, *, recursive: bool = False) -> list[dict[str, Any]]:
         """GET git/trees/{oid}: the entries of one tree, or of every tree under it. "If truncated is true in the response then
@@ -129,7 +131,9 @@ class GitHubProvider(HostGitProvider):
                 return {}, head
             tree = entry["sha"]
         prefix = f"{directory}/" if directory else ""
-        return {prefix + e["path"]: e["type"] for e in self._tree(tree, recursive=True) if e["type"] in ("blob", "commit")}, head
+        listed = {prefix + e["path"]: e["type"] for e in self._tree(tree, recursive=True) if e["type"] in ("blob", "commit")}
+        refuse_lost_names(listed)                # a delete removes each path, so it must name each one (#626)
+        return listed, head
 
     def log(self, n: int = 20) -> list[str]:
         if self.workspace is not None:

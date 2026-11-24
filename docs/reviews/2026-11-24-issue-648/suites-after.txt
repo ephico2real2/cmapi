@@ -1,0 +1,5 @@
+519 passed in 469.57s (0:07:49)
+files: tests/service/test_api_contract.py tests/service/test_api_docs.py tests/service/test_api_namespace_change_485.py tests/service/test_api_samples.py tests/service/test_api_standard.py tests/service/test_capacity_302.py tests/service/test_cors.py tests/service/test_custom_tier_change.py tests/service/test_design_481_matches_build.py tests/service/test_dry_run_once_607.py tests/service/test_expirations.py tests/service/test_head_605.py tests/service/test_list_filters.py tests/service/test_metadata_review_234_api.py tests/service/test_metadata_url_332_api.py tests/service/test_namespace_patch_contract_483.py tests/service/test_namespace_patch_fable_492.py tests/service/test_policies_302.py tests/service/test_review_d_delivery.py tests/service/test_value_error_648.py 
+
+168 passed, 2 skipped in 8.66s
+files: tests/core/test_limitrange_split.py tests/core/test_metadata_pattern_subset_332.py tests/core/test_tiers.py

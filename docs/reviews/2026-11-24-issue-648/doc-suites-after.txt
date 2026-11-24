@@ -1,0 +1,7 @@
+$ PYTHONPATH=src:tests/core python -m pytest tests/core/test_review_255.py -q -W ignore -p no:cacheprovider
+.......                                                                  [100%]
+7 passed in 0.62s
+$ CMAPI_TEST_DATABASE_URL=.../cmapi_603 PYTHONPATH=src:tests/service python -m pytest <doc suites> -q -W ignore -p no:cacheprovider
+........................................................................ [ 89%]
+.................                                                        [100%]
+161 passed in 110.56s (0:01:50)

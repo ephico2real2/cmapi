@@ -9,6 +9,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import unquote_to_bytes
 
 import yaml
 from fastapi import Depends, FastAPI, Request
@@ -34,6 +35,7 @@ from cmapi.core.docs import PROBLEMS, URL_VARIABLE, InstanceFacts, api_routes, b
 from cmapi.core.errors import Problem, type_base
 from cmapi.core.etag import etag_of, not_modified
 from cmapi.core.kpi import register_collectors
+from cmapi.core.models import NUL_REFUSED
 from cmapi.core.problem_docs import problem_html, problems_index_html
 from cmapi.core.observability import configure_logging, instrument, log, start_metrics
 from cmapi.core.tiers import TierError
@@ -102,15 +104,41 @@ class UnhandledToProblemMiddleware:
             raise
         except ClientDisconnect:
             return
-        except Exception:
+        except Exception as exc:
             if disconnected:
                 return
             request = Request(scope)
-            log.exception("unhandled", method=request.method, route=getattr(scope.get("route"), "path_format", "unmatched"))
+            # error_type: the exception's class as a field to filter on; `exception` holds the traceback (#648). A failure
+            # inside a StreamingResponse comes wrapped in a one-member ExceptionGroup (starlette/responses.py:252, an anyio
+            # task group), so the class is its cause's, as Starlette's own collapse_excgroups unwraps it (_utils.py:79-80).
+            cause: BaseException = exc
+            while isinstance(cause, BaseExceptionGroup) and len(cause.exceptions) == 1:
+                cause = cause.exceptions[0]
+            log.exception("unhandled", method=request.method, route=getattr(scope.get("route"), "path_format", "unmatched"),
+                          error_type=type(cause).__name__)
             if started:
                 raise  # A stream/background failure cannot replace a status already sent.
             response = self.problem_response(Problem(500, "internal-error", PROBLEMS["internal-error"][1]))
             await response(scope, receive, send)
+
+
+class RefuseNulMiddleware:
+    """A path or a query that holds U+0000 (%00) is 422 validation-failed, before routing (#653).
+
+    PostgreSQL stores no NUL, and os.stat refuses one in the path of a static file, so before this a NUL in a request ID, a
+    filter or a static path answered 500. A header cannot hold one: uvicorn's parsers, h11 and httptools, answer 400. A JSON
+    body is checked by its model, core/models.py RequestBody."""
+
+    def __init__(self, app: ASGIApp, problem_response: Any):
+        self.app = app
+        self.problem_response = problem_response
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and ("\x00" in scope["path"] or b"\x00" in unquote_to_bytes(scope["query_string"])):
+            response = self.problem_response(Problem.unprocessable("validation-failed", NUL_REFUSED))
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
 
 
 def instance_facts(cfg: InstanceConfig, cluster_environments: Mapping[str, str] | None = None) -> InstanceFacts:
@@ -196,6 +224,7 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         return JSONResponse(p.body(problem_base), status_code=p.status, media_type="application/problem+json", headers=headers)
 
     app.add_middleware(UnhandledToProblemMiddleware, problem_response=problem_response)
+    app.add_middleware(RefuseNulMiddleware, problem_response=problem_response)
 
     instrument(app)
     # CORS is added after the request middleware, so it is the outer one: each answer that the application makes has the
@@ -205,6 +234,10 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         app.add_middleware(OriginVaryCORSMiddleware, allow_origins=origins, allow_methods=METHODS, allow_headers=REQUEST_HEADERS,
                            expose_headers=EXPOSED_HEADERS, allow_credentials=False, max_age=MAX_AGE)
     app.state.cors_origins = origins
+
+    def validation_failed(errors: list[dict[str, Any]]) -> Problem:
+        return Problem(422, "validation-failed",
+                       "The request is not valid: " + "; ".join(f"{e['field']}: {e['message']}" for e in errors)[:400], errors)
 
     @app.exception_handler(Problem)
     async def problem_handler(_: Request, exc: Problem) -> Response:
@@ -216,17 +249,28 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         # left out: it can hold what the caller did not mean to send back, and the field names it.
         errors = [{"field": ".".join(str(part) for part in e.get("loc", ())), "message": e.get("msg", ""), "code": e.get("type", "")}
                   for e in exc.errors()]
-        p = Problem(422, "validation-failed", "The request is not valid: " + "; ".join(f"{e['field']}: {e['message']}" for e in errors)[:400],
-                    errors)
-        return problem_response(p)
+        return problem_response(validation_failed(errors))
 
     @app.exception_handler(TierError)
     async def tier_error_handler(_: Request, exc: TierError) -> Response:
         return problem_response(Problem.policy_violation(exc.detail, [{"code": exc.code, **exc.data}]))
 
-    @app.exception_handler(ValueError)
-    async def value_error_handler(_: Request, exc: ValueError) -> Response:
-        return problem_response(Problem.unprocessable("validation-failed", str(exc)[:300]))
+    # No handler for ValueError (#648). The one before answered each ValueError that escaped a route as 422 validation-failed
+    # with its text, so a codec error of the Git layer blamed the caller and showed an implementation message (RFC 9457,
+    # sections 3.1.4 and 5). A refusal that means the request is not valid is a Problem raised where it is decided
+    # (tiers.requested_qty, the username check of Pipeline._plan_namespace); a request model's ValueError reaches
+    # request_validation_handler as RequestValidationError; TierError keeps its own handler, which Starlette finds first in
+    # the class's MRO. Any other ValueError is the service's fault: UnhandledToProblemMiddleware answers 500 internal-error.
+
+    # The 404 and 405 that no route makes (#644): Starlette's router (routing.py:651, no route matches the path; :283, a route
+    # matches it with another method) and StaticFiles under /static (staticfiles.py:114, :123, :149) raise HTTPException,
+    # and FastAPI's default handler answered {"detail": ...} as application/json. Starlette 0.41.3 looks a status handler
+    # up before the class handler (_exception_handler.py:46-50), so these two take every HTTPException of their status and
+    # no other; a Problem is not an HTTPException and keeps problem_handler. Each is a problem type of the registry, as
+    # every other refusal is (docs/02, "Problem type URIs"), so its type resolves to /problems/<code>.
+    @app.exception_handler(404)
+    async def not_found(_: Request, exc: HTTPException) -> Response:
+        return problem_response(Problem(404, "not-found", PROBLEMS["not-found"][1]), dict(exc.headers or {}))
 
     @app.exception_handler(405)
     async def method_not_allowed(request: Request, exc: HTTPException) -> Response:
@@ -237,12 +281,48 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         staticfiles.py:113; 1.10.0 sends "GET, HEAD", staticfiles.py:120)."""
         response = await http_exception_handler(request, exc)
         if isinstance(request.scope.get("endpoint"), StaticFiles):
-            response.headers["Allow"] = "GET, HEAD"
+            allow = "GET, HEAD"
         else:
             methods = {m for r in api_routes(app) if r.matches(request.scope)[0] == Match.PARTIAL for m in r.methods}
             if methods:
-                response.headers["Allow"] = ", ".join(sorted(methods))
-        return response
+                allow = ", ".join(sorted(methods))
+        if allow:   # one Allow field: Starlette's, whatever its case, gives way to the whole list
+            headers = {k: v for k, v in headers.items() if k.lower() != "allow"} | {"Allow": allow}
+        return problem_response(Problem(405, "method-not-allowed", PROBLEMS["method-not-allowed"][1]), headers)
+
+    @app.exception_handler(HTTPException)
+    async def framework_refusal(request: Request, exc: HTTPException) -> Response:
+        """Every other HTTPException, which only FastAPI and Starlette raise: cmapi's own refusals are Problems (#646).
+
+        FastAPI raises its 400 "There was an error parsing the body" from whatever reading the body raised
+        (fastapi/routing.py:283-287), so the cause says what happened:
+        - ClientDisconnect: the client went away while it sent the body. No answer is sent: UnhandledToProblemMiddleware
+          ends the request, as for every other disconnect.
+        - ValueError or RecursionError: the JSON decoder could not read the bytes (not Unicode text, nested deeper than it
+          goes, an integer longer than 4300 digits). Only the decoder raises these there: a Form body needs
+          python-multipart, which cmapi does not install, and FastAPI refuses such a route at startup. It is the 422
+          validation-failed with json_invalid that a body JSON cannot parse gets (#164), so a client gets one answer
+          for a body that is not JSON.
+        A 400 with no cause is one that the framework chose (Starlette's form parser, starlette/requests.py:271): a client
+        error, bad-request, with the framework's detail. Any other cause, and any other status, is the service's fault:
+        StaticFiles' 401 (staticfiles.py:119) is a file of the image that the process cannot read, which no credential
+        changes. It is internal-error, with the status and the cause in the log line. An HTTPException below 400 is no
+        refusal and keeps FastAPI's answer."""
+        if exc.status_code < 400:
+            return await http_exception_handler(request, exc)
+        cause = exc.__cause__
+        if exc.status_code == 400:
+            if isinstance(cause, ClientDisconnect):
+                raise cause
+            if isinstance(cause, (ValueError, RecursionError)):
+                return problem_response(validation_failed([{"field": "body", "message": "the body cannot be read as JSON",
+                                                            "code": "json_invalid"}]))
+            if cause is None:
+                return problem_response(Problem(400, "bad-request", str(exc.detail)[:300]), dict(exc.headers or {}))
+        log.error("framework_refusal", method=request.method, status=exc.status_code, detail=str(exc.detail)[:200],
+                  cause=type(cause).__name__ if cause else None,
+                  route=getattr(request.scope.get("route"), "path_format", "unmatched"))
+        return problem_response(Problem(500, "internal-error", PROBLEMS["internal-error"][1]))
 
     _add_problem_pages(app, ctx, problem_base)
     if docs_enabled:
