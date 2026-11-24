@@ -73,9 +73,12 @@ server certificate's name is the one the pods will connect to (`verify-full` che
 
 ## 4. Running it
 
-- **Migrations** are expand-only. A rollback of the image keeps running on a later schema (the old migrator exits 0 on
-  a later four-digit revision, and `/readyz` counts it as ready); a divergent or unknown revision is refused by both.
-  Nothing rolls a data migration back by itself.
+- **Migrations** are expand-only, except the contract step of a change made in two releases, such as `0009` below. A
+  contract step ships only once no pod older than its expand step runs: for `0009`, no 0007 pod, while release 1 (`0008`)
+  pods keep serving beside it. An image rolled back to a release that has the expand step keeps running on a later schema
+  (the old migrator exits 0 on a later four-digit revision, and `/readyz` counts it as ready). An image older than the
+  expand step passes the same two checks but does not work, as "After `0009`" below says. A divergent or unknown revision
+  is refused by both. Nothing rolls a data migration back by itself.
 - **The Idempotency-Key's caller (#592), in two releases** (expand, then contract: Fowler, *ParallelChange*).
   - **Release 1, `0008`.** It adds `change_requests.idempotency_sub`, fills it with the caller of each live key, clears
     the keys older than 24 hours, and adds the unique index `uq_cr_idempotency_caller` on `(idempotency_sub,
@@ -96,17 +99,47 @@ server certificate's name is the one the pods will connect to (`verify-full` che
       answers that key with the older request, the same service's: its retry of the second body is 409 naming the first.
       Only a client that reuses a key for a different request meets this; a retry of the same body is caught by the
       requester's index. Measured with 0007's code on the 0008 schema (review of PR #601, reviewer 2's mixed probe).
-  - **Release 2, `0009` (#603).** It ships only after no 0007 pod runs. It fills the keyed rows that 0007 pods wrote,
-    and keeps only the caller's index. Like `0008`, it refuses while two such rows are one caller's live key, and
-    succeeds once all but one are more than 24 hours old.
-  - **Back to 0007.** `cmapi-migrate 0007 --downgrade` drops the caller's index and the column, and keeps every key.
-- **Locks of `0008`.** The upgrade acquires ACCESS EXCLUSIVE on `change_requests` when it adds the column. The downgrade
-  acquires it when it drops the index. Reads and writes of this table wait through the checks, the updates and the index
-  build, until commit. This was measured on PostgreSQL 16: another session's SELECT and UPDATE get `55P03` under a
-  100 ms `lock_timeout`. The 30-second `lock_timeout` of the migrator limits each attempt to acquire a lock. It does not
-  limit the work done after acquisition, or the total migration time. The migrator takes its session advisory lock
-  before it sets this timeout. CRC held 19 rows on 2026-11-23 (the read-only count on #592). Measure the transaction on a production-sized copy when
-  you schedule the release.
+  - **Release 2, `0009` (#603).** It ships only after release 1 is deployed everywhere and no 0007 pod runs. In one
+    transaction it:
+    - locks `change_requests` (ACCESS EXCLUSIVE), first;
+    - refuses, and changes nothing, while a live key has no single caller: a keyed row with no `idempotency_sub` that is
+      delegated and has no `submittedBySub`, or two live rows of one caller's key by release 1's rule
+      (`COALESCE(idempotency_sub, requester->>'submittedBySub', requester_sub)`). The second is the risk accepted in
+      release 1. It succeeds once all but one row of each group are more than 24 hours old;
+    - clears the keys older than 24 hours, and fills `idempotency_sub` on the keyed rows that 0007 pods wrote;
+    - adds the check `ck_cr_idempotency_caller` (a row with a key names its caller), and drops `uq_cr_idempotency`.
+
+    No other live pair is refused. The requester's index held over every keyed row until `0009`, so no stored rows share
+    a requester and a key, and no retry of a stored request changes its answer. What changes is a new request from
+    another caller for the same person: a person using a key that a service holds for them, or a service using the
+    person's key. Release 1 answered 409 "Idempotency-Key is in use for another request", which named no request but told
+    the caller the key was held. Release 2 makes it that caller's own new request, under the same checks as any other:
+    a namespace that the other request holds is still 409 `change-pending`.
+  - **After `0009`.** The lookup reads `(idempotency_sub, idempotency_key)`, which `uq_cr_idempotency_caller` serves, and
+    clears only the caller's own expired key. Release 1's image still runs on this schema, so an image-only rollback to it
+    is safe: it writes `idempotency_sub`, and its lookup reads it first. A 0007 image must not run on it: its migrator
+    exits 0 on `0009` and its `/readyz` is ready, but every keyed write it makes breaks `ck_cr_idempotency_caller` (500).
+  - **Back to 0008.** `cmapi-migrate 0008 --downgrade` restores release 1's schema: it creates `uq_cr_idempotency` again
+    and drops the check, and every live key keeps its caller. It refuses, and changes nothing, while two live rows share a
+    requester and a key, which `0009` allows (a person and a service that writes for her). It succeeds once all but one
+    row of each pair are more than 24 hours old. Like the upgrade, it clears the expired keys first.
+  - **Back to 0007.** From `0008`, `cmapi-migrate 0007 --downgrade` drops the caller's index and the column, and keeps every
+    key. On the way up again, `0008` takes each live key's caller from `requester`, as it did the first time. For every
+    row that cmapi writes, that is the caller that `idempotency_sub` held. A live delegated row whose caller was in
+    `idempotency_sub` alone, with no `requester.submittedBySub`, makes `0008` refuse, changing nothing, until it is more
+    than 24 hours old.
+- **Locks of `0008` and `0009`.** The `0008` upgrade acquires ACCESS EXCLUSIVE on `change_requests` when it adds the
+  column, and its downgrade when it drops the index. `0009` acquires it with its first statement, `LOCK TABLE`, both ways.
+  Reads and writes of this table wait through the checks, the updates, the check's scan and the index build or drop,
+  until commit. Neither uses CONCURRENTLY: PostgreSQL runs neither `CREATE INDEX CONCURRENTLY` nor
+  `DROP INDEX CONCURRENTLY` inside a transaction block, and both migrations refuse by rolling back their one transaction.
+  This was measured on PostgreSQL 16 for both (PR #601, and `docs/reviews/2026-11-23-issue-603`): while the migrator is
+  inside its transaction, another session's SELECT and UPDATE get `55P03` under a 100 ms `lock_timeout`. The 30-second
+  `lock_timeout` of the migrator limits each attempt to acquire a lock. It does not limit the work done after
+  acquisition, or the total migration time. The migrator takes its session advisory lock before it sets this timeout.
+  CRC held 19 rows on 2026-11-23 (the read-only count on #592). On 200,000 synthetic rows on a loaded laptop, `0009`'s
+  transaction took 12.5 s and its downgrade 3.3 s (`transaction_seconds`). Measure the transaction on a production-sized
+  copy when you schedule the release.
 - **Reading a migration's times (#614).** Each run of the migrator writes one result event to its log
   (`oc logs <pod> -c migrate`), at any `CMAPI_LOG_LEVEL`, after any `waiting_for_database` events. Times are in seconds,
   rounded to the millisecond.

@@ -1,0 +1,294 @@
+start 2026-11-24T04:55:54Z load { 8.73 8.73 8.45 }
+...F..F..F....................                                           [100%]
+=================================== FAILURES ===================================
+________ test_the_person_cannot_replay_the_service_request_with_its_key ________
+
+world = (<starlette.testclient.TestClient object at 0x105cd10d0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x106040cb0>, <conftest.FakeValidator object at 0x106040560>, <conftest.Keys object at 0x105c5ed50>)
+
+    def test_the_person_cannot_replay_the_service_request_with_its_key(world):
+        """The person the service named cannot replay its request with its key. Before (8a5b41c): her body with `onBehalfOf`
+        replayed it (202), and another body was 409 naming it. After, in release 1: 422 for `onBehalfOf`, the lock, and for
+        another namespace 409 from the requester's index, which still holds the pair (person, key) and names no request.
+        Release 2 (0009) drops that index, and the last answer becomes 202."""
+        client, ctx, *_rest, keys = world
+        _directory(ctx)
+        rid = client.post(URL, json={**NS, "onBehalfOf": "ola"}, headers=_service(keys, "svc-key-2")).json()["requestId"]
+    
+        same = client.post(URL, json={**NS, "onBehalfOf": "ola"}, headers=_ola(keys, "svc-key-2"))
+        assert same.status_code == 422 and same.json()["code"] == "on-behalf-of-not-allowed", same.text
+    
+        # The service's request holds the namespace, and the requester's index holds (person, key): the INSERT breaks both,
+        # and the answer is the conflict that PostgreSQL reports first. Neither replays the service's request.
+        held = client.post(URL, json=NS, headers=_ola(keys, "svc-key-2"))
+        assert held.status_code == 409 and held.json()["code"] in ("change-pending", "idempotency-replay"), held.text
+        assert held.json()["code"] == "change-pending" or "requestId" not in held.json(), held.text
+    
+        other = client.post(URL, json=OTHER, headers=_ola(keys, "svc-key-2"))
+>       assert other.status_code == 409 and other.json()["code"] == "idempotency-replay", other.text
+E       AssertionError: {"clusterId":"CRC","requestId":"req-20261124-0002","instance":"nonprod","namespace":"ledger-dev","env":"dev","plugin":"namespaces","action":"create","reason":null,"justification":"Payments service dev namespace","status":"approved","planHash":"835c826e16db1a513d562132252c58d32cc9db9409b0d2ecd2aacd20baa1604f","baseSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","approval":{"rule":"dev-create","auto":"auto:baseline-rnd-namespace","autoFallback":null,"selfApproval":true,"timeoutHours":8,"slots":[],"remaining":[],"approvals":[],"reasons":["dev create: 1 from approver-platform","auto-approved by policy baseline-rnd-namespace"]},"requester":{"requester":{"sub":"sub-ola","username":"ola","email":"ola@ephico2real.com","givenName":"Ola","middleName":null,"familyName":"Doe","employeeId":"1001","kind":"user","clientId":"cmapi-portal"},"automated":false,"submittedBy":null,"submittedByClient":null},"pr":null,"mergeSha":null,"files":{"clusters/CRC/namespaces/ledger-dev/limitrange-ledger-dev-limits-cpu.yaml":"added","clusters/CRC/namespaces/ledger-dev/limitrange-ledger-dev-limits-memory.yaml":"added","clusters/CRC/namespaces/ledger-dev/namespace.yaml":"added","clusters/CRC/namespaces/ledger-dev/resourcequota-ledger-dev-quota.yaml":"added","clusters/CRC/namespaces/ledger-dev/token-issuer-rolebinding.yaml":"added"},"beyondTier":null,"events":[{"at":"2026-11-24T04:56:05.808703Z","event":"plan_auto_approved","status":"approved","by":"ola","note":"auto:baseline-rnd-namespace"}],"createdAt":"2026-11-24T04:56:05.775410Z","updatedAt":"2026-11-24T04:56:05.662999Z","links":{"self":"/api/v1/requests/req-20261124-0002","events":"/api/v1/requests/req-20261124-0002/events"}}
+E       assert (202 == 409)
+E        +  where 202 = <Response [202 Accepted]>.status_code
+
+tests/service/test_idempotency_caller_592.py:158: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T04:56:04.983678Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T04:56:05.098544Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 189.6, "event": "http", "request_id": "563568754f914182", "level": "info", "timestamp": "2026-11-24T04:56:05.340719Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 22.7, "event": "http", "request_id": "2df9f801368c4772", "level": "info", "timestamp": "2026-11-24T04:56:05.415296Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 409, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 82.7, "event": "http", "request_id": "dccd831e280d402a", "level": "info", "timestamp": "2026-11-24T04:56:05.549545Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 85.4, "event": "http", "request_id": "47dcea923992482b", "level": "info", "timestamp": "2026-11-24T04:56:05.687231Z"}
+______ test_a_row_that_a_0007_pod_wrote_after_0008_belongs_to_its_caller _______
+
+self = <sqlalchemy.engine.base.Connection object at 0x1066250a0>
+dialect = <sqlalchemy.dialects.postgresql.psycopg.PGDialect_psycopg object at 0x1064edaf0>
+context = <sqlalchemy.dialects.postgresql.psycopg.PGExecutionContext_psycopg object at 0x106625010>
+statement = <sqlalchemy.dialects.postgresql.psycopg.PGCompiler_psycopg object at 0x106627890>
+parameters = [{}]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Unpack[TupleAny]]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        evt_handled: bool = False
+        try:
+            if self._has_events or self.engine._has_events:
+                for fn in self.dispatch.before_cursor_execute:
+                    str_statement, effective_parameters = fn(
+                        self,
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                        context.executemany,
+                    )
+    
+            if self._echo:
+                self._log_info(str_statement)
+    
+                stats = context._get_cache_stats()
+    
+                self._log_parameters(
+                    effective_parameters, stats, ismulti=context.executemany
+                )
+    
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+../../../ob1-run/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1977: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../ob1-run/venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:1192: in do_execute
+    cursor.execute(statement, parameters)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [IDLE] (host=127.0.0.1 port=55432 user=cmapi database=cmapi_603_main) at 0x106602750>
+query = 'UPDATE change_requests SET idempotency_sub = NULL', params = {}
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.CheckViolation: new row for relation "change_requests" violates check constraint "ck_cr_idempotency_caller"
+E           DETAIL:  Failing row contains (req-20261124-0001, nonprod, CRC, payments-dev, dev, namespaces, create, approved, null, Payments service dev namespace, payments, {"prev": {}, "spec": {"env": "dev", "tier": "small", "quota": nu..., b4e08d133e344c5ddc8e176d1b5b22d7145667bb3ee5ef04cad4d175639587c8, aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, {"auto": "auto:baseline-rnd-namespace", "rule": "dev-create", "s..., {"automated": true, "requester": {"sub": "sub-ola", "kind": "use..., sub-ola, service, svc-payments-ci, ola, old-pod-svc, 426c346d46ff2af505a020efc85b35ee6b08daa74e4a8749013311f54f4b7747, null, null, 0, 2026-11-24 04:56:09.924579+00, 2026-11-24 04:56:09.84386+00, 2026-11-24 04:56:09.836189+00, null, null, null).
+
+../../../ob1-run/venv/lib/python3.12/site-packages/psycopg/cursor.py:117: CheckViolation
+
+The above exception was the direct cause of the following exception:
+
+world = (<starlette.testclient.TestClient object at 0x1065f7d10>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x10635ae40>, <conftest.FakeValidator object at 0x106359700>, <conftest.Keys object at 0x105c5ed50>)
+
+    def test_a_row_that_a_0007_pod_wrote_after_0008_belongs_to_its_caller(world):
+        """In release 1's window a 0007 pod inserts on the 0008 schema without `idempotency_sub` (its model has no such column).
+        Here such rows are made with this code, then the column is set to NULL, which is what that pod leaves. This code takes
+        their caller from `requester`, as 0008's backfill does (`key_owner`). Before (628a6c5, which looked up by
+        `idempotency_sub` only): the service's retry missed its request."""
+        client, ctx, *_rest, keys = world
+        _directory(ctx)
+        by_service = client.post(URL, json={**NS, "onBehalfOf": "ola"}, headers=_service(keys, "old-pod-svc")).json()["requestId"]
+        own = client.post(URL, json=OTHER, headers=_ola(keys, "old-pod-ola")).json()["requestId"]
+        with ctx.db.session() as s:
+>           s.execute(text("UPDATE change_requests SET idempotency_sub = NULL"))
+
+tests/service/test_idempotency_caller_592.py:197: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../ob1-run/venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2555: in execute
+    return self._execute_internal(
+../../../ob1-run/venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2455: in _execute_internal
+    result = conn.execute(
+../../../ob1-run/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1494: in execute
+    return meth(
+../../../ob1-run/venv/lib/python3.12/site-packages/sqlalchemy/sql/elements.py:534: in _execute_on_connection
+    return connection._execute_clauseelement(
+../../../ob1-run/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1714: in _execute_clauseelement
+    ret = self._execute_context(
+../../../ob1-run/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1868: in _execute_context
+    return self._exec_single_context(
+../../../ob1-run/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1996: in _exec_single_context
+    self._handle_dbapi_exception(
+../../../ob1-run/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:2351: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+../../../ob1-run/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:1977: in _exec_single_context
+    self.dialect.do_execute(
+../../../ob1-run/venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:1192: in do_execute
+    cursor.execute(statement, parameters)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [IDLE] (host=127.0.0.1 port=55432 user=cmapi database=cmapi_603_main) at 0x106602750>
+query = 'UPDATE change_requests SET idempotency_sub = NULL', params = {}
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           sqlalchemy.exc.IntegrityError: (psycopg.errors.CheckViolation) new row for relation "change_requests" violates check constraint "ck_cr_idempotency_caller"
+E           DETAIL:  Failing row contains (req-20261124-0001, nonprod, CRC, payments-dev, dev, namespaces, create, approved, null, Payments service dev namespace, payments, {"prev": {}, "spec": {"env": "dev", "tier": "small", "quota": nu..., b4e08d133e344c5ddc8e176d1b5b22d7145667bb3ee5ef04cad4d175639587c8, aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, {"auto": "auto:baseline-rnd-namespace", "rule": "dev-create", "s..., {"automated": true, "requester": {"sub": "sub-ola", "kind": "use..., sub-ola, service, svc-payments-ci, ola, old-pod-svc, 426c346d46ff2af505a020efc85b35ee6b08daa74e4a8749013311f54f4b7747, null, null, 0, 2026-11-24 04:56:09.924579+00, 2026-11-24 04:56:09.84386+00, 2026-11-24 04:56:09.836189+00, null, null, null).
+E           [SQL: UPDATE change_requests SET idempotency_sub = NULL]
+E           (Background on this error at: https://sqlalche.me/e/21/gkpj)
+
+../../../ob1-run/venv/lib/python3.12/site-packages/psycopg/cursor.py:117: IntegrityError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T04:56:09.525013Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T04:56:09.643059Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 177.9, "event": "http", "request_id": "8331bb9a5be245af", "level": "info", "timestamp": "2026-11-24T04:56:09.875996Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 147.9, "event": "http", "request_id": "562f7b5d2ad84237", "level": "info", "timestamp": "2026-11-24T04:56:10.109104Z"}
+_______________ test_a_key_named_after_an_index_is_an_opaque_key _______________
+
+world = (<starlette.testclient.TestClient object at 0x1064ec2f0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x106e89940>, <conftest.FakeValidator object at 0x106e8a000>, <conftest.Keys object at 0x105c5ed50>)
+
+    def test_a_key_named_after_an_index_is_an_opaque_key(world):
+        """PostgreSQL's DETAIL quotes the key. Before (2c663b8): the 409 branch was chosen by a substring of the message, so
+        this key, refused by the requester's index, was answered as a namespace conflict whose holder "has just finished"."""
+        client, ctx, *_rest, keys = world
+        _directory(ctx)
+        key = "uq_cr_open_namespace"
+        first = client.post(URL, json={**NS, "onBehalfOf": "ola"}, headers=_service(keys, key))
+        assert first.status_code == 202, first.text
+    
+        other = client.post(URL, json=OTHER, headers=_ola(keys, key))
+>       assert other.status_code == 409 and other.json()["code"] == "idempotency-replay", other.text
+E       AssertionError: {"clusterId":"CRC","requestId":"req-20261124-0002","instance":"nonprod","namespace":"ledger-dev","env":"dev","plugin":"namespaces","action":"create","reason":null,"justification":"Payments service dev namespace","status":"approved","planHash":"835c826e16db1a513d562132252c58d32cc9db9409b0d2ecd2aacd20baa1604f","baseSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","approval":{"rule":"dev-create","auto":"auto:baseline-rnd-namespace","autoFallback":null,"selfApproval":true,"timeoutHours":8,"slots":[],"remaining":[],"approvals":[],"reasons":["dev create: 1 from approver-platform","auto-approved by policy baseline-rnd-namespace"]},"requester":{"requester":{"sub":"sub-ola","username":"ola","email":"ola@ephico2real.com","givenName":"Ola","middleName":null,"familyName":"Doe","employeeId":"1001","kind":"user","clientId":"cmapi-portal"},"automated":false,"submittedBy":null,"submittedByClient":null},"pr":null,"mergeSha":null,"files":{"clusters/CRC/namespaces/ledger-dev/limitrange-ledger-dev-limits-cpu.yaml":"added","clusters/CRC/namespaces/ledger-dev/limitrange-ledger-dev-limits-memory.yaml":"added","clusters/CRC/namespaces/ledger-dev/namespace.yaml":"added","clusters/CRC/namespaces/ledger-dev/resourcequota-ledger-dev-quota.yaml":"added","clusters/CRC/namespaces/ledger-dev/token-issuer-rolebinding.yaml":"added"},"beyondTier":null,"events":[{"at":"2026-11-24T04:56:15.195397Z","event":"plan_auto_approved","status":"approved","by":"ola","note":"auto:baseline-rnd-namespace"}],"createdAt":"2026-11-24T04:56:15.164721Z","updatedAt":"2026-11-24T04:56:15.049310Z","links":{"self":"/api/v1/requests/req-20261124-0002","events":"/api/v1/requests/req-20261124-0002/events"}}
+E       assert (202 == 409)
+E        +  where 202 = <Response [202 Accepted]>.status_code
+
+tests/service/test_idempotency_caller_592.py:259: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T04:56:14.582055Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T04:56:14.699669Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 181.0, "event": "http", "request_id": "b3bd84126dfb4656", "level": "info", "timestamp": "2026-11-24T04:56:14.934434Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 86.1, "event": "http", "request_id": "619a38ef145a4f1e", "level": "info", "timestamp": "2026-11-24T04:56:15.072434Z"}
+=========================== short test summary info ============================
+FAILED tests/service/test_idempotency_caller_592.py::test_the_person_cannot_replay_the_service_request_with_its_key
+FAILED tests/service/test_idempotency_caller_592.py::test_a_row_that_a_0007_pod_wrote_after_0008_belongs_to_its_caller
+FAILED tests/service/test_idempotency_caller_592.py::test_a_key_named_after_an_index_is_an_opaque_key
+3 failed, 27 passed, 9 deselected in 49.31s
+end 2026-11-24T04:56:48Z rc=1

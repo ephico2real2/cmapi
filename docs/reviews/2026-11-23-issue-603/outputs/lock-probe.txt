@@ -1,0 +1,10 @@
+cmapi-migrate head: paused before 'UPDATE change_requests SET idempotency_key = NULL'
+  SELECT count(*) FROM change_requests: 55P03 LockNotAvailable
+  UPDATE change_requests SET attempts = attempts: 55P03 LockNotAvailable
+  pg_locks on change_requests, other sessions: [('AccessExclusiveLock', True), ('AccessShareLock', True)]
+  migrator exit 0: {"direction": "upgrade", "target": "head", "from_revision": "0008", "revision": "0009", "applied": [{"revision": "0009",
+cmapi-migrate 0008 --downgrade: paused before 'UPDATE change_requests SET idempotency_key = NULL'
+  SELECT count(*) FROM change_requests: 55P03 LockNotAvailable
+  UPDATE change_requests SET attempts = attempts: 55P03 LockNotAvailable
+  pg_locks on change_requests, other sessions: [('AccessExclusiveLock', True), ('AccessShareLock', True)]
+  migrator exit 0: {"direction": "downgrade", "target": "0008", "from_revision": "0009", "revision": "0008", "applied": [{"revision": "0009

@@ -65,16 +65,14 @@ def idempotency_key(idempotency_key: str | None = Header(default=None, alias="Id
                                                                        "caller retrying the same request with the same key gets the original "
                                                                        "request in its current state. The caller is the token's subject: a "
                                                                        "service that sends `onBehalfOf` holds its key, and the person cannot "
-                                                                       "replay it. Until #603, the person also cannot use that key for a "
-                                                                       "request of their own while it is held (409 `idempotency-replay`). "
+                                                                       "replay it: the person's own use of that key is a request of their own. "
                                                                        "The same key with another "
                                                                        "request is 409 `idempotency-replay`. The expiry writes do not compare "
                                                                        "`justification`: a retry that changes only it gets the original "
                                                                        "request.")) -> str | None:
     """The key of a create, a change and the expiry writes. The row holds it under the caller's subject (core/pipeline.py,
-    submit), and `_replay` (plugins/namespaces/router.py) looks it up under the same subject (#592). Release 1 keeps the
-    requester's unique index beside the caller's for 0007 pods, so the person's own use of a service's key is a 409 until
-    release 2 (#603).
+    submit), and `_replay` (plugins/namespaces/router.py) looks it up under the same subject (#592). The caller's unique
+    index is the key's only one since migration 0009, so a person may use a key that a service holds for them (#603).
     Each route chooses what its fingerprint holds; the expiry writes leave out `justification`. The Idempotency-Key draft
     (draft-ietf-httpapi-idempotency-key-header-09, section 2.4): "If the fingerprint covers only part of the payload,
     requests that differ only outside that part are treated as the same request", and a resource that computes one
