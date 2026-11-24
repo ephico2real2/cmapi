@@ -324,6 +324,23 @@ class GitWorkspace:
             head = self._resolve(ref)
             return self._folder(head, path), head
 
+    def _entries(self, treeish: str, path: str) -> dict[str, str]:
+        """git ls-tree -r: every blob and submodule under path, at any depth, with its object type. Trees only: a partial clone
+        (blob:none) fetches no blob for it. Git never descends through a symlink, which is one blob."""
+        path = path.strip("/")
+        listing = self._m("ls-tree", "-r", "-z", treeish, "--", f"{path}/" if path else ".").stdout.decode()
+        entries: dict[str, str] = {}
+        for entry in filter(None, listing.split("\0")):
+            meta, name = entry.split("\t", 1)
+            entries[name] = meta.split(" ")[1]
+        return entries
+
+    def list_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
+        """Every file and submodule under path at ref, at any depth ({path: "blob" | "commit"}), and that commit's sha (#616)."""
+        with self._lock:
+            head = self._resolve(ref)
+            return self._entries(head, path), head
+
     def branch_head(self, branch: str) -> str | None:
         """The remote branch's head, fetched. The default branch, or a request branch."""
         if branch == self.default_branch:
@@ -376,8 +393,8 @@ class GitWorkspace:
     def _check_files(self, req: BranchRequest) -> str:
         folder = req.folder.strip("/")
         check_path(folder)
-        for path in req.files:
-            check_path(path)
+        for path, text in req.files.items():
+            check_path(path, removal=text is None)
             if not path.startswith(folder + "/"):
                 raise ValueError(f"{path} is outside the request's folder {folder}")
         return folder
@@ -423,14 +440,22 @@ class GitWorkspace:
                 raise
         with Op("commit", base_sha=base, plan_hash=req.plan_hash) as op:
             try:
-                for rel, text in req.files.items():
+                # A removal is git rm, not an unlink: it removes a file, an executable or a symlink itself, never what a symlink
+                # points to, and matches nothing beyond a symlink (#616, #446). It stages the removal, and git add stages each
+                # written file. Literal pathspecs: a "*" in a name is a name, never a glob over the folder.
+                literal = {**self._env, "GIT_LITERAL_PATHSPECS": "1"}
+                removed = [rel for rel, text in req.files.items() if text is None]
+                written = [rel for rel, text in req.files.items() if text is not None]
+                if removed:
+                    self._run("rm", "--quiet", "--ignore-unmatch", "--pathspec-from-file=-", "--pathspec-file-nul", cwd=path,
+                              input="".join(f"{rel}\0" for rel in removed).encode(), env=literal)
+                for rel in written:
                     target = _inside(path, rel)
-                    if text is None:
-                        target.unlink(missing_ok=True)
-                    else:
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        target.write_text(text)
-                self._run("add", "--all", "--", folder, cwd=path)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(req.files[rel])
+                if written:
+                    self._run("add", "--pathspec-from-file=-", "--pathspec-file-nul", cwd=path,
+                              input="".join(f"{rel}\0" for rel in written).encode(), env=literal)
                 staged = {p for p in self._run("diff", "--cached", "--name-only", "-z", cwd=path).stdout.decode().split("\0") if p}
                 if not staged:
                     raise GitFailed(f"the plan changes nothing on {base[:8]}: nothing to commit")
@@ -513,10 +538,14 @@ class GitWorkspace:
                 self._push(self.worktree_path(req.cluster_id, req.request_id), branch, head, current or "", "created")
             return head
 
-    def merge_check(self, head: str, folder: str, prev: Mapping[str, str], files: Mapping[str, str | None]) -> MergeCheck:
+    def merge_check(self, head: str, folder: str, prev: Mapping[str, str], files: Mapping[str, str | None], *,
+                    whole_folder: bool = False) -> MergeCheck:
         """Fable 2.3 with the measured exit rule (OB1, the arbitration's row 10): git merge-tree --write-tree exits 0 on a clean
         merge, and 1 on a conflict, but also 1 on "not something we can merge" (measured on git 2.52.0 and 2.55.0). So a conflict
-        is exit 1 with a tree OID as the first field; any other result is an error, raised and retried, never read as clean."""
+        is exit 1 with a tree OID as the first field; any other result is an error, raised and retried, never read as clean.
+
+        whole_folder, a delete (#616): main's full listing is the plan's removals, each a file, and the merged tree holds nothing
+        of the folder at any depth, the check _merged makes after the merge, made here before it."""
         expected = {p: t for p, t in files.items() if t is not None}
         with self._lock:
             main = self.fetch_main()
@@ -540,7 +569,11 @@ class GitWorkspace:
                         names.append(item)
                     conflicts = tuple(sorted(set(names)))
                 base_ok = self._folder(main, folder) == dict(prev)
-                result_ok = not conflicts and self._folder(tree, folder) == expected
+                if whole_folder:
+                    base_ok = base_ok and self._entries(main, folder) == dict.fromkeys(files, "blob")
+                    result_ok = not conflicts and not self._entries(tree, folder)
+                else:
+                    result_ok = not conflicts and self._folder(tree, folder) == expected
                 check = MergeCheck(main, head, conflicts, base_ok, result_ok, tree if not conflicts else None)
                 op.set(conflict_paths=list(conflicts), base_matches=base_ok, result_matches=result_ok, tree=check.tree,
                        reason=check.reason(self.default_branch))

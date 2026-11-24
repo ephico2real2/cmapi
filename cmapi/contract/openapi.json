@@ -10532,7 +10532,7 @@
     },
     "/api/v1/clusters/{cluster_id}/namespaces/{ns}": {
       "delete": {
-        "description": "Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune\nuntil an operator confirms the prune. Needs If-Match, read as on a change: a list of tags passes when one of them is\nthe current etag, and `*` is 428 `precondition-required`.\n\n`dryRun=true` answers 200 with the plan and opens no request: `changes` lists each `.yaml` file directly in the\nnamespace's folder as `removed`, `files` is empty, and `approval` is the approval that the delete would need now. It makes\nthe delete's planning checks, so they refuse it where they refuse the delete: the permission, If-Match, and a protected\nnamespace (422 `namespace-protected`). Like every dry run it skips the Idempotency-Key and the namespace's lock: while\nanother request holds the namespace the plan is still 200, and the delete is 409 `change-pending`.\n\n**Requires** `namespaces:write`.",
+        "description": "Opens a delete request: the folder leaves Git after approval, every file of it at any depth, and the namespace waits\nin awaiting_prune until an operator confirms the prune. Needs If-Match, read as on a change: a list of tags passes when one\nof them is the current etag, and `*` is 428 `precondition-required`. A folder that holds a submodule is 409\n`folder-holds-submodule`: its removal would change `.gitmodules`, outside the folder.\n\n`dryRun=true` answers 200 with the plan and opens no request: `changes` lists every file of the namespace's folder, at\nany depth and whatever made it, as `removed`, `files` is empty, and `approval` is the approval that the delete would need\nnow. It makes the delete's planning checks, so they refuse it where they refuse the delete: the permission, If-Match, a\nprotected namespace (422 `namespace-protected`) and a submodule (409 `folder-holds-submodule`). Like every dry run it skips the Idempotency-Key and the namespace's lock: while\nanother request holds the namespace the plan is still 200, and the delete is 409 `change-pending`.\n\n**Requires** `namespaces:write`.",
         "operationId": "namespaces_delete_namespace",
         "parameters": [
           {
@@ -10891,6 +10891,15 @@
                       "type": "https://cmapi.ephico2real.com/problems/change-pending"
                     }
                   },
+                  "folder-holds-submodule": {
+                    "value": {
+                      "code": "folder-holds-submodule",
+                      "detail": "The folder of payments-dev holds the submodule clusters/CRC/namespaces/payments-dev/vendor",
+                      "status": 409,
+                      "title": "folder holds submodule",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-holds-submodule"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -10906,7 +10915,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-holds-submodule`."
           },
           "412": {
             "content": {

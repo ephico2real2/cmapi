@@ -303,14 +303,15 @@ export interface paths {
         post?: never;
         /**
          * Delete a namespace
-         * @description Opens a delete request: the folder leaves Git after approval, and the namespace waits in awaiting_prune
-         *     until an operator confirms the prune. Needs If-Match, read as on a change: a list of tags passes when one of them is
-         *     the current etag, and `*` is 428 `precondition-required`.
+         * @description Opens a delete request: the folder leaves Git after approval, every file of it at any depth, and the namespace waits
+         *     in awaiting_prune until an operator confirms the prune. Needs If-Match, read as on a change: a list of tags passes when one
+         *     of them is the current etag, and `*` is 428 `precondition-required`. A folder that holds a submodule is 409
+         *     `folder-holds-submodule`: its removal would change `.gitmodules`, outside the folder.
          *
-         *     `dryRun=true` answers 200 with the plan and opens no request: `changes` lists each `.yaml` file directly in the
-         *     namespace's folder as `removed`, `files` is empty, and `approval` is the approval that the delete would need now. It makes
-         *     the delete's planning checks, so they refuse it where they refuse the delete: the permission, If-Match, and a protected
-         *     namespace (422 `namespace-protected`). Like every dry run it skips the Idempotency-Key and the namespace's lock: while
+         *     `dryRun=true` answers 200 with the plan and opens no request: `changes` lists every file of the namespace's folder, at
+         *     any depth and whatever made it, as `removed`, `files` is empty, and `approval` is the approval that the delete would need
+         *     now. It makes the delete's planning checks, so they refuse it where they refuse the delete: the permission, If-Match, a
+         *     protected namespace (422 `namespace-protected`) and a submodule (409 `folder-holds-submodule`). Like every dry run it skips the Idempotency-Key and the namespace's lock: while
          *     another request holds the namespace the plan is still 200, and the delete is 409 `change-pending`.
          *
          *     **Requires** `namespaces:write`.
@@ -6828,7 +6829,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-holds-submodule`.
              */
             409: {
                 headers: {

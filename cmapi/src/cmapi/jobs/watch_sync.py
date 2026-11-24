@@ -223,6 +223,15 @@ def prune(ctx: AppContext, s: Session, job: JobRow) -> None:
         jobs.done(job)
         return
     mode = _mode(ctx, row.cluster_id)
+    if retrying:
+        # A delete is done when its folder has left Git and its namespace the cluster. A sync_failed delete may have failed on
+        # the first (_merged found a path left at the merge, #616), so the retry reads main before the cluster. A Git error is
+        # the worker's retry, never a confirmation.
+        left, main = ctx.git.list_folder(folder(row.cluster_id, row.namespace))
+        if left:
+            _refuse(repo, jobs, row, job, f"the folder on {ctx.git.default_branch} at {main[:8]} still holds {len(left)} "
+                                          f"path(s), {sorted(left)[0]!r} first: remove them in Git, then retry")
+            return
     try:
         reader = _reader_cache(ctx, row.cluster_id).client
         live = reader.get_object("Namespace", None, row.namespace)

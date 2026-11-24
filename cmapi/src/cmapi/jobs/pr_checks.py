@@ -85,6 +85,10 @@ def _pr_checks(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobR
     except IncompleteList as exc:      # a list that the host cut cannot show that nothing is outside the plan: the check fails
         outside = [f"a list that is not complete: {exc}"]
     cmapi_ok = not outside and head == pr.head_sha and tree == expected and plan_hash(actual) == row.plan_hash
+    if cmapi_ok and row.action == "delete":
+        # tree holds only the manifests: a delete's head holds nothing of the folder, at any depth, or the posted check would
+        # pass a head that keeps a path, which a person could then merge by hand (#616).
+        cmapi_ok = not ctx.git.list_folder(folder(row.cluster_id, row.namespace), head)[0]
     # The default branch's folder is what this merge changes: a value that it already holds is not refused (#212).
     base, _ = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
     findings = ctx.pipeline.validator.validate(tree, row.cluster_id, row.env, previous=base)
@@ -127,7 +131,8 @@ def _pr_checks(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobR
         end_pr(ctx, repo, jobs, row, "its checks failed; the request is failed and may be retried")
         jobs.done(job)
         return
-    check = ctx.git.merge_check(head, folder(row.cluster_id, row.namespace), row.plan.get("prev") or {}, row.plan["files"])
+    check = ctx.git.merge_check(head, folder(row.cluster_id, row.namespace), row.plan.get("prev") or {}, row.plan["files"],
+                                whole_folder=row.action == "delete")
     if not check.ok:
         MERGE_CONFLICTS.labels("pr_checks").inc()
         why = check.reason(ctx.git.default_branch)

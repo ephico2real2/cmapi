@@ -16,6 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import Headers
 from starlette.requests import ClientDisconnect
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -36,6 +37,20 @@ from cmapi.routers import EXAMPLE_CLUSTER, admin, health, me, requests
 from cmapi.settings import Settings, settings
 
 STATIC = Path(os.environ.get("CMAPI_STATIC_DIR", "/opt/app-root/static"))
+
+
+class ConditionalStaticFiles(StaticFiles):
+    """The Swagger UI and ReDoc files, with the preconditions of every other read of cmapi (core/etag.py, not_modified):
+    RFC 9110 section 13.2.2's order, If-Match and If-Unmodified-Since (412) before If-None-Match and If-Modified-Since
+    (304). Starlette 0.41.3's is_not_modified reads only the last two, so a stale If-Match answered 304 or 200 (#604),
+    If-Unmodified-Since was never read (#619), and If-Modified-Since beside If-None-Match or as a list of dates answered
+    304 (#620).
+
+    StaticFiles calls is_not_modified for an existing file only, from file_response, so a missing one stays 404 whatever
+    the preconditions (section 13.2.1). The 412 that not_modified raises is the RFC 9457 problem of create_app's handler."""
+
+    def is_not_modified(self, response_headers: Headers, request_headers: Headers) -> bool:
+        return not_modified(request_headers, response_headers["etag"], response_headers.get("last-modified"))
 
 
 class UnhandledToProblemMiddleware:
@@ -243,9 +258,9 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
     guard = [] if docs_cfg.get("public", True) else [Depends(authed)]
     swagger_dir, redoc_dir = STATIC / "swagger-ui", STATIC / "redoc"
     if swagger_dir.exists():
-        app.mount("/static/swagger", StaticFiles(directory=str(swagger_dir)), name="swagger")
+        app.mount("/static/swagger", ConditionalStaticFiles(directory=str(swagger_dir)), name="swagger")
     if redoc_dir.exists():
-        app.mount("/static/redoc", StaticFiles(directory=str(redoc_dir)), name="redoc")
+        app.mount("/static/redoc", ConditionalStaticFiles(directory=str(redoc_dir)), name="redoc")
     documents: dict[str, tuple[bytes, str]] = {}
 
     def document(kind: str) -> tuple[bytes, str]:
