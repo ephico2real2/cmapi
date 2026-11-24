@@ -10363,6 +10363,19 @@ export interface operations {
                 };
             };
             /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `invalid-sort`.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description No token, or the token is not valid.
              *
              *     Codes: `unauthenticated`.

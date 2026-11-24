@@ -129,25 +129,24 @@ def test_a_head_of_the_export_exports_nothing(world, monkeypatch):
     from cmapi.core.db.repo import AuditRepo
 
     client, ctx, *_, keys = world
-    made, export_csv = [], ctx.lister.export_csv
+    sorts, filtered = [], ctx.lister.filtered
 
     def counted(*args):
-        for line in export_csv(*args):
-            made.append(line)
-            yield line
+        sorts.append(args)      # at the call: the export filters and sorts every matching row there, before its 200
+        return filtered(*args)
 
-    monkeypatch.setattr(ctx.lister, "export_csv", counted)
+    monkeypatch.setattr(ctx.lister, "filtered", counted)
     monkeypatch.setattr(quotas, "quota_rows", lambda c, who: [])
 
     def exports() -> int:
         with ctx.db.session() as s:
             return sum(1 for e in AuditRepo(s).recent() if e.action == "quotas.export")
 
-    path, headers = "/api/v1/quotas:export?sort=name", auth(keys, "ola", **OLA)
+    path, headers = "/api/v1/quotas:export?sort=severity", auth(keys, "ola", **OLA)
     head = client.head(path, headers=headers)
-    assert (head.status_code, head.content, exports(), made) == (200, b"", 0, [])
+    assert (head.status_code, head.content, exports(), sorts) == (200, b"", 0, [])
     get = client.get(path, headers=headers)
-    assert get.status_code == 200 and get.text.startswith("name,") and exports() == 1 and len(made) == 1     # the header
+    assert get.status_code == 200 and get.text.startswith("name,") and exports() == 1 and len(sorts) == 1
     seen = ("content-type", "content-disposition", "content-length", "etag", "cache-control")
     assert {h: head.headers.get(h) for h in seen} == {h: get.headers.get(h) for h in seen}
     assert head.headers.get("content-length") is None
@@ -186,16 +185,44 @@ def test_a_request_action_is_post_only(world, action):
 
 def test_a_refused_export_is_refused_before_its_audit_and_its_200(world, monkeypatch):
     """An unknown state (422) or sort (400) is refused before the export is audited, and the sort before the stream's 200:
-    it was read only while the CSV was written, after the status had gone."""
+    it was read only while the CSV was written, after the status had gone. `newest` is the request list's order, not one of
+    the quota list's (docs/01, Lists). HEAD refuses what GET refuses, the sign-in and the permission first."""
     import cmapi.plugins.quotas as quotas
     from cmapi.core.db.repo import AuditRepo
     from fastapi.testclient import TestClient
 
     client, ctx, *_, keys = world
     monkeypatch.setattr(quotas, "quota_rows", lambda c, who: [])
-    c, headers = TestClient(client.app, raise_server_exceptions=False), auth(keys, "ola", **OLA)
-    for query, status in (("state=bogus", 422), ("sort=bogus", 400)):
+    c = TestClient(client.app, raise_server_exceptions=False)
+    ola, nobody = auth(keys, "ola", **OLA), auth(keys, "nobody", roles=[], groups=[])
+    cases = [("state=bogus", ola, 422), ("sort=bogus", ola, 400), ("sort=newest", ola, 400),
+             ("sort=bogus", {}, 401), ("sort=bogus", nobody, 403)]
+    for query, headers, status in cases:
         for method in ("GET", "HEAD"):
-            assert c.request(method, f"/api/v1/quotas:export?{query}", headers=headers).status_code == status, (method, query)
+            response = c.request(method, f"/api/v1/quotas:export?{query}", headers=headers)
+            assert response.status_code == status, (method, query, status, response.status_code)
+    assert client.get("/api/v1/quotas?sort=newest", headers=ola).status_code == 400
+    responses = client.get("/openapi.json").json()["paths"]["/api/v1/quotas:export"]["get"]["responses"]
+    documented = {s: sorted(responses[s]["content"]["application/problem+json"]["examples"]) for s in ("400", "422")}
+    assert documented == {"400": ["invalid-sort"], "422": ["validation-failed"]}, documented     # each refusal, documented
     with ctx.db.session() as s:
         assert not [e for e in AuditRepo(s).recent() if e.action == "quotas.export"]
+
+
+def test_an_unhandled_failure_of_the_request_read_logs_the_documented_route(world, capsys):
+    """The `unhandled` log names the route as the document and the metrics do (`{request_id}`), not with its convertor."""
+    from cmapi.routers import ctx as context
+
+    client, *_, keys = world
+
+    def fail():
+        raise RuntimeError("the request read failed")
+
+    client.app.dependency_overrides[context] = fail
+    try:
+        response = client.get("/api/v1/requests/req-20261124-0001", headers=auth(keys, "ola", **OLA))
+    finally:
+        del client.app.dependency_overrides[context]
+    assert response.status_code == 500
+    logged = [line for line in capsys.readouterr().out.splitlines() if '"event": "unhandled"' in line]
+    assert len(logged) == 1 and '"route": "/api/v1/requests/{request_id}"' in logged[0], logged
