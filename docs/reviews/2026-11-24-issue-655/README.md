@@ -127,3 +127,36 @@ mutants fails it (`ci-guard.txt`).
 - **Proof:** with the trigger first, 2 passed after the fix. The file alone: 36 passed. The trigger file, the auth, JWKS,
   PyJWT and observability files, then the 656 file: 209 passed (`outputs/658-targeted-after-fix.txt`). The assertion still
   bites: a mutant that logs the error's message, the first fix's leak, fails it.
+
+## Review
+
+- **Reviewer 1: Fable 5.2, a second model family** (`review/reviewer-1-fable.md`).
+  - It confirmed the upgrade, the lock and every claim of reach.
+  - It found six findings and wrote the fix for each:
+    - F1: #656 was only partly fixed.
+    - F2: an OSV outage read as an advisory.
+    - F3: `ci-guard.py` let weakening mutants pass.
+    - F4: key material could appear in a log line.
+    - F5: a private JWK in the set answered 500 (#661).
+    - F6: `--only-binary` was missing on Linux.
+- **Reviewer 2: Opus 5.5 high** (`review/reviewer-2-opus.md`).
+  - It upheld all six findings.
+  - It added R2-1 (#660): a key for another algorithm verified RS256 tokens.
+  - It kept 22 of Fable's 25 guard mutants.
+  - It ruled that an OSV outage fails the job: exit 3, NOT AUDITED.
+- **Coordinator's rulings (Opus 5.5):** accepted, and reviewer 2's patch applied.
+
+## The coordinator's run
+
+1. **Merge.** `main` (#654: FastAPI 0.162.2 and Starlette 1.10.0) was merged in.
+   - In docs/14 and docs/15, each conflicting line keeps `main`'s `main.py` citations and this PR's `auth.py` ones.
+   - The coordinator read each citation. No citation needed `--write`.
+2. **Lock.** `cmapi/lock.sh` regenerated the lock with #654's pins (fastapi 0.162.2, starlette 1.10.0, annotated-doc 0.0.6, opentelemetry-api 1.45.2).
+3. **Audit and guard.**
+   - `cmapi/audit.sh` found no known advisory in any of its three sets (`audit-after-654.txt`).
+   - `ci-guard.py` gave 0 failed.
+4. **First full suite.** The venv was installed from the lock with `--require-hashes`. This Intel Mac has no `cryptography` 50.0.2 wheel, so the local install leaves out `--only-binary`; the image builds on Linux.
+   - Result: 2832 passed and 1 failed (`coord-suite-1.txt`).
+   - The failure, `test_the_log_of_a_skipped_key_has_no_key_material`, depended on test order. The suite's first test configures logging again after `auth.py`'s logger is cached. structlog's testing docs say: `capture_logs()` "relies on changing the configuration".
+   - The implementer fixed it with a `LogCapture` logger in place of `core.auth.log`. The assertion is unchanged, and production keeps the cache.
+5. **Final full suite.** It ran in database `cmapi_coord_658`, from 2026-11-24T23:01:39Z to 23:48:05Z, on the final head merged with `main` `f906776`: **2898 passed in 2768.28 s**, with no failures (`coord-suite.txt`).

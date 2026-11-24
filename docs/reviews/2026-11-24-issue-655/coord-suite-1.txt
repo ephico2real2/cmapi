@@ -1,0 +1,4 @@
+start 2026-11-24T21:34:25Z load { 13.26 12.91 13.97 }
+FAILED tests/service/test_jwks_skip_bad_key_656.py::test_the_log_of_a_skipped_key_has_no_key_material
+1 failed, 2832 passed, 37 subtests passed in 2843.16s (0:47:23)
+end 2026-11-24T22:22:20Z
