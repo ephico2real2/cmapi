@@ -1,10 +1,69 @@
 # cmapi: handover and resume
 
-**Resume here.** This top section is the current state, written by the coordinator on 2026-11-23. It supersedes
+**Resume here.** This top section is the current state, written by the coordinator on 2026-11-24. It supersedes
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-23, 23:59Z (the owner is switching accounts)
+## Resume here: 2026-11-24, 12:40Z
+
+The coordinator (Opus 5.5) wrote this section from `gh`, `git` and the review folders. It supersedes the 2026-11-23
+23:59Z section below. Every path under `workbench/` is `/Users/olasumbo/gitRepos/workbench/cmapi/`.
+
+### 1. Where it stands
+
+| Item | State |
+|---|---|
+| `main` | `aceaded` (PR #639). |
+| CRC | Runs `365b4b9` (run 37). **OB1 run 38 is deploying `aceaded`**, brief `workbench/run38-brief.md`, notes `workbench/ob1-run38/resume.md`. The deploy carries migration `0009`, and run 38 checks `0009`'s refusal preconditions before step 21. After step 21 it proves the following, read-only: the `migrated` log event, HEAD and conditional requests on the wire, 405 `Allow`, the quota export, the whole-folder delete by dry run only, and the GitHub folder read. |
+| Open PRs | None. |
+| Open defects to fix next | #640 (the Keycloak realm is encoded twice; not yet proven, needs a disposable Keycloak), #626 (a non-UTF-8 file name), #628 (`design.md` of epic #481 is out of date), #629 (`docs/01` and `docs/02` on epic #481; needs the live docs). #627 waits for the owner: the lookup shows only `pending` or `unknown`, as implementer decision D1 in PR #492 says. |
+| Live docs | The new account cannot reach either live doc: Technical Design v2 `5bgLa3ztSoXBMmjKZGm4St` (rev 393) and Design and Architecture `SNkGderWDTB9tx6pfQc8F3` (rev 196). The edits for #621, #622, #630 and #605 wait in `workbench/LIVE-DOCS-PENDING.md`. The owner shares the docs with this account, or applies the edits from the old account. |
+| Owner items | Yes or no on the diagram-kit `/agile` update. Run `~/.claude/tools/sweep-stale.py --sweep`: six stale Codex brokers hold about 930 MB. Approve #481. |
+
+### 2. Merged on 2026-11-24 (8 PRs)
+
+Each PR had reviewer 1 (Codex `gpt-6.2-astra` xhigh) and reviewer 2 (a separate Opus 5.5 high agent). The coordinator
+applied reviewer 2's patch, ran the full service suite on the merged head, and merged on green CI. The review records are
+in `docs/reviews/2026-11-2[34]-issue-N/`.
+
+| PR | Merge | Closes | What | Coordinator's full suite |
+|---|---|---|---|---|
+| #617 | `cb59e19` | #614, #615 | The migrator logs one JSON `migrated` event at INFO, with `from_revision`, `revision`, `applied` and the times. `migrate_failed` carries only the error class and the SQLSTATE. | In its review record |
+| #621 | `dd702a4` | #604, #619, #620 | Static files honour If-Match, If-Unmodified-Since and If-Modified-Since. `http_date` refuses invalid dates: the day name, a year before 1900, and `:60` except at a month's last minute. | In its review record |
+| #622 | `f4c7145` | #616, #623 | A delete removes the whole folder. `:retry` refuses while files remain, and the PR checks verify the head. | In its review record |
+| #636 | `ea17cd1` | #605 | HEAD on every GET. | 2578 passed |
+| #630 | `d1ff934` | #603 | Migration `0009`, release 2 of the Idempotency-Key caller: the caller's index only, and `ck_cr_idempotency_caller`. The models now declare every constraint, and a test compares them with `pg_get_constraintdef`. | 2594 passed |
+| #631 | `baa932b` | #625, #632 | GitHub `read_folder` reads the folder's tree, found through one Contents request, and each blob. Live, the Contents API lists a symlink or a submodule as `"file"`, gives no content past 1 MB, and stops at 1,000 entries. | 2597 passed |
+| #637 | `68fd8e7` | #633, #634, #635 | The quota export validates before it audits. HEAD neither filters nor sorts. A 405 lists every method of the path. A request read takes no `:action`. The export documents its 400. | 2602 passed |
+| #639 | `aceaded` | #638 | Branch names, refs and paths are quoted in URLs. This covers git-bootstrap, where a re-run exited 1 for `team/main` and `release#2` on Gitea 1.25.5. The unused `GiteaProvider.protect_default_branch` is deleted. | 2630 passed |
+
+Spike #482 is closed with a verified audit, which Fable drafted and the coordinator checked. One correction to earlier
+sections of this file: the design files reached `main` in PR #490 (`6131c54`), not in #492. Epic #481 now has open
+children #626 to #629 and #640. The handover's 2026-11-22 rows that say "one open child" are history.
+
+### 3. Next, in order
+
+1. **Run 38's report.** For each failure, run fix-defect.
+2. **#640.**
+   - An implementer proves it on a disposable Keycloak 26.x in podman, never the shared one.
+   - The fix: decode the issuer's realm segment once, then quote it once on every path.
+   - Reviewer 1 is Codex astra, then reviewer 2.
+   - Run it only after run 38 ends: one heavy job at a time.
+3. **#626, then #628.** #628 is text only: Codex `gpt-6.1-sol` reviews it.
+4. **#629, and the live docs,** when the owner gives access.
+
+### 4. Lessons of 2026-11-24
+
+- **Reviewer 2 earns its place.** On three of the four PRs, it found what Codex missed, and it measured each one live:
+  - a symlink read as a manifest (#631);
+  - an export 400 that the API document did not list (#637);
+  - git-bootstrap failing on a re-run (#639).
+- **Delete dead code rather than grow it.** Codex proposed a larger `protect_default_branch`, but no caller used it, so
+  reviewer 2 deleted it. This follows the owner's rule: over-build only when it is the only solution.
+- **Mocks shaped by memory hide host behaviour.** Codex's GitHub mock typed a symlink `"symlink"` and answered a large
+  file with 403. Real GitHub does neither. Probe the host, read-only and with no credentials, before trusting a mock.
+
+## Resume here: 2026-11-23, 23:59Z (the owner is switching accounts; superseded)
 
 Written by the coordinator (Opus 5.5) from `gh`, `git`, the run records and the review folders. Supersedes the
 2026-11-22 07:50Z section below. Every path under `workbench/` is `/Users/olasumbo/gitRepos/workbench/cmapi/`.

@@ -1,7 +1,7 @@
 # cmapi build tracker
 
 What is done, what is in progress, what remains, and which cluster proved each thing. The next-step instructions are in
-[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-23 (see "Current"); first written on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
+[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-24 (see "Current"); first written on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
 
 **2026-11-15, 05:00Z.** `main` is at `08f7fe5`. The PRs merged since, the CRC state and the next steps are in the handover's section "State on 2026-11-15". In short:
 
@@ -19,7 +19,24 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-23, 23:59Z
+## Current: 2026-11-24, 12:40Z
+
+`main` is `aceaded` (PR #639). CRC runs `365b4b9` (run 37), and **OB1 run 38 is deploying `aceaded`**, which carries
+migration `0009`. Open PRs: none. The handover's 2026-11-24 section lists the next steps.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| The migrator's `migrated` event | #614, #615 | Merged #617 (`cb59e19`) | CI; review record. CRC: run 38 |
+| Static files: If-Match, If-Unmodified-Since, If-Modified-Since; valid HTTP-dates only | #604, #619, #620 | Merged #621 (`dd702a4`) | CI; review record. CRC: run 38 |
+| A delete removes the whole folder | #616, #623 | Merged #622 (`f4c7145`) | CI; review record. CRC: run 38, dry run only |
+| HEAD on every GET | #605 | Merged #636 (`ea17cd1`) | Full suite 2578 passed. CRC: run 38 |
+| Idempotency-Key release 2, migration `0009` | #603 | Merged #630 (`d1ff934`) | Full suite 2594 passed; 8 of 8 mutants killed. CRC: run 38 |
+| GitHub `read_folder` reads the tree | #625, #632 | Merged #631 (`baa932b`) | Full suite 2597 passed; live GitHub probes; 7 of 7 mutants killed |
+| Export validates first, 405 `Allow`, no `:action` on the read, export 400 documented | #633, #634, #635 | Merged #637 (`68fd8e7`) | Full suite 2602 passed; 7 of 7 mutants killed. CRC: run 38 |
+| Branch names, refs and paths quoted in URLs | #638 | Merged #639 (`aceaded`) | Full suite 2630 passed; disposable Gitea 1.25.5; 11 of 11 mutants killed |
+| Spike #482 | #482 | Closed | The audit in its closing comment |
+
+## Previous: 2026-11-23, 23:59Z
 
 `main` is `78ec33e` (PR #618). CRC runs `365b4b9` (OB1 run 37). Open PRs: #617, #621 and #622, each with reviewer 1's
 "request changes"; branch `fix/605-head` is pushed with no PR yet. The handover's 2026-11-23 section lists the next steps.
