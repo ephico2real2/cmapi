@@ -11,7 +11,9 @@ client specific attributes known only to the resource": here, the caller's token
 The upgrade runs in one transaction (migrations/env.py):
 
 1. It locks `change_requests` in ACCESS EXCLUSIVE mode, first, so that no insert comes between the checks and the updates.
-   DROP INDEX takes the same lock later in this transaction, so taking it first makes the migration wait no longer.
+   DROP INDEX needs the same lock later in this transaction. Taking it first, as PostgreSQL's LOCK page advises ("acquire
+   the most restrictive mode first"), avoids a lock upgrade mid-transaction. Reads and writes of the table queue from
+   this statement, through the checks and the updates too, until commit.
 2. It refuses, and changes nothing, while a live key (created less than 24 hours ago) cannot be given one owner:
    - a keyed row with no `idempotency_sub` (a 0007 pod wrote it in release 1's window) that is delegated
      (`requester` has `submittedBy` or `submittedByClient`) and has no `submittedBySub` to name its caller;
@@ -23,8 +25,9 @@ The upgrade runs in one transaction (migrations/env.py):
    no two rows share `(requester_sub, idempotency_key)` and dropping it changes no stored row and no retry of a stored
    request. What it changes is the answer to a new request from another caller for the same person: a person using a
    key that a service holds for them, or a service using the person's key, was 409 "Idempotency-Key is in use for another
-   request", naming no request; it is now that caller's own 202. That is the fix this release ships (#603), and no caller
-   could learn of another's request from the 409. The same migration succeeds once the refused rows are over 24 hours old.
+   request", which named no request but told the caller the key was held. It is now that caller's own new request, under
+   the same checks as any other, the namespace lock included. That is the fix this release ships (#603). The same
+   migration succeeds once the refused rows are over 24 hours old.
 3. It clears the keys older than 24 hours, as `RequestRepo.by_idempotency` would before any lookup, so that an expired
    row cannot meet a live one in the caller's index when the next step fills it.
 4. It fills the caller of each keyed row that has none: `requester.submittedBySub` when a service sent the request for a

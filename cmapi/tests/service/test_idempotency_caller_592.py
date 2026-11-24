@@ -240,39 +240,58 @@ def test_a_key_named_after_an_index_is_an_opaque_key(world, monkeypatch):
     """PostgreSQL's DETAIL quotes the key. Before (2c663b8): the 409 branch was chosen by a substring of the message, so
     this key, refused by an Idempotency-Key index, was answered as a namespace conflict whose holder "has just finished".
     Since 0009 the caller's index is the only one (#603), so the service's own second use of the key meets it: its first
-    lookup misses, as in a race, and its INSERT breaks that index."""
+    lookup misses, as in a race, and its INSERT breaks that index.
+
+    The HTTP answer alone cannot show which branch `insert` took: `_submit` looks the key up again after any 409, and that
+    second lookup gives the same `idempotency-replay` naming the first request. So the Problem that `insert` raises is
+    read at the repository boundary. With the substring restored it is `change-pending` (#630 review)."""
+    from cmapi.core.errors import Problem
+
     client, ctx, *_rest, keys = world
     _directory(ctx)
     key = "uq_cr_open_namespace"
     first = client.post(URL, json={**NS, "onBehalfOf": "ola"}, headers=_service(keys, key))
     assert first.status_code == 202, first.text
 
+    real_insert, refused = RequestRepo.insert, []
+
+    def record_refusal(self, *args, **kwargs):
+        try:
+            return real_insert(self, *args, **kwargs)
+        except Problem as exc:
+            refused.append((exc.status, exc.code, exc.detail))
+            raise
+
+    monkeypatch.setattr(RequestRepo, "insert", record_refusal)
     _first_lookup_misses(monkeypatch)
     other = client.post(URL, json={**OTHER, "onBehalfOf": "amy"}, headers=_service(keys, key))
+    assert refused == [(409, "idempotency-replay", IN_USE)], refused
     assert other.status_code == 409 and other.json()["code"] == "idempotency-replay", other.text
     assert other.json()["requestId"] == first.json()["requestId"], other.text
 
 
-def _migration_0008():
-    path = conftest.ROOT / "src/cmapi/core/db/migrations/versions/0008_idempotency_key_of_the_caller.py"
-    spec = importlib.util.spec_from_file_location("migration_0008", path)
+def _migration(name):
+    """A migration module, loaded from its file: its name starts with a digit, so it cannot be imported."""
+    path = conftest.ROOT / f"src/cmapi/core/db/migrations/versions/{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
 def test_a_key_exactly_24_hours_old_is_still_held_by_the_lookup_and_the_migration(world):
-    """One transaction, so `now()` does not move: a row created exactly 24 hours ago is live for the lookup and for 0008's
-    predicates, and expired a moment later. A `<=` in either place would pass every other test."""
+    """One transaction, so `now()` does not move: a row created exactly 24 hours ago is live for the lookup and for the
+    predicates of 0008 and 0009, and expired a moment later. A `<=` in any place would pass every other test. 0009 keeps
+    its own copy of the bounds, so each migration's copy is read (#630 review)."""
     client, ctx, *_rest, keys = world
     _directory(ctx)
     rid = client.post(URL, json={**NS, "onBehalfOf": "ola"}, headers=_service(keys, "edge")).json()["requestId"]
-    mig = _migration_0008()
     with ctx.db.session() as s:
         s.execute(text("UPDATE change_requests SET created_at = now() - interval '24 hours' WHERE request_id = :r"),
                   {"r": rid})
-        assert s.execute(text(f"SELECT ({mig._LIVE}), ({mig._EXPIRED}) FROM change_requests WHERE request_id = :r"),
-                         {"r": rid}).one() == (True, False)
+        for mig in (_migration("0008_idempotency_key_of_the_caller"), _migration("0009_idempotency_key_of_the_caller_only")):
+            assert s.execute(text(f"SELECT ({mig._LIVE}), ({mig._EXPIRED}) FROM change_requests WHERE request_id = :r"),
+                             {"r": rid}).one() == (True, False), mig.__name__
         row = RequestRepo(s).by_idempotency(SVC_SUB, "edge")
         assert row is not None and row.request_id == rid, "exactly 24 hours old is still held"
         s.rollback()

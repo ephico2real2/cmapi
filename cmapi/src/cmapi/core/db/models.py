@@ -24,9 +24,11 @@ class Base(DeclarativeBase):
 
 class ChangeRequestRow(Base):
     __tablename__ = "change_requests"
-    # A row that holds an Idempotency-Key names its caller (0009, #603): uq_cr_idempotency_caller is the key's only unique
-    # index, and NULLs are distinct in it, so a keyed row with no caller would escape it and the lookup.
+    # ck_cr_requester_kind is 0001's. A row that holds an Idempotency-Key names its caller (0009, #603):
+    # uq_cr_idempotency_caller is the key's only unique index, and NULLs are distinct in it, so a keyed row with no caller
+    # would escape it and the lookup.
     __table_args__ = (
+        CheckConstraint("requester_kind IN ('user', 'service')", name="ck_cr_requester_kind"),
         CheckConstraint("idempotency_key IS NULL OR idempotency_sub IS NOT NULL", name="ck_cr_idempotency_caller"),
     )
     request_id: Mapped[str] = mapped_column(String(40), primary_key=True)
@@ -52,7 +54,8 @@ class ChangeRequestRow(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(100))
     idempotency_fingerprint: Mapped[str | None] = mapped_column(String(64))
     # The subject of the caller that sent the key: the service, not the person, on a write sent with onBehalfOf (#592,
-    # migration 0008). Null exactly when the row holds no key (ck_cr_idempotency_caller, 0009).
+    # migration 0008). Never null on a row that holds a key (ck_cr_idempotency_caller, 0009). A row with no key may keep
+    # one: a 0007 pod's expiry cleared the key and left it (docs/16).
     idempotency_sub: Mapped[str | None] = mapped_column(String(100))
     pr: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     merge_sha: Mapped[str | None] = mapped_column(String(64))

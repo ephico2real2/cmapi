@@ -6,8 +6,12 @@ can fail: a column, an index and a uniqueness that only the models have, and an 
 
 What `alembic check` does not see, measured with Alembic 1.20.1 on PostgreSQL 16: the WHERE of a partial index. A changed
 or a removed predicate gives no difference, and the columns and the expressions of an index do. Three unique indexes of
-cmapi are partial, and their predicate is the rule (one OPEN request per namespace). So the last test makes the models'
-schema beside the migrated one and compares the definition of each index as PostgreSQL writes it.
+cmapi are partial, and their predicate is the rule (one OPEN request per namespace). So the last tests make the models'
+schema beside the migrated one and compare the definition of each index as PostgreSQL writes it.
+
+Nor does it see a CHECK constraint: Alembic's autogenerate does not compare them. A model that lacked
+`ck_cr_requester_kind` (0001) passed every test here (#630 review). So the constraints of each table, CHECKs included,
+are compared the same way.
 """
 from __future__ import annotations
 
@@ -88,18 +92,32 @@ def index_definitions(connection, schema: str) -> dict[str, str]:
     return {name: definition.replace(f" ON {schema}.", " ON ") for name, definition in rows}
 
 
-def models_schema_indexes(database, metadata: MetaData) -> tuple[dict[str, str], dict[str, str]]:
-    """The index definitions of the migrated schema, and of a schema that is made from the models alone and then dropped."""
+def constraint_definitions(connection, schema: str) -> dict[str, str]:
+    """Each constraint of each table in the schema (check, primary key, foreign key, unique, exclusion), as
+    `table.name: definition`, with the schema left out of the definition."""
+    rows = connection.execute(text("""
+        select c.relname || '.' || k.conname, pg_get_constraintdef(k.oid) from pg_constraint k
+          join pg_class c on c.oid = k.conrelid join pg_namespace n on n.oid = c.relnamespace
+         where n.nspname = :s"""), {"s": schema})
+    return {name: definition.replace(f"{schema}.", "") for name, definition in rows}
+
+
+def models_schema(database, metadata: MetaData, read) -> tuple[dict[str, str], dict[str, str]]:
+    """`read` of the migrated schema, and of a schema that is made from the models alone and then dropped."""
     scratch = "cmapi_models_check"
     with database.engine.connect() as connection:
         connection.execute(text(f"drop schema if exists {scratch} cascade"))
         connection.execute(text(f"create schema {scratch}"))
         try:
             metadata.create_all(connection.execution_options(schema_translate_map={None: scratch}))
-            return index_definitions(connection, "public"), index_definitions(connection, scratch)
+            return read(connection, "public"), read(connection, scratch)
         finally:
             connection.execute(text(f"drop schema {scratch} cascade"))
             connection.commit()
+
+
+def models_schema_indexes(database, metadata: MetaData) -> tuple[dict[str, str], dict[str, str]]:
+    return models_schema(database, metadata, index_definitions)
 
 
 def test_each_index_of_the_models_is_the_index_of_the_migrations_predicate_included(database):
@@ -116,3 +134,22 @@ def test_a_changed_predicate_of_a_partial_index_is_found_where_alembic_check_is_
     assert differences(database, metadata) == [], "alembic check sees it now: this test and the note above are out of date"
     migrated, modelled = models_schema_indexes(database, metadata)
     assert modelled["idx_jobs_due"] != migrated["idx_jobs_due"] and "WHERE" not in modelled["idx_jobs_due"]
+
+
+def test_each_constraint_of_the_models_is_the_constraint_of_the_migrations_checks_included(database):
+    migrated, modelled = models_schema(database, Base.metadata, constraint_definitions)
+    migrated.pop("alembic_version.alembic_version_pkc", None)
+    assert modelled == migrated
+
+
+@pytest.mark.parametrize("table, name", [("change_requests", "ck_cr_requester_kind"),
+                                         ("change_requests", "ck_cr_idempotency_caller"),
+                                         ("policy_rejections", "ck_rej_request")])
+def test_a_check_of_the_migrations_that_the_models_do_not_declare_is_found(database, table, name):
+    """`alembic check` is blind to it, and the comparison above is not."""
+    metadata = copy_of_the_models()
+    t = metadata.tables[table]
+    t.constraints.remove(next(c for c in t.constraints if c.name == name))
+    assert differences(database, metadata) == [], "alembic check sees it now: the note above is out of date"
+    migrated, modelled = models_schema(database, metadata, constraint_definitions)
+    assert f"{table}.{name}" in migrated and f"{table}.{name}" not in modelled

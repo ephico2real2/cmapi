@@ -99,6 +99,21 @@ def test_the_upgrade_refuses_a_live_delegated_row_without_its_caller_and_changes
                                               "z-expired": (None, None, None)}, rows
 
 
+@pytest.mark.parametrize("subject", [None, 42, ""], ids=["json-null", "a-number", "empty"])
+def test_the_upgrade_refuses_each_shape_of_an_unknown_caller_and_changes_nothing(empty_schema, subject):
+    """0009 keeps its own copy of 0008's ambiguity rule (`_DELEGATED_WITHOUT_CALLER`). The test above has a missing
+    `submittedBySub` only, and the #592 tests of the other shapes run 0008: a broken type or empty check in 0009 passed
+    them all (#630 review)."""
+    _run(empty_schema, "0008")
+    with psycopg.connect(empty_schema, autocommit=True) as c:
+        _insert(c, "z-invalid", requester_sub="sub-ola", key="k8", hours_ago=1,
+                requester={"requester": {"sub": "sub-ola"}, "submittedBy": "svc", "submittedBySub": subject})
+        before = _everything(c)
+        out = _refused(empty_schema, "head")
+        assert "0009 refused, nothing changed: the live delegated requests z-invalid hold an Idempotency-Key" in out, out[-800:]
+        assert _everything(c) == before
+
+
 def test_the_upgrade_refuses_a_live_collision_under_the_caller_and_changes_nothing(empty_schema):
     """Two pairs that release 1's window let through: one service's key for two persons, both from 0007 pods, and one from
     a 0007 pod beside one from release 1's code. The caller's index cannot hold either pair once it is filled. Before
@@ -174,6 +189,30 @@ def test_the_downgrade_refuses_a_live_pair_of_one_requester_and_changes_nothing(
         rows, _indexes, version = _state(c)
         assert version == "0008" and rows == {"a-own": (None, None, None),
                                               "b-svc-for-ola": ("k1", "fp-b-svc-for-ola", "sub-svc")}, rows
+
+
+def test_a_round_trip_through_0007_takes_the_caller_from_requester(empty_schema):
+    """0008's downgrade drops `idempotency_sub`, so on the way up 0008 takes each live key's caller from `requester` again
+    (docs/12, "Back to 0007"). Every row this code writes names its caller there too (`Requester.record` and
+    `Pipeline.submit` both take it from the token's subject), which the HTTP round trip of #592 shows. A live row whose
+    caller is in `idempotency_sub` alone is not lost in silence: 0008 refuses it on the way up, changing nothing, and
+    succeeds once it is over 24 hours old. This pins the limit that docs/12 states (#630 review, finding 1)."""
+    _run(empty_schema, "head")
+    with psycopg.connect(empty_schema, autocommit=True) as c:
+        _insert(c, "g-caller-only", requester_sub="sub-amy", key="k5", sub="sub-svc2", with_sub=True,
+                requester={"requester": {"sub": "sub-amy"}, "automated": True, "submittedBy": "svc2"})
+        _run(empty_schema, "0007", "--downgrade")
+        before = _state(c)
+        assert before[0] == {"g-caller-only": ("k5", "fp-g-caller-only", None)} and before[2] == "0007", before
+
+        out = _refused(empty_schema, "head")
+        assert "0008 refused, nothing changed: the live delegated requests g-caller-only hold an Idempotency-Key" in out, \
+            out[-800:]
+        assert _state(c) == before
+
+        c.execute("UPDATE change_requests SET created_at = now() - interval '25 hours'")
+        _run(empty_schema, "head")
+        assert _state(c)[0] == {"g-caller-only": (None, None, None)}
 
 
 def test_rows_that_a_0007_pod_wrote_replay_for_their_caller_after_0009(empty_schema, test_config, keys, monkeypatch):

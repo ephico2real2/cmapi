@@ -67,6 +67,7 @@ The migrations make the schema. The models in `cmapi/src/cmapi/core/db/models.py
 |---|---|
 | `alembic check` on the migrated test database | A column, a table or an index that only the models have, or only the database has. A model change with no migration fails here |
 | The definition of each index, as PostgreSQL writes it, in a schema that is made from the models alone | A different WHERE of a partial index. `alembic check` does not see that (measured with Alembic 1.20.1 on PostgreSQL 16), and three unique indexes of cmapi are partial |
+| The definition of each constraint of each table (check, primary key, foreign key, unique), as PostgreSQL writes it, in the same schema | A CHECK that only the migrations have, or that differs. `alembic check` does not compare CHECK constraints: Alembic 1.20.1 lists them under "Autogenerate can optionally detect", "off by default", and "name-based only" (<https://alembic.sqlalchemy.org/en/latest/autogenerate.html>, fetched 2026-11-23). The models lacked `ck_cr_requester_kind` of `0001` until the review of PR #630 |
 
 Before this check, the models did not declare eight indexes of the migrations. `alembic revision --autogenerate` would then have written a migration that drops them, the lock index `uq_cr_open_namespace` among them. The models now declare each index.
 
@@ -253,7 +254,7 @@ The figure is `docs/diagrams/data-model/source.html`, drawn to diagram-kit's `/v
 
 ## The tables
 
-Written by `scripts/db-schema-doc.py` from the test database of the service suite (PostgreSQL 16 on `127.0.0.1:55432`, macOS, 2026-11-13; written again on 2026-11-23 for migration `0008`, #592). The test `tests/service/test_data_model_doc.py` fails when this part differs from the database. To write it again: `CMAPI_DATABASE_URL=... python scripts/db-schema-doc.py`, and replace the text between the two marker lines.
+Written by `scripts/db-schema-doc.py` from the test database of the service suite (PostgreSQL 16 on `127.0.0.1:55432`, macOS, 2026-11-13; written again on 2026-11-23 for migrations `0008` (#592) and `0009` (#603)). The test `tests/service/test_data_model_doc.py` fails when this part differs from the database. To write it again: `CMAPI_DATABASE_URL=... python scripts/db-schema-doc.py`, and replace the text between the two marker lines.
 
 <!-- schema:begin -->
 Migration head: `0009`. Tables: 10.

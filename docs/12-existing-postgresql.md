@@ -73,9 +73,11 @@ server certificate's name is the one the pods will connect to (`verify-full` che
 
 ## 4. Running it
 
-- **Migrations** are expand-only, except the contract step of a change made in two releases, such as `0009` below,
-  which ships only once no pod of the release before it runs. A rollback of the image keeps running on a later schema (the
-  old migrator exits 0 on a later four-digit revision, and `/readyz` counts it as ready); a divergent or unknown revision
+- **Migrations** are expand-only, except the contract step of a change made in two releases, such as `0009` below. A
+  contract step ships only once no pod older than its expand step runs: for `0009`, no 0007 pod, while release 1 (`0008`)
+  pods keep serving beside it. An image rolled back to a release that has the expand step keeps running on a later schema
+  (the old migrator exits 0 on a later four-digit revision, and `/readyz` counts it as ready). An image older than the
+  expand step passes the same two checks but does not work, as "After `0009`" below says. A divergent or unknown revision
   is refused by both. Nothing rolls a data migration back by itself.
 - **The Idempotency-Key's caller (#592), in two releases** (expand, then contract: Fowler, *ParallelChange*).
   - **Release 1, `0008`.** It adds `change_requests.idempotency_sub`, fills it with the caller of each live key, clears
@@ -110,8 +112,9 @@ server certificate's name is the one the pods will connect to (`verify-full` che
     No other live pair is refused. The requester's index held over every keyed row until `0009`, so no stored rows share
     a requester and a key, and no retry of a stored request changes its answer. What changes is a new request from
     another caller for the same person: a person using a key that a service holds for them, or a service using the
-    person's key, gets that caller's own 202 where release 1 answered 409 "Idempotency-Key is in use for another request",
-    which named no request.
+    person's key. Release 1 answered 409 "Idempotency-Key is in use for another request", which named no request but told
+    the caller the key was held. Release 2 makes it that caller's own new request, under the same checks as any other:
+    a namespace that the other request holds is still 409 `change-pending`.
   - **After `0009`.** The lookup reads `(idempotency_sub, idempotency_key)`, which `uq_cr_idempotency_caller` serves, and
     clears only the caller's own expired key. Release 1's image still runs on this schema, so an image-only rollback to it
     is safe: it writes `idempotency_sub`, and its lookup reads it first. A 0007 image must not run on it: its migrator
@@ -121,7 +124,10 @@ server certificate's name is the one the pods will connect to (`verify-full` che
     requester and a key, which `0009` allows (a person and a service that writes for her). It succeeds once all but one
     row of each pair are more than 24 hours old. Like the upgrade, it clears the expired keys first.
   - **Back to 0007.** From `0008`, `cmapi-migrate 0007 --downgrade` drops the caller's index and the column, and keeps every
-    key.
+    key. On the way up again, `0008` takes each live key's caller from `requester`, as it did the first time. For every
+    row that cmapi writes, that is the caller that `idempotency_sub` held. A live delegated row whose caller was in
+    `idempotency_sub` alone, with no `requester.submittedBySub`, makes `0008` refuse, changing nothing, until it is more
+    than 24 hours old.
 - **Locks of `0008` and `0009`.** The `0008` upgrade acquires ACCESS EXCLUSIVE on `change_requests` when it adds the
   column, and its downgrade when it drops the index. `0009` acquires it with its first statement, `LOCK TABLE`, both ways.
   Reads and writes of this table wait through the checks, the updates, the check's scan and the index build or drop,
