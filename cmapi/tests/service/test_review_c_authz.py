@@ -4,10 +4,10 @@ from __future__ import annotations
 import re
 
 import pytest
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from cmapi.core.authz import ROLE_PERMISSIONS, RolePolicy
+from cmapi.core.docs import api_routes
 from cmapi.core.identity.claims import Person
 from cmapi.core.identity.directory import CachedDirectory, InMemoryDirectory
 from test_flow import AMY, NS, OLA, OPAL, auth, run_jobs
@@ -35,10 +35,9 @@ def closure_permission(route):
 
 def table(app):
     out = []
-    for r in app.routes:
-        if isinstance(r, APIRoute):
-            for m in r.methods:
-                out.append((m, r.path_format, (r.openapi_extra or {}).get("x-cmapi-permission"), closure_permission(r), r))
+    for r in api_routes(app):
+        for m in r.methods:
+            out.append((m, r.path_format, (r.openapi_extra or {}).get("x-cmapi-permission"), closure_permission(r), r))
     return out
 
 

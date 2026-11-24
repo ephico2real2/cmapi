@@ -8,7 +8,10 @@ version = "0.2.0"
 description = "cmapi: one API and portal for namespaces across OpenShift clusters, with every write a pull request"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.115.6",
+    "fastapi==0.162.2",
+    # Pinned on its own (#651): FastAPI 0.162.2 asks for starlette>=0.46.0, the image resolves it when it is built, and
+    # Starlette before 1.3.1 is in published advisories (docs/reviews/2026-11-24-issue-651).
+    "starlette==1.10.0",
     "uvicorn[standard]==0.32.1",
     "pydantic==2.14.2",
     "pydantic-settings==2.16.2",

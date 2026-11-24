@@ -273,7 +273,7 @@ Status: read from `main` at `afd1206` on 2026-11-23. Each row was read from the 
 
 | Term | Meaning | Source |
 |---|---|---|
-| FastAPI | The web framework of the api (0.115.6). | [pyproject.toml](../cmapi/pyproject.toml) |
+| FastAPI | The web framework of the api (0.162.2), on Starlette (1.10.0, pinned on its own, #651). | [pyproject.toml](../cmapi/pyproject.toml) |
 | Pydantic | The models and settings (`pydantic`, `pydantic-settings`). | [pyproject.toml](../cmapi/pyproject.toml) |
 | SQLAlchemy, Alembic, psycopg | The database layer, the migrations and the driver. | [pyproject.toml](../cmapi/pyproject.toml) |
 | PostgreSQL 16 | The database. The service tests run against one on `127.0.0.1:55432`. | [CLAUDE.md](../CLAUDE.md), [12-existing-postgresql.md](12-existing-postgresql.md) |

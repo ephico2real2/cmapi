@@ -16,7 +16,6 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import HTMLResponse, JSONResponse, Response
-from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
@@ -30,7 +29,7 @@ from cmapi.core.config import InstanceConfig
 from cmapi.core.context import AppContext, build_context
 from cmapi.core.changelog import changelog_html
 from cmapi.core.cors import EXPOSED_HEADERS, MAX_AGE, METHODS, REQUEST_HEADERS, OriginVaryCORSMiddleware, allowed_origins
-from cmapi.core.docs import PROBLEMS, URL_VARIABLE, InstanceFacts, build_openapi, check_documented, plugin_routers
+from cmapi.core.docs import PROBLEMS, URL_VARIABLE, InstanceFacts, api_routes, build_openapi, check_documented, plugin_routers
 from cmapi.core.errors import Problem, type_base
 from cmapi.core.etag import etag_of, not_modified
 from cmapi.core.kpi import register_collectors
@@ -230,16 +229,16 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
 
     @app.exception_handler(405)
     async def method_not_allowed(request: Request, exc: HTTPException) -> Response:
-        """RFC 9110, section 15.5.6: a 405's Allow lists "the target resource's currently supported methods". Starlette
-        0.41.3 names the methods of the first route that matches the path only (routing.py:737 and :281), and cmapi gives
-        each method of a path its own route, so PUT on a namespace said "GET, HEAD" without PATCH and DELETE. StaticFiles
-        sends none (staticfiles.py:113); it serves GET and HEAD."""
+        """RFC 9110, section 15.5.6: a 405's Allow lists "the target resource's currently supported methods". The router
+        names the methods of the first route that matches the path only (Starlette 0.41.3, routing.py:737 and :281;
+        FastAPI 0.162.2, routing.py:1316-1321), and cmapi gives each method of a path its own route, so PUT on a namespace
+        said "GET, HEAD" without PATCH and DELETE. StaticFiles serves GET and HEAD (Starlette 0.41.3 sent no Allow,
+        staticfiles.py:113; 1.10.0 sends "GET, HEAD", staticfiles.py:120)."""
         response = await http_exception_handler(request, exc)
         if isinstance(request.scope.get("endpoint"), StaticFiles):
             response.headers["Allow"] = "GET, HEAD"
         else:
-            methods = {m for r in app.routes if isinstance(r, APIRoute) and r.matches(request.scope)[0] == Match.PARTIAL
-                       for m in r.methods}
+            methods = {m for r in api_routes(app) if r.matches(request.scope)[0] == Match.PARTIAL for m in r.methods}
             if methods:
                 response.headers["Allow"] = ", ".join(sorted(methods))
         return response
@@ -256,14 +255,19 @@ def _serve_head_with_get(app: FastAPI) -> None:
 
     RFC 9110 section 9.1: "All general-purpose servers MUST support the methods GET and HEAD", and 9.3.2: "The HEAD method
     is identical to GET except that the server MUST NOT send content in the response". Starlette's Route adds HEAD to a GET
-    (starlette/routing.py:244-246); FastAPI's APIRoute takes only the methods it is given (fastapi/routing.py:494), so each
-    GET answered HEAD with 405. HEAD joins the methods of the GET's own route, as in Starlette: one route answers both, with
-    the same dependencies (the sign-in, the permission), the same preconditions and headers, and no side effect that the
-    GET does not have, and a 405 lists HEAD in Allow. uvicorn sends no content for a HEAD (h11_impl.py and httptools_impl.py
-    drop the body). build_openapi documents each GET only (core/docs.py, _without_head)."""
-    for route in app.routes:
-        if isinstance(route, APIRoute) and "GET" in route.methods:
+    (Starlette 1.10.0 routing.py:244-247); FastAPI's APIRoute takes only the methods it is given (FastAPI 0.162.2
+    routing.py:1074), so each GET answered HEAD with 405. HEAD joins the methods of the GET's own route, as in Starlette:
+    one route answers both, with the same dependencies (the sign-in, the permission), the same preconditions and headers,
+    and no side effect that the GET does not have, and a 405 lists HEAD in Allow. uvicorn sends no content for a HEAD
+    (h11_impl.py and httptools_impl.py drop the body). build_openapi documents each GET only (core/docs.py, _without_head).
+
+    Since FastAPI 0.137.0 an included router's routes are not copied into app.routes, and each inclusion matches and
+    answers through a context built from the route (core/docs.py, api_routes). HEAD goes on both: on the context, which
+    answers now, and on the route, from which FastAPI builds the context again when a router's routes change."""
+    for route in api_routes(app):
+        if "GET" in route.methods:
             route.methods.add("HEAD")
+            route.original_route.methods.add("HEAD")
 
 
 def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None:

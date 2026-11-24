@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
-from starlette.datastructures import MutableHeaders
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import Message, Receive, Scope, Send
 
@@ -89,9 +89,10 @@ def allowed_origins(instance: Mapping[str, Any]) -> list[str]:
 class OriginVaryCORSMiddleware(CORSMiddleware):
     """Starlette's CORS middleware, with `Vary: Origin` on each answer.
 
-    Starlette adds it only to an answer for a listed origin. An answer for another origin, or for no origin, then has no
-    Vary, and a shared cache can give that copy, which has no CORS header, to the listed origin (review finding F2). Here
-    vary_send adds it to each answer, for a listed origin too, and keeps every Vary line of the answer (#596).
+    Starlette 0.41.3 added it only to an answer for a listed origin. An answer for another origin, or for no origin, then
+    had no Vary, and a shared cache can give that copy, which has no CORS header, to the listed origin (review finding F2).
+    Here vary_send adds it to each answer, for a listed origin too, and keeps every Vary line of the answer (#596); send
+    keeps Starlette 1.x from writing a Vary of its own (#651).
     """
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -114,6 +115,27 @@ class OriginVaryCORSMiddleware(CORSMiddleware):
             await send(message)
 
         await super().__call__(scope, receive, vary_send)
+
+    async def send(self, message: Message, send: Send, request_headers: Headers) -> None:
+        """Starlette's own header fields of a simple answer, with the answer's Vary lines as the application wrote them.
+
+        Starlette 1.7.0 and later append Origin to the Vary of an answer for no origin or for an origin that is not listed
+        (starlette/middleware/cors.py:170 in 1.10.0: `headers["Vary"] = ", ".join([*headers.getlist("Vary"), "Origin"])`),
+        also when a line holds Origin or `*` already, and they join the lines into one. vary_send writes Origin once and
+        keeps each line, so the lines that the application wrote are put back before vary_send reads them (#651)."""
+        if message["type"] != "http.response.start":
+            await super().send(message, send, request_headers)
+            return
+        written = MutableHeaders(scope={"headers": list(message.get("headers") or [])}).getlist("vary")
+
+        async def keep_vary(started: Message) -> None:
+            headers = MutableHeaders(scope=started)
+            del headers["vary"]
+            for line in written:
+                headers.append("vary", line)
+            await send(started)
+
+        await super().send(message, keep_vary, request_headers)
 
     @staticmethod
     def allow_explicit_origin(headers: MutableHeaders, origin: str) -> None:
