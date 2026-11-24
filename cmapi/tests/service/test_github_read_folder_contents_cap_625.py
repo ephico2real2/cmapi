@@ -5,17 +5,21 @@ from __future__ import annotations
 
 import httpx
 
-from test_delete_whole_folder_616 import BASE, FOLDER_PATH, HEAD, RestHost, _github
+from test_delete_whole_folder_616 import BASE, FOLDER_PATH, HEAD, RestHost, _github, _oid
 
 
 class CappedContents(RestHost):
-    """The Contents listing of the folder stops at 1,000 entries and leaves namespace.yaml out."""
+    """The Contents listing of the folder stops at 1,000 entries and leaves namespace.yaml out, in its array form and in its
+    object form, which also carries the folder's tree sha (application/vnd.github.object+json)."""
 
     def __call__(self, request):
         path = request.url.path.removeprefix("/repos/o/r")
         if request.method == "GET" and path == f"/contents/{FOLDER_PATH}":
-            return httpx.Response(200, json=[{"type": "file", "name": f"{i:04}.txt", "path": f"{BASE}{i:04}.txt"}
-                                             for i in range(1000)])
+            rows = [{"type": "file", "name": f"{i:04}.txt", "path": f"{BASE}{i:04}.txt"} for i in range(1000)]
+            if request.headers.get("accept") == "application/vnd.github.object+json":
+                return httpx.Response(200, json={"type": "dir", "path": FOLDER_PATH, "sha": _oid("tree", FOLDER_PATH),
+                                                 "entries": rows})
+            return httpx.Response(200, json=rows)
         return super().__call__(request)
 
 

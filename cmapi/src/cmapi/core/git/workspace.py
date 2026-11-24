@@ -303,7 +303,8 @@ class GitWorkspace:
         for entry in filter(None, listing.split("\0")):
             meta, name = entry.split("\t", 1)
             mode, kind, sha = meta.split(" ")
-            # Regular files only, as GitHub's contents API types them "file": a symlink (120000) or a submodule is not a manifest.
+            # Regular files only: a symlink (120000) or a submodule (160000) is not a manifest. GitHub's REST read_folder reads
+            # the same modes from the tree; its Contents listing types both "file" (#632).
             if kind == "blob" and mode in ("100644", "100755") and name.endswith(".yaml"):
                 blobs.append((name, sha))
         if not blobs:
