@@ -209,3 +209,28 @@ can take them once they are two weeks old.
 - The portal (`cmapi-portal-ui`) suites: not run; the served document is unchanged, so its generated types are too.
 - uvicorn with Starlette 1.10.0 outside the TestClient: not measured. uvicorn 0.32.1 does not import Starlette.
 - The Spectral lint and the oasdiff gate: not run, because the document is unchanged (the committed-contract test).
+
+## Review
+
+Codex reached its usage limit, so two separate Opus 5.5 agents reviewed this change. Neither wrote it.
+
+- **Reviewer 1** (`review/reviewer-1-opus.md`) confirmed that the upgrade holds:
+  - the served `/openapi.json` is byte-identical to main's;
+  - all 52 routes match field for field;
+  - the Range CVE parse took 2.77 s before and takes 0.00013 s now;
+  - no advisory names FastAPI 0.162.2, Starlette 1.10.0 or uvicorn 0.32.1.
+
+  It kept FastAPI's strict Content-Type, because every client sends `application/json`. It found one Medium (the authz table test could pass empty) and three Lows.
+- **Reviewer 2** (`review/reviewer-2-opus.md`):
+  - It accepted the Medium as written. It kept the three Lows' text fixes and dropped their two tests as over-build.
+  - It pinned the Content-Type ruling with a test.
+  - Its fix for one test defect: HEAD was added to route objects that every app in the test process shares, so the HEAD tests could not fail. Each GET now declares HEAD where it is made.
+  - It found **F0 (High)**. Since FastAPI 0.140.0, each app's connection pool stayed open in the test process, which reached 99 of PostgreSQL's 100 connections. `AppContext.shutdown` now disposes the engine, and the peak is 6.
+  - It found **#662**: 8 docs/14 citations put on the wrong code by #652's merge.
+  - It wrote the merge with today's `main` (`b97ebb5`).
+- **The coordinator's rulings (Opus 5.5):** accepted. Reviewer 2's `fix.diff` was applied, then `git merge -X ours origin/main`, then `merge-main.diff`. The citations were read before they were locked.
+
+## The coordinator's run
+
+- **The full service suite, on the new pins** (`wt-651-outputs/venv`: FastAPI 0.162.2, Starlette 1.10.0), in its own database `cmapi_coord_654`. It ran from 2026-11-24T19:55:46Z to 20:48:02Z, on the patched branch merged with `main` `b97ebb5`: **2776 passed in 3118.76 s**, with no failures (`coord-suite.txt`).
+- **`doc-citations.py --check`:** 0 problems.
