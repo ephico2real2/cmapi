@@ -34,6 +34,8 @@ class GiteaProvider(HostGitProvider):
         return f"/repos/{self.repository}"
 
     def branch_head(self, branch: str) -> str | None:
+        # A name is data in the path: "#", "?" and "%" are escaped (RFC 3986, sections 2.4 and 3.3). Gitea routes branches,
+        # compare and contents with a "/*" wildcard, so a "/" in a branch name or a file path stays a "/" (#638).
         r = self._call("branch_head", "GET", f"{self._repo()}/branches/{quote(branch)}", ok=(200, 404))
         return r.json()["commit"]["id"] if r.status_code == 200 else None
 
@@ -212,7 +214,7 @@ class GiteaProvider(HostGitProvider):
     def contains(self, revision: str, sha: str) -> bool:
         if revision == sha:
             return True
-        r = self._call("compare", "GET", f"{self._repo()}/compare/{revision}...{sha}")
+        r = self._call("compare", "GET", f"{self._repo()}/compare/{quote(revision)}...{sha}")
         if r.status_code == 404:      # not this repository's: a multi-source Application's other source, or a force-pushed commit
             return False
         if r.status_code != 200:
@@ -226,7 +228,7 @@ class GiteaProvider(HostGitProvider):
         return {f["filename"] for c in r.json().get("commits") or [] for f in c.get("files") or []}
 
     def _blob_sha(self, path: str, ref: str) -> str:
-        r = self._call("read_file", "GET", f"{self._repo()}/contents/{path}", params={"ref": ref})
+        r = self._call("read_file", "GET", f"{self._repo()}/contents/{quote(path)}", params={"ref": ref})
         return r.json()["sha"]
 
     def _pr_ref(self, p: Mapping[str, Any]) -> PrRef:
@@ -278,14 +280,6 @@ class GiteaProvider(HostGitProvider):
     def log(self, n: int = 20) -> list[str]:
         r = self._call("log", "GET", f"{self._repo()}/commits", params={"sha": self.default_branch, "limit": n})
         return self.commit_lines(r.json())
-
-    def protect_default_branch(self, contexts: list[str]) -> None:
-        """One-time setup: nobody pushes to main; merges need every context green (the cmapi check)."""
-        body = {"branch_name": self.default_branch, "enable_push": False, "enable_status_check": True,
-                "status_check_contexts": contexts, "block_on_rejected_reviews": True, "enable_merge_whitelist": False}
-        r = self._call("protect", "POST", f"{self._repo()}/branch_protections", json=body, ok=(201, 403, 422))
-        if r.status_code == 422:                               # already protected: update it
-            self._call("protect", "PATCH", f"{self._repo()}/branch_protections/{quote(self.default_branch)}", json=body)
 
 
 def _b64(text: str) -> str:

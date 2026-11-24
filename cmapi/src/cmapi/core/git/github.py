@@ -63,7 +63,8 @@ class GitHubProvider(HostGitProvider):
     def branch_head(self, branch: str) -> str | None:
         if self.workspace is not None:
             return self.workspace.branch_head(branch)
-        r = self._call("branch_head", "GET", f"{self._repo()}/branches/{quote(branch)}", ok=(200, 404))
+        # One path parameter: GitHub asks for a "/" in it as %2F, and "#", "?" and "%" are escaped as data (#638).
+        r = self._call("branch_head", "GET", f"{self._repo()}/branches/{quote(branch, safe='')}", ok=(200, 404))
         return r.json()["commit"]["sha"] if r.status_code == 200 else None
 
     def read_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:

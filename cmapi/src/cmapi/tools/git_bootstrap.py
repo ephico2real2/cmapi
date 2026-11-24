@@ -14,6 +14,7 @@ import os
 import sys
 import time
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -87,7 +88,7 @@ def main(argv: list[str]) -> None:
         r.raise_for_status()
         print(f"repository {org}/{repo} present")
     # Decided by the branch, not the repository: a run killed before the seed commit must seed on the next run.
-    if bot.get(f"/repos/{org}/{repo}/branches/{s.git_default_branch}").status_code == 404:
+    if bot.get(f"/repos/{org}/{repo}/branches/{quote(s.git_default_branch)}").status_code == 404:
         files: dict[str, str] = {"README.md": SEED_README}
         for cid in cluster_ids:
             files[f"clusters/{cid}/namespaces/.keep"] = ""
@@ -102,13 +103,15 @@ def main(argv: list[str]) -> None:
     body = {"branch_name": s.git_default_branch, "rule_name": s.git_default_branch, "enable_push": False,
             "enable_status_check": True, "status_check_contexts": list(REQUIRED_CONTEXTS),
             "block_on_outdated_branch": False, "enable_merge_whitelist": True, "merge_whitelist_usernames": [bot_user]}
-    r = bot.get(f"/repos/{org}/{repo}/branch_protections/{s.git_default_branch}")
+    # Gitea routes a rule by one path segment ("/{name}"), so a "/" in the name is sent as %2F; a branch read takes "/*" (#638).
+    rule = f"/repos/{org}/{repo}/branch_protections/{quote(s.git_default_branch, safe='')}"
+    r = bot.get(rule)
     if r.status_code == 404:
         bot.post(f"/repos/{org}/{repo}/branch_protections", json=body).raise_for_status()
         print("branch protection created")
     else:
         r.raise_for_status()
-        bot.patch(f"/repos/{org}/{repo}/branch_protections/{s.git_default_branch}", json=body).raise_for_status()
+        bot.patch(rule, json=body).raise_for_status()
         print("branch protection in force")
 
 

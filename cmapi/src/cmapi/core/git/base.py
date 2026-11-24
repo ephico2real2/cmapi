@@ -123,7 +123,7 @@ class HostGitProvider:
     BOT_EMAIL = "cmapi-git-bot@noreply.invalid"
     # Whether the host's own CI reports ci/kubeconform and ci/kyverno, as commit statuses. The worker then waits for them there.
     external_ci = False
-    # Whether the worker posts its checks as commit statuses. The Gitea stand-in protects main with them (protect_default_branch);
+    # Whether the worker posts its checks as commit statuses. The Gitea stand-in protects main with them (tools/git_bootstrap.py);
     # GitHub posts nothing unless host CI or git.postStatus is on (the arbitration of #286, row 11).
     post_statuses = True
 

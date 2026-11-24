@@ -114,7 +114,6 @@ GITEA_CALLS: dict[str, Callable[[Any], Any]] = {
     "changed_paths": lambda g: g.changed_paths(SHA),
     "list_branches": lambda g: g.list_branches("cmapi/"),
     "delete_branch": lambda g: g.delete_branch(PR.branch, SHA),
-    "protect_default_branch": lambda g: g.protect_default_branch(["cmapi/check"]),
 }
 
 
