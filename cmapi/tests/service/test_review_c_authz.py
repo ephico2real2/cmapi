@@ -74,6 +74,11 @@ def test_declared_permission_is_the_enforced_one_and_every_route_answers(world, 
             if m == "HEAD" and got != answers[("GET", path)]]
     with capsys.disabled():
         print("\n" + "\n".join(rows))
+    # The walk saw every operation of the document: a walk that misses the included routers (app.routes after FastAPI
+    # 0.137.0, #651) leaves the table empty, and an empty table has nothing bad in it.
+    spec = c.get("/openapi.json").json()
+    documented = {(m.upper(), p) for p, ops in spec["paths"].items() for m in ops}
+    assert len(documented) > 30 and documented <= set(answers), sorted(documented - set(answers))
     assert not bad, bad
 
 

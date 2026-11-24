@@ -15,6 +15,7 @@ Range fixes that #649 found (https://starlette.dev/release-notes/, 1.0.0, read 2
 """
 from __future__ import annotations
 
+import json
 import time
 import tomllib
 from importlib import metadata
@@ -27,7 +28,9 @@ from packaging.requirements import Requirement
 from packaging.version import Version
 from starlette.responses import FileResponse, MalformedRangeHeader
 
+from conftest import build_world
 from test_api_docs import bundles  # noqa: F401  (the fixture: the files the image holds)
+from test_flow import NS, OLA, auth
 
 # (advisory, CVE, package, first patched version), from GitHub's advisory database, 2026-11-24.
 ADVISORIES = [
@@ -41,6 +44,7 @@ ADVISORIES = [
 ]
 PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 STATIC_FILE = "/static/swagger/swagger-ui-bundle.js"
+WRITE = "/api/v1/clusters/CRC/namespaces"
 # The CVE's proof of concept ("0" * n + "a-") at the size of header line that the front door accepts:
 # large_client_header_buffers 4 16k (cmapi-portal-ui/nginx/templates/cmapi.conf.template).
 CVE_RANGE = "bytes=" + "0" * 16_000 + "a-"
@@ -123,26 +127,54 @@ def test_a_route_of_an_included_router_is_one_of_api_routes():
     assert ("/outer/inner/thing", frozenset({"GET"})) in served, served
 
 
-def test_head_stays_on_a_route_when_its_router_changes():
-    """main.py, _serve_head_with_get: HEAD goes on the served context and on the route it is built from, so the context
-    that FastAPI builds again after a router's routes change answers HEAD too."""
+def test_an_app_changes_no_route_of_a_router_that_it_includes():
+    """FastAPI 0.137.0 keeps an included router's routes as they are, so each app of the process that includes a router
+    serves that router's route objects. Production builds one app per process (main.py, run), and the service suite builds
+    many: when _serve_head_with_get added HEAD to an included route, each app after the first had it already, and a mutant
+    that left HEAD off the served route passed the whole of test_head_605.py (#654 review). An included router's GET
+    declares HEAD where it is made (core/docs.py, DocumentedRouter._register), and _serve_head_with_get adds it to the
+    app's own routes only."""
     from cmapi.main import _serve_head_with_get
 
-    inner = APIRouter()
+    shared = APIRouter()
 
-    @inner.get("/thing")
+    @shared.get("/thing")
     def thing() -> dict[str, str]:
-        return {"ok": "yes"}
-
-    app = FastAPI()
-    app.include_router(inner)
-    _serve_head_with_get(app)
-    client = TestClient(app)
-    assert client.head("/thing").status_code == 200
-
-    @inner.get("/later")                   # a new route of the router: FastAPI rebuilds the router's contexts
-    def later() -> dict[str, str]:
         return {}
 
-    assert client.head("/thing").status_code == 200
-    assert client.get("/later").status_code == 200
+    app = FastAPI()
+    app.include_router(shared)
+
+    @app.get("/own")
+    def own() -> dict[str, str]:
+        return {}
+
+    _serve_head_with_get(app)
+    assert shared.routes[0].methods == {"GET"}
+    assert TestClient(app).head("/own").status_code == 200
+
+
+def test_a_body_is_read_as_json_only_with_a_json_content_type(world):
+    """FastAPI 0.132.0: "Now FastAPI checks, by default, that JSON requests have a `Content-Type` header with a valid JSON
+    value, like `application/json`, and rejects requests that don't" (https://fastapi.tiangolo.com/release-notes/, read
+    2026-11-24). cmapi keeps that default (#654 review): the document declares application/json for each body, and every
+    client in the repository sends it. A body with no Content-Type was read as JSON on FastAPI 0.115.6 (200); it is now
+    422 validation-failed, as a text/plain one already was."""
+    client, *_, keys = world
+    url, body, signed_in = f"{WRITE}?dryRun=true", json.dumps(NS).encode(), auth(keys, "ola", **OLA)
+    assert client.post(url, content=body, headers={**signed_in, "Content-Type": "application/json"}).status_code == 200
+    for sent in ({}, {"Content-Type": "text/plain"}):
+        r = client.post(url, content=body, headers={**signed_in, **sent})
+        assert (r.status_code, r.json().get("code")) == (422, "validation-failed"), (sent, r.text[:300])
+
+
+def test_an_app_that_ends_closes_its_database_connections(test_config, fresh_db, keys, monkeypatch):
+    """FastAPI 0.140.0 keeps each dependency's callable in a process-wide lru_cache ("Reduce memory usage in
+    dependencies", PR #16049; 4096 entries since 0.140.1, PR #16062), and through them an app's AppContext stays alive
+    after its lifespan ends. The service suite builds an app per test in one process, so each app kept its pool open: 99
+    connections at the peak and "sorry, too many clients already", where FastAPI 0.115.6 peaked at 15 (#654 review).
+    ctx.shutdown, which the lifespan runs, closes them."""
+    with build_world(test_config, keys, monkeypatch) as (client, ctx, *_):
+        assert client.get("/readyz").status_code == 200
+        assert ctx.db.engine.pool.checkedin() >= 1
+    assert ctx.db.engine.pool.checkedin() == 0

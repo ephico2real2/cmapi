@@ -16,6 +16,7 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
@@ -261,13 +262,14 @@ def _serve_head_with_get(app: FastAPI) -> None:
     and no side effect that the GET does not have, and a 405 lists HEAD in Allow. uvicorn sends no content for a HEAD
     (h11_impl.py and httptools_impl.py drop the body). build_openapi documents each GET only (core/docs.py, _without_head).
 
-    Since FastAPI 0.137.0 an included router's routes are not copied into app.routes, and each inclusion matches and
-    answers through a context built from the route (core/docs.py, api_routes). HEAD goes on both: on the context, which
-    answers now, and on the route, from which FastAPI builds the context again when a router's routes change."""
-    for route in api_routes(app):
-        if "GET" in route.methods:
+    Here HEAD goes on the app's own routes (the docs pages, the document, the problem pages), which create_app makes for
+    each app. An included router's GET declares HEAD where it is made (core/docs.py, DocumentedRouter._register;
+    routers/health.py): since FastAPI 0.137.0 include_router no longer copies a router's routes, so each app of the process
+    serves the same route objects. HEAD added to them here was already there for each app after the first, so the service
+    suite, which builds many apps in one process, did not test the first app's case, which is production's (#654 review)."""
+    for route in app.routes:
+        if isinstance(route, APIRoute) and "GET" in route.methods:
             route.methods.add("HEAD")
-            route.original_route.methods.add("HEAD")
 
 
 def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None:

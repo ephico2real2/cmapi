@@ -320,7 +320,10 @@ class DocumentedRouter(APIRouter):
                 kwargs["response_class"] = Response
             if dry_run_model is not None:
                 responses[200] = {"model": dry_run_model, "description": DRY_RUN_RETURNS}
-            return self.api_route(path, methods=[method], **kwargs)(fn)
+            # A GET answers HEAD on its own route (#605), declared here where the route is made. Since FastAPI 0.137.0 each
+            # app that includes this router serves this route object, so HEAD added per app reached the other apps of the
+            # process (main.py, _serve_head_with_get; #654 review).
+            return self.api_route(path, methods=[method, "HEAD"] if method == "GET" else [method], **kwargs)(fn)
 
         return deco
 

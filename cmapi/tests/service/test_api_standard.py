@@ -388,6 +388,8 @@ def test_the_document_keeps_what_each_route_declares(declared, spec):
     parameter's rules and required flag, the body's required flag and each field's rules, each status and each code."""
     out = []
     for method, path, route in operations(declared):
+        if method == "head":            # a GET's HEAD, which the document leaves out (core/docs.py, _without_head; #605)
+            continue
         op, label = spec["paths"][path][method], f"{method.upper()} {path}"
         for key in ("security", "x-cmapi-permission"):
             if op.get(key) != route.get(key):
