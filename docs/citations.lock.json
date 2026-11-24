@@ -338,7 +338,7 @@
   "        return None",
   "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|303-308": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|306-311": [
   "            if permission:",
   "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
   "            op_id = f\"{self.plugin}_{fn.__name__}\"",
@@ -520,10 +520,10 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|524-524": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|56-56": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|60-60": [
   "    \"on-behalf-of-not-allowed\": \"Remove `onBehalfOf`. A person calls as themselves.\","
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|57-57": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|61-61": [
   "    \"on-behalf-of-required\": \"Name the person in `onBehalfOf`. A service client must say for whom it calls.\","
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/views.py|25-27": [
@@ -544,16 +544,16 @@
   "        if s.metrics_port:",
   "            start_metrics(s.metrics_port, ctx.cfg.name, s.component)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|209-211": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|213-215": [
   "    @app.exception_handler(Problem)",
   "    async def problem_handler(_: Request, exc: Problem) -> Response:",
   "        return problem_response(exc, dict(unauthenticated_headers(exc)))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|248-249": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|297-298": [
   "    if docs_enabled:",
   "        _add_docs(app, ctx, docs_cfg, authed, problem_response)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|269-283": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|318-332": [
   "def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None:",
   "    \"\"\"/problems and /problems/{code}: what the `type` of a problem resolves to (RFC 9457, section 4; #182).",
   "",
@@ -570,10 +570,10 @@
   "            raise Problem(404, \"object-not-found\", \"No such problem type. /problems lists each one\")",
   "        return HTMLResponse(problem_html(code, problem_base, ctx.cfg.name))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|294-294": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|343-343": [
   "    guard = [] if docs_cfg.get(\"public\", True) else [Depends(authed)]"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|344-346": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|393-395": [
   "    @app.get(\"/docs/oauth2-redirect\", include_in_schema=False)",
   "    def docs_redirect() -> Response:",
   "        return get_swagger_ui_oauth2_redirect_html()"
