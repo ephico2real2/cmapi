@@ -2,7 +2,7 @@
 list contract (docs/01, Lists). Writes are a tier or quota PATCH on the namespace."""
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Iterator
 
 from fastapi import Depends, Query, Request
 from fastapi.responses import StreamingResponse
@@ -80,10 +80,15 @@ def quota_rows(c: AppContext, who: Identity) -> list[dict[str, Any]]:
 
 FACETS = {"near-limit": lambda r: r["used"] >= 0.8, "tier-outdated": lambda r: r["tierOutdated"],
           "open-request": lambda r: bool(r.get("openRequest"))}
+# docs/01, Lists: "sort is name (default), used (highest percentage of quota first) or severity". The shared Lister also
+# knows `newest`, the request list's order (core/context.py), which a quota row has no time for.
+SORTS = ("name", "used", "severity")
 
 
 def _query(q: str, env: str | None, cluster_id: str | None, team: str | None, tier: str | None, sort: str, limit: int,
            cursor: str | None, starts_with: str | None, state: str | None = None) -> ListQuery:
+    if sort not in SORTS:
+        raise Problem.bad_request("invalid-sort", f"Unknown sort {sort}")
     return ListQuery(q=q, filters={"env": env or "", "clusterId": cluster_id or "", "team": team or "", "tier": tier or ""},
                      sort=sort, limit=limit, cursor=cursor, starts_with=starts_with, context={"state": state or ""})
 
@@ -133,7 +138,7 @@ def suggest(q: str = Query(default="", examples=["pay"],
 @router.read("/quotas:export", summary="Export the quota list as CSV",
              returns="Every row of the quota list with the same filters, in the same order, as CSV: at most 10,000 "
                      "rows.",
-             permission="objects:read", media_type="text/csv")
+             permission="objects:read", media_type="text/csv", problems=["invalid-sort", "validation-failed"])
 def export(request: Request, q: Text = "", env: Env = None, cluster_id: ClusterFilter = None, team: Team = None,
            tier: Tier = None, state: State = None, sort: Sort = "name",
            who: Identity = Depends(require("objects:read")), c: AppContext = Depends(ctx)):
@@ -144,10 +149,13 @@ def export(request: Request, q: Text = "", env: Env = None, cluster_id: ClusterF
     head = request.method == "HEAD"
     rows = [{**r, "cpuUsed": r["cpu"][0], "cpuHard": r["cpu"][1], "memoryUsed": r["memory"][0], "memoryHard": r["memory"][1],
              "podsUsed": r["pods"][0], "podsHard": r["pods"][1]} for r in quota_rows(c, who)]
+    # The refusals first, for both methods (a sort, 400; a state, 422): a refused export is no export, so it writes no audit
+    # event, and the refusal is sent before a stream's 200.
+    query = _query(q, env, cluster_id, team, tier, sort, 50, None, None, state)
+    selected = _in_state(rows, state)
+    lines: Iterator[str] = iter(())
     if not head:
+        lines = c.lister.export_csv(selected, query, COLUMNS)
         with c.db.session() as s:
             AuditRepo(s).record(who, "quotas.export", "csv", {"rows": len(rows), "q": q, "env": env, "clusterId": cluster_id})
-    query = _query(q, env, cluster_id, team, tier, sort, 50, None, None, state)
-    lines = c.lister.export_csv(_in_state(rows, state), query, COLUMNS)
-    return StreamingResponse(iter(()) if head else lines, media_type="text/csv",
-                             headers={"Content-Disposition": 'attachment; filename="quotas.csv"'})
+    return StreamingResponse(lines, media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="quotas.csv"'})

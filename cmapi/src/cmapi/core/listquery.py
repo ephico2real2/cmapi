@@ -80,6 +80,19 @@ def match_rank(row: Mapping[str, Any], text: str) -> tuple[int, str] | None:
     return None
 
 
+def _csv_lines(rows: list[Mapping[str, Any]], columns: list[str]) -> Iterator[str]:
+    """The header line, then one line per row."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(columns)
+    yield buf.getvalue()
+    for r in rows:
+        buf.seek(0)
+        buf.truncate()
+        w.writerow([r.get(c, "") for c in columns])
+        yield buf.getvalue()
+
+
 class Lister:
     def __init__(self, secret: bytes, sorts: Sorts | None = None):
         self.secret, self.sorts = secret, sorts or Sorts()
@@ -176,15 +189,8 @@ class Lister:
 
     def export_csv(self, rows: Iterable[Mapping[str, Any]], query: ListQuery,
                    columns: list[str]) -> Iterator[str]:
-        """Same filters and order as the list, capped at 10,000 rows. The caller audits the export."""
-        buf = io.StringIO()
-        w = csv.writer(buf)
-        w.writerow(columns)
-        yield buf.getvalue()
-        for i, r in enumerate(self.filtered(rows, query)):
-            if i >= EXPORT_CAP:
-                break
-            buf.seek(0)
-            buf.truncate()
-            w.writerow([r.get(c, "") for c in columns])
-            yield buf.getvalue()
+        """Same filters and order as the list, capped at 10,000 rows. The caller audits the export.
+
+        The rows are filtered and sorted here, when it is called, and only written out lazily: an unknown sort is its 400
+        before the caller audits and streams, not an exception after the 200 has gone (StreamingResponse)."""
+        return _csv_lines(self.filtered(rows, query)[:EXPORT_CAP], columns)

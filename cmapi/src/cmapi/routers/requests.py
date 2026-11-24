@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import Depends, Query
+from starlette.convertors import StringConvertor, register_url_convertor
 
 from cmapi import __version__
 from cmapi.core.context import AppContext
@@ -79,7 +80,18 @@ def _can_still_approve(repo: RequestRepo, row: Any, who: Identity) -> bool:
     return bool(ledger) and any(ledger.requirement.token_group(r["group"]) in who.groups for r in ledger.remaining())
 
 
-@router.read("/requests/{request_id}", summary="Get a request",
+class RequestIdConvertor(StringConvertor):
+    """A request ID in a path: never a colon. RequestRepo.next_id makes req-YYYYMMDD-NNNN, and a colon starts a custom
+    method (Google AIP-136: "The HTTP URI must use a `:` character followed by the custom verb"). Without it the read's
+    {request_id} took "x:approve" too, so GET and HEAD on a POST action answered as a read of request "x:approve" (401 or
+    404) instead of 405 with Allow: POST."""
+    regex = "[^/:]+"
+
+
+register_url_convertor("request_id", RequestIdConvertor())
+
+
+@router.read("/requests/{request_id:request_id}", summary="Get a request",
              returns="The request with its approval ledger, its pull request and every event so far.",
              permission="requests:read", response_model=ChangeRequest,
              problems=["object-not-found", "environment-forbidden"])

@@ -167,7 +167,8 @@ class MetricsAndRequestIdMiddleware:
             # Cancellation/disconnect before headers has no HTTP status to count.
             # For a stream/background failure after headers, count the status actually sent.
             if status is not None:
-                route = getattr(scope.get("route"), "path", "unmatched")
+                # The template without a convertor ("{request_id}", not "{request_id:request_id}"): the document's path.
+                route = getattr(scope.get("route"), "path_format", "unmatched")
                 HTTP_REQUESTS.labels(method, route, str(status)).inc()
                 HTTP_DURATION.labels(method, route).observe(time.perf_counter() - started)
                 caller = getattr(request.state, "caller", None)

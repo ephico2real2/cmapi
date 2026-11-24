@@ -4118,4 +4118,18 @@ Each refusal is an RFC 9457 problem with the media type `application/problem+jso
   "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
 }
 ```
+
+### 400 `invalid-sort` (Export the quota list as CSV)
+
+`GET /api/v1/quotas:export?sort=nope`:
+
+```json
+{
+  "code": "invalid-sort",
+  "detail": "Unknown sort nope",
+  "status": 400,
+  "title": "invalid sort",
+  "type": "https://cmapi.ephico2real.com/problems/invalid-sort"
+}
+```
 <!-- examples:end -->
