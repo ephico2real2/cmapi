@@ -100,7 +100,7 @@ Both calls verify Keycloak's certificate against the CA in ConfigMap `cmapi-trus
 
 ## From sign-in to a permitted call
 
-Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:167-168`, `core/auth.py:189-194`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
+Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:169-170`, `core/auth.py:189-194`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
 
 ```text
 Browser (Swagger UI at /docs)            Keycloak, realm cmapi                 cmapi-api
@@ -209,7 +209,7 @@ The owner decided on 2026-11-14 (#226): each instance gets one front door, nginx
 | Credentials | `Access-Control-Allow-Credentials` is never sent | The API reads no cookie. The token is in `Authorization`, which a page of another origin does not have |
 | Methods | `GET`, `HEAD`, `POST`, `PATCH`, `DELETE` | The methods of the API. `HEAD` is a `GET` without its body, on every `GET` (#605); a `HEAD` with `Authorization` is preflighted, and Starlette refuses a preflight for a method that is not listed |
 | Request headers | `Authorization`, `Content-Type`, `Idempotency-Key`, `If-Match`, `If-None-Match`, `X-Request-Id` | The headers that the API reads. Each call with `Authorization` needs a preflight, so a page of an origin that is not listed cannot send the call at all |
-| Response headers a page can read | `ETag`, `Location`, `Retry-After`, `WWW-Authenticate`, `X-Request-Id` | `ETag` is the value of `If-Match` on a change. The others say what to do after a 401, a 429 or a 503, and which log line to find |
+| Response headers a page can read | `Allow`, `ETag`, `Location`, `Retry-After`, `WWW-Authenticate`, `X-Request-Id` | `ETag` is the value of `If-Match` on a change. The others say what to do after a 405, a 401, a 429 or a 503, and which log line to find (`Allow`: #644) |
 | Preflight cache | `Access-Control-Max-Age: 600` | Ten minutes, which is WebKit's limit |
 | `Vary: Origin` | On each answer when CORS is on, also on an answer with no CORS header. A preflight's answer also varies on `Access-Control-Request-Method`, `Access-Control-Request-Headers` and `Access-Control-Request-Private-Network` (Starlette 1.7.0, #651) | A shared cache must not give the copy for one origin to another (review finding F2). An answer to `OPTIONS` is not cacheable (RFC 9110, section 9.3.7), so the preflight's longer `Vary` changes no cache |
 

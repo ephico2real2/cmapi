@@ -108,9 +108,10 @@ class UnhandledToProblemMiddleware:
             if disconnected:
                 return
             request = Request(scope)
-            # error_type: the exception's class as a field to filter on; `exception` holds the traceback (#648). A failure
-            # inside a StreamingResponse comes wrapped in a one-member ExceptionGroup (starlette/responses.py:252, an anyio
-            # task group), so the class is its cause's, as Starlette's own collapse_excgroups unwraps it (_utils.py:79-80).
+            # error_type: the exception's class as a field to filter on; `exception` holds the traceback (#648). Starlette
+            # 0.41.3 wrapped a failure inside a StreamingResponse in a one-member ExceptionGroup (responses.py:252, an
+            # anyio task group); 1.10.0 raises the failure itself (responses.py:278, create_collapsing_task_group,
+            # _utils.py:101-112). A one-member group that the application raises is still named by its member here.
             cause: BaseException = exc
             while isinstance(cause, BaseExceptionGroup) and len(cause.exceptions) == 1:
                 cause = cause.exceptions[0]
@@ -125,8 +126,9 @@ class UnhandledToProblemMiddleware:
 class RefuseNulMiddleware:
     """A path or a query that holds U+0000 (%00) is 422 validation-failed, before routing (#653).
 
-    PostgreSQL stores no NUL, and os.stat refuses one in the path of a static file, so before this a NUL in a request ID, a
-    filter or a static path answered 500. A header cannot hold one: uvicorn's parsers, h11 and httptools, answer 400. A JSON
+    PostgreSQL stores no NUL, so before this a NUL in a request ID or a filter answered 500, and so did one in the path
+    of a static file on Starlette 0.41.3, whose os.stat refused it (1.10.0 answers 404, staticfiles.py:132-134). A
+    header cannot hold one: uvicorn's parsers, h11 and httptools, answer 400. A JSON
     body is checked by its model, core/models.py RequestBody."""
 
     def __init__(self, app: ASGIApp, problem_response: Any):
@@ -262,12 +264,13 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     # request_validation_handler as RequestValidationError; TierError keeps its own handler, which Starlette finds first in
     # the class's MRO. Any other ValueError is the service's fault: UnhandledToProblemMiddleware answers 500 internal-error.
 
-    # The 404 and 405 that no route makes (#644): Starlette's router (routing.py:651, no route matches the path; :283, a route
-    # matches it with another method) and StaticFiles under /static (staticfiles.py:114, :123, :149) raise HTTPException,
-    # and FastAPI's default handler answered {"detail": ...} as application/json. Starlette 0.41.3 looks a status handler
-    # up before the class handler (_exception_handler.py:46-50), so these two take every HTTPException of their status and
-    # no other; a Problem is not an HTTPException and keeps problem_handler. Each is a problem type of the registry, as
-    # every other refusal is (docs/02, "Problem type URIs"), so its type resolves to /problems/<code>.
+    # The 404 and 405 that no route makes (#644): Starlette's router (Starlette 1.10.0 routing.py:639, no route matches
+    # the path; :284, a route matches it with another method; FastAPI 0.162.2 routing.py:1316-1321 for a route of an
+    # included router) and StaticFiles under /static (staticfiles.py:120, :129, :134, :158) raise HTTPException, and
+    # FastAPI's default handler answered {"detail": ...} as application/json. Starlette looks a status handler up before
+    # the class handler (_exception_handler.py:46-50, in 0.41.3 and 1.10.0), so these two take every HTTPException of
+    # their status and no other; a Problem is not an HTTPException and keeps problem_handler. Each is a problem type of
+    # the registry, as every other refusal is (docs/02, "Problem type URIs"), so its type resolves to /problems/<code>.
     @app.exception_handler(404)
     async def not_found(_: Request, exc: HTTPException) -> Response:
         return problem_response(Problem(404, "not-found", PROBLEMS["not-found"][1]), dict(exc.headers or {}))
@@ -279,7 +282,8 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         FastAPI 0.162.2, routing.py:1316-1321), and cmapi gives each method of a path its own route, so PUT on a namespace
         said "GET, HEAD" without PATCH and DELETE. StaticFiles serves GET and HEAD (Starlette 0.41.3 sent no Allow,
         staticfiles.py:113; 1.10.0 sends "GET, HEAD", staticfiles.py:120)."""
-        response = await http_exception_handler(request, exc)
+        headers = dict(exc.headers or {})
+        allow = None
         if isinstance(request.scope.get("endpoint"), StaticFiles):
             allow = "GET, HEAD"
         else:
@@ -295,7 +299,7 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         """Every other HTTPException, which only FastAPI and Starlette raise: cmapi's own refusals are Problems (#646).
 
         FastAPI raises its 400 "There was an error parsing the body" from whatever reading the body raised
-        (fastapi/routing.py:283-287), so the cause says what happened:
+        (FastAPI 0.162.2 routing.py:495-499), so the cause says what happened:
         - ClientDisconnect: the client went away while it sent the body. No answer is sent: UnhandledToProblemMiddleware
           ends the request, as for every other disconnect.
         - ValueError or RecursionError: the JSON decoder could not read the bytes (not Unicode text, nested deeper than it
@@ -303,11 +307,11 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
           python-multipart, which cmapi does not install, and FastAPI refuses such a route at startup. It is the 422
           validation-failed with json_invalid that a body JSON cannot parse gets (#164), so a client gets one answer
           for a body that is not JSON.
-        A 400 with no cause is one that the framework chose (Starlette's form parser, starlette/requests.py:271): a client
-        error, bad-request, with the framework's detail. Any other cause, and any other status, is the service's fault:
-        StaticFiles' 401 (staticfiles.py:119) is a file of the image that the process cannot read, which no credential
-        changes. It is internal-error, with the status and the cause in the log line. An HTTPException below 400 is no
-        refusal and keeps FastAPI's answer."""
+        A 400 with no cause is one that the framework chose (Starlette's form parser, Starlette 1.10.0 requests.py:297 and
+        :311): a client error, bad-request, with the framework's detail. Any other cause, and any other status, is the
+        service's fault: StaticFiles' 401 (staticfiles.py:125) is a file of the image that the process cannot read, which
+        no credential changes. It is internal-error, with the status and the cause in the log line. An HTTPException below
+        400 is no refusal and keeps FastAPI's answer."""
         if exc.status_code < 400:
             return await http_exception_handler(request, exc)
         cause = exc.__cause__
