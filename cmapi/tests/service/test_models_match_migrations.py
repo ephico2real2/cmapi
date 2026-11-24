@@ -66,7 +66,7 @@ def test_an_index_that_only_the_models_have_is_found(database):
     assert differences(database, metadata) == ["add_index idx_cr_team"]
 
 
-@pytest.mark.parametrize("name", ["uq_cr_open_namespace", "uq_cr_idempotency", "uq_approvals_person", "uq_jobs_pending", "idx_jobs_due"])
+@pytest.mark.parametrize("name", ["uq_cr_open_namespace", "uq_cr_idempotency_caller", "uq_approvals_person", "uq_jobs_pending", "idx_jobs_due"])
 def test_an_index_of_the_migrations_that_the_models_do_not_declare_is_found(database, name):
     """The state before #185: autogenerate would have written a migration that drops the index."""
     metadata = copy_of_the_models()
