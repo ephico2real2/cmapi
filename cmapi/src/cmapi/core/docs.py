@@ -81,6 +81,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "invalid-sort": (400, "Unknown sort used2"),
     "invalid-limit": (400, "limit is one of (25, 50, 100), at most 200"),
     "dry-run-not-supported": (400, "This call has no dry run, and nothing was done"),
+    "bad-request": (400, "Too many fields. Maximum number of fields is 1000."),
     "rate-limited": (429, "Too many requests"),
     "idp-unavailable": (503, "Keycloak signing keys are unreachable and this key is not cached"),
     "cluster-unreachable": (503, "CRC did not answer"),

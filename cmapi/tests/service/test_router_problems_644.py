@@ -63,11 +63,12 @@ def _assert_problem(client, method: str, path: str, status: int, code: str, allo
     assert page.status_code == 200 and f'<h1 id="code">{code}</h1>' in page.text, (code, page.status_code)
 
 
-def _assert_head_is_get_without_content(client, path: str) -> None:
-    """RFC 9110, section 9.3.2: HEAD is GET without content, with GET's status and header fields."""
+def _assert_head_answers_as_get(client, path: str) -> None:
+    """RFC 9110, section 9.3.2: HEAD is GET without content, with GET's status and header fields. The content is uvicorn's
+    to drop (main.py, _serve_head_with_get), and TestClient drops it too before a test sees it (starlette/testclient.py:362),
+    so this checks the status and the header fields."""
     get, head = client.get(path), client.head(path)
     assert head.status_code == get.status_code, (path, get.status_code, head.status_code)
-    assert head.content == b"", (path, head.content[:200])
     for field in ("content-type", "content-length", "allow"):
         assert head.headers.get(field) == get.headers.get(field), (path, field)
 
@@ -85,13 +86,13 @@ def test_a_refusal_under_static_is_a_problem(bundles, test_config, fresh_db, key
         _assert_problem(client, method, path, status, code, allow)
 
 
-def test_head_of_each_case_has_no_content(bundles, test_config, fresh_db, keys, monkeypatch):  # noqa: F811
-    """HEAD of each path: a 404 or a 405 keeps its status, its problem media type and its Allow, with no content. The paths
+def test_head_of_each_case_has_the_status_and_header_fields_of_get(bundles, test_config, fresh_db, keys, monkeypatch):  # noqa: F811
+    """HEAD of each path: a 404 or a 405 keeps its status, its problem media type and its Allow. The paths
     with a GET route answer HEAD as that GET does (#605): the namespace list needs a token (401), the version is public."""
     with build_world(test_config, keys, monkeypatch) as (client, *_):
         paths = sorted({path for _, path, *_ in ROUTER_CASES + STATIC_CASES})
         for path in paths:
-            _assert_head_is_get_without_content(client, path)
+            _assert_head_answers_as_get(client, path)
         assert client.head("/api/v1/requests/req-20261121-0005:approve").headers["allow"] == "POST"
         assert client.head("/api/v1/no-such-path").headers["content-type"] == "application/problem+json"
         assert client.head("/static/swagger/no-such-file.js").status_code == 404

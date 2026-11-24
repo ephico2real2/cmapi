@@ -70,6 +70,16 @@ def test_a_call_from_the_portal_can_read_the_answer_and_the_etag(world):
     assert created.status_code == 202 and created.headers[ACAO] == PORTAL
 
 
+def test_a_405_lets_the_portal_read_allow(world):
+    """The problem method-not-allowed says to send one of the methods that Allow lists (#644). Allow is not a CORS-safelisted
+    response header (https://fetch.spec.whatwg.org/#cors-safelisted-response-header-name, read 2026-11-24), so a page of
+    another origin reads it only when the answer exposes it."""
+    client, *_ = world
+    r = client.delete("/api/v1/version", headers={"Origin": PORTAL})
+    assert (r.status_code, r.headers[ACAO], r.headers["allow"]) == (405, PORTAL, "GET, HEAD"), r.text
+    assert "Allow" in r.headers["access-control-expose-headers"].split(", ")
+
+
 @pytest.mark.parametrize("make,status,code", [
     (lambda keys: {}, 401, "unauthenticated"),
     (lambda keys: {"Authorization": f"Bearer {keys.token('vic', roles=[], groups=[])}"}, 403, "forbidden"),

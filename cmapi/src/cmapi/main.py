@@ -263,19 +263,33 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     async def framework_refusal(request: Request, exc: HTTPException) -> Response:
         """Every other HTTPException, which only FastAPI and Starlette raise: cmapi's own refusals are Problems (#646).
 
-        A 400 is a body that could not be read (fastapi/routing.py:285, and starlette/requests.py:271 for a form, which no
-        route of cmapi takes): not UTF-8 (RFC 8259, section 8.1), nested deeper than the decoder goes, or cut short. It is
-        the 422 validation-failed with json_invalid that FastAPI gives a body JSON cannot decode, so a client gets one
-        answer for a body that is not JSON (core/docs.py, DocumentedRouter._register). Any other status is the service's
-        fault: StaticFiles' 401 (staticfiles.py:119) is a file of the image that the process cannot read, which no
-        credential changes, and no other site is reachable. It is internal-error, with the cause in the log line. An
-        HTTPException below 400 is no refusal and keeps FastAPI's answer."""
+        FastAPI raises its 400 "There was an error parsing the body" from whatever reading the body raised
+        (fastapi/routing.py:283-287), so the cause says what happened:
+        - ClientDisconnect: the client went away while it sent the body. No answer is sent: UnhandledToProblemMiddleware
+          ends the request, as for every other disconnect.
+        - ValueError or RecursionError: the JSON decoder could not read the bytes (not Unicode text, nested deeper than it
+          goes, an integer longer than 4300 digits). Only the decoder raises these there: a Form body needs
+          python-multipart, which cmapi does not install, and FastAPI refuses such a route at startup. It is the 422
+          validation-failed with json_invalid that a body JSON cannot parse gets (#164), so a client gets one answer
+          for a body that is not JSON.
+        A 400 with no cause is one that the framework chose (Starlette's form parser, starlette/requests.py:271): a client
+        error, bad-request, with the framework's detail. Any other cause, and any other status, is the service's fault:
+        StaticFiles' 401 (staticfiles.py:119) is a file of the image that the process cannot read, which no credential
+        changes. It is internal-error, with the status and the cause in the log line. An HTTPException below 400 is no
+        refusal and keeps FastAPI's answer."""
         if exc.status_code < 400:
             return await http_exception_handler(request, exc)
+        cause = exc.__cause__
         if exc.status_code == 400:
-            return problem_response(validation_failed([{"field": "body", "message": "the body cannot be read as JSON",
-                                                        "code": "json_invalid"}]))
+            if isinstance(cause, ClientDisconnect):
+                raise cause
+            if isinstance(cause, (ValueError, RecursionError)):
+                return problem_response(validation_failed([{"field": "body", "message": "the body cannot be read as JSON",
+                                                            "code": "json_invalid"}]))
+            if cause is None:
+                return problem_response(Problem(400, "bad-request", str(exc.detail)[:300]), dict(exc.headers or {}))
         log.error("framework_refusal", method=request.method, status=exc.status_code, detail=str(exc.detail)[:200],
+                  cause=type(cause).__name__ if cause else None,
                   route=getattr(request.scope.get("route"), "path_format", "unmatched"))
         return problem_response(Problem(500, "internal-error", PROBLEMS["internal-error"][1]))
 
