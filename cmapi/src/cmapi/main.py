@@ -9,6 +9,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import unquote_to_bytes
 
 import yaml
 from fastapi import Depends, FastAPI, Request
@@ -34,6 +35,7 @@ from cmapi.core.docs import PROBLEMS, URL_VARIABLE, InstanceFacts, build_openapi
 from cmapi.core.errors import Problem, type_base
 from cmapi.core.etag import etag_of, not_modified
 from cmapi.core.kpi import register_collectors
+from cmapi.core.models import NUL_REFUSED
 from cmapi.core.problem_docs import problem_html, problems_index_html
 from cmapi.core.observability import configure_logging, instrument, log, start_metrics
 from cmapi.core.tiers import TierError
@@ -102,15 +104,41 @@ class UnhandledToProblemMiddleware:
             raise
         except ClientDisconnect:
             return
-        except Exception:
+        except Exception as exc:
             if disconnected:
                 return
             request = Request(scope)
-            log.exception("unhandled", method=request.method, route=getattr(scope.get("route"), "path_format", "unmatched"))
+            # error_type: the exception's class as a field to filter on; `exception` holds the traceback (#648). A failure
+            # inside a StreamingResponse comes wrapped in a one-member ExceptionGroup (starlette/responses.py:252, an anyio
+            # task group), so the class is its cause's, as Starlette's own collapse_excgroups unwraps it (_utils.py:79-80).
+            cause: BaseException = exc
+            while isinstance(cause, BaseExceptionGroup) and len(cause.exceptions) == 1:
+                cause = cause.exceptions[0]
+            log.exception("unhandled", method=request.method, route=getattr(scope.get("route"), "path_format", "unmatched"),
+                          error_type=type(cause).__name__)
             if started:
                 raise  # A stream/background failure cannot replace a status already sent.
             response = self.problem_response(Problem(500, "internal-error", PROBLEMS["internal-error"][1]))
             await response(scope, receive, send)
+
+
+class RefuseNulMiddleware:
+    """A path or a query that holds U+0000 (%00) is 422 validation-failed, before routing (#653).
+
+    PostgreSQL stores no NUL, and os.stat refuses one in the path of a static file, so before this a NUL in a request ID, a
+    filter or a static path answered 500. A header cannot hold one: uvicorn's parsers, h11 and httptools, answer 400. A JSON
+    body is checked by its model, core/models.py RequestBody."""
+
+    def __init__(self, app: ASGIApp, problem_response: Any):
+        self.app = app
+        self.problem_response = problem_response
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and ("\x00" in scope["path"] or b"\x00" in unquote_to_bytes(scope["query_string"])):
+            response = self.problem_response(Problem.unprocessable("validation-failed", NUL_REFUSED))
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
 
 
 def instance_facts(cfg: InstanceConfig, cluster_environments: Mapping[str, str] | None = None) -> InstanceFacts:
@@ -196,6 +224,7 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         return JSONResponse(p.body(problem_base), status_code=p.status, media_type="application/problem+json", headers=headers)
 
     app.add_middleware(UnhandledToProblemMiddleware, problem_response=problem_response)
+    app.add_middleware(RefuseNulMiddleware, problem_response=problem_response)
 
     instrument(app)
     # CORS is added after the request middleware, so it is the outer one: each answer that the application makes has the
@@ -226,9 +255,12 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     async def tier_error_handler(_: Request, exc: TierError) -> Response:
         return problem_response(Problem.policy_violation(exc.detail, [{"code": exc.code, **exc.data}]))
 
-    @app.exception_handler(ValueError)
-    async def value_error_handler(_: Request, exc: ValueError) -> Response:
-        return problem_response(Problem.unprocessable("validation-failed", str(exc)[:300]))
+    # No handler for ValueError (#648). The one before answered each ValueError that escaped a route as 422 validation-failed
+    # with its text, so a codec error of the Git layer blamed the caller and showed an implementation message (RFC 9457,
+    # sections 3.1.4 and 5). A refusal that means the request is not valid is a Problem raised where it is decided
+    # (tiers.requested_qty, the username check of Pipeline._plan_namespace); a request model's ValueError reaches
+    # request_validation_handler as RequestValidationError; TierError keeps its own handler, which Starlette finds first in
+    # the class's MRO. Any other ValueError is the service's fault: UnhandledToProblemMiddleware answers 500 internal-error.
 
     # The 404 and 405 that no route makes (#644): Starlette's router (routing.py:651, no route matches the path; :283, a route
     # matches it with another method) and StaticFiles under /static (staticfiles.py:114, :123, :149) raise HTTPException,

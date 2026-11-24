@@ -1,0 +1,35 @@
+# before: main ff5e992's src (fix stashed) + a stub NotUtf8 class; ff5e992; 2026-11-24T13:22:58Z
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/src/cmapi/core/git/workspace.py:301: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 93: invalid continuation byte
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/src/cmapi/core/git/workspace.py:301: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 94: invalid continuation byte
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/src/cmapi/core/git/workspace.py:318: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 18: invalid continuation byte
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/tests/service/test_non_utf8_names_626.py:121: Failed: DID NOT RAISE <class 'cmapi.core.git.base.NotUtf8'>
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/src/cmapi/core/git/workspace.py:301: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 93: invalid continuation byte
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/src/cmapi/core/git/workspace.py:367: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 40: invalid continuation byte
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/tests/service/test_non_utf8_names_626.py:174: AssertionError: {"type":"https://cmapi.ephico2real.com/problems/validation-failed","title":"validation failed","status":422,"detail":"'utf-8' codec can't decode byte 0xe9 in position 93: invalid continuation byte","code":"validati
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/tests/service/test_non_utf8_names_626.py:193: KeyError: 'paths'
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/tests/service/test_non_utf8_names_626.py:218: AssertionError: [('plan_auto_approved', 'none-required'), ('error', "push_branch: UnicodeDecodeError: 'utf-8' codec can't decode byte ..., ('error', "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 93: invalid
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/tests/service/test_non_utf8_names_626.py:218: AssertionError: [('plan_needs_approval', "waiting for [('approver-platform', 1)]"), ('approval', ''), ('approved', 'approval count met...: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 593: invalid continuat
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/tests/service/test_non_utf8_names_626.py:235: Failed: DID NOT RAISE <class 'cmapi.core.git.base.NotUtf8'>
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/tests/service/test_non_utf8_names_626.py:235: Failed: DID NOT RAISE <class 'cmapi.core.git.base.NotUtf8'>
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/tests/service/test_non_utf8_names_626.py:245: Failed: DID NOT RAISE <class 'cmapi.core.git.base.NotUtf8'>
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/tests/service/test_non_utf8_names_626.py:245: Failed: DID NOT RAISE <class 'cmapi.core.git.base.NotUtf8'>
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/src/cmapi/core/git/github.py:100: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 18: invalid continuation byte
+/Users/olasumbo/gitRepos/workbench/cmapi/wt-626/cmapi/src/cmapi/core/git/gitea.py:79: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 18: invalid continuation byte
+PASSED tests/service/test_non_utf8_names_626.py::test_the_gitea_merge_check_reads_a_folder_it_cannot_name_as_not_the_plans
+FAILED tests/service/test_non_utf8_names_626.py::test_the_git_layer_refuses_a_manifest_whose_name_is_not_utf8
+FAILED tests/service/test_non_utf8_names_626.py::test_the_delete_listing_names_each_path_it_cannot_carry_at_any_depth
+FAILED tests/service/test_non_utf8_names_626.py::test_a_manifest_whose_text_is_not_utf8_is_refused_by_its_path
+FAILED tests/service/test_non_utf8_names_626.py::test_a_name_that_holds_u_fffd_is_refused_as_the_rest_reads_refuse_it
+FAILED tests/service/test_non_utf8_names_626.py::test_the_merge_check_reads_a_folder_it_cannot_name_as_not_the_plans
+FAILED tests/service/test_non_utf8_names_626.py::test_changed_paths_shows_a_name_it_cannot_decode_escaped
+FAILED tests/service/test_non_utf8_names_626.py::test_a_change_and_a_delete_of_a_folder_with_such_a_name_are_refused_and_nothing_changes
+FAILED tests/service/test_non_utf8_names_626.py::test_a_change_is_not_refused_for_a_name_it_never_reads
+FAILED tests/service/test_non_utf8_names_626.py::test_a_name_that_reaches_the_folder_after_the_plan_supersedes_the_request[change-caf\xe9.yaml]
+FAILED tests/service/test_non_utf8_names_626.py::test_a_name_that_reaches_the_folder_after_the_plan_supersedes_the_request[delete-sub/caf\xe9.txt]
+FAILED tests/service/test_non_utf8_names_626.py::test_rest_refuses_a_name_that_the_host_gave_as_u_fffd[github]
+FAILED tests/service/test_non_utf8_names_626.py::test_rest_refuses_a_name_that_the_host_gave_as_u_fffd[gitea]
+FAILED tests/service/test_non_utf8_names_626.py::test_rest_lists_a_subfolder_name_with_u_fffd_only_for_a_delete[github]
+FAILED tests/service/test_non_utf8_names_626.py::test_rest_lists_a_subfolder_name_with_u_fffd_only_for_a_delete[gitea]
+FAILED tests/service/test_non_utf8_names_626.py::test_rest_refuses_a_manifest_whose_text_is_not_utf8[github]
+FAILED tests/service/test_non_utf8_names_626.py::test_rest_refuses_a_manifest_whose_text_is_not_utf8[gitea]
+16 failed, 1 passed in 40.45s

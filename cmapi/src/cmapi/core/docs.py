@@ -51,6 +51,9 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "self-approval": (409, "Requesters cannot approve their own request here"),
     "nothing-to-prune": (409, "No delete of payments-dev is awaiting a prune"),
     "folder-holds-submodule": (409, "The folder of payments-dev holds the submodule clusters/CRC/namespaces/payments-dev/vendor"),
+    "folder-not-utf8": (409, "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not "
+                             "UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the "
+                             "request again"),
     "idempotency-replay": (409, "Idempotency-Key was used for a different request"),
     "precondition-failed": (412, "The namespace changed in Git since you read it"),
     "validation-failed": (422, "Request body is not valid"),
@@ -170,6 +173,8 @@ PROBLEM_EXTRAS: dict[str, dict[str, Any]] = {
     "idp-unavailable": {"retryAfter": 30},
     "cluster-unreachable": {"retryAfter": 30},
     "validator-unavailable": {"retryAfter": 60},
+    "folder-holds-submodule": {"paths": ["clusters/CRC/namespaces/payments-dev/vendor"]},
+    "folder-not-utf8": {"paths": ["clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"]},
 }
 
 

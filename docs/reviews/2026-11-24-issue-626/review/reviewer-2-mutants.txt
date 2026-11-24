@@ -1,0 +1,14 @@
+# Mutants of reviewer 2's final fix (r2-outputs/fix.diff), each on a fresh copy of the final tree; 2026-11-24. KILLED = its tests failed.
+f3-gitea-creates-first   KILLED  2 failed, 17 deselected in 4.31s
+f4-no-doubling           KILLED  8 failed, 1 passed, 10 deselected in 10.80s
+f4-fffd-verbatim         KILLED  5 failed, 4 passed, 10 deselected in 10.91s
+f4-rest-verbatim         KILLED  2 failed, 17 deselected in 4.05s
+f4-text-verbatim         KILLED  1 failed, 18 deselected in 3.47s
+f5-rule-always-plain     KILLED  1 failed, 18 deselected in 3.24s
+f6-no-paths-example      KILLED  1 failed, 1 passed, 17 deselected in 3.57s
+f6-no-submodule-paths    KILLED  1 failed, 1 passed, 17 deselected in 3.50s
+f1-merged-raises         KILLED  2 failed, 17 deselected in 30.17s
+f2-pr-checks-raises      KILLED  1 failed, 18 deselected in 7.75s
+f3-push-raises           KILLED  1 failed, 18 deselected in 7.25s
+f7-argocd-raw-compare    KILLED  1 failed, 18 deselected in 9.87s
+f7-apply-raw-compare     KILLED  1 failed, 18 deselected in 7.85s

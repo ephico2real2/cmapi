@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from pydantic.alias_generators import to_camel
 
 ClusterId = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{1,62}$")]
@@ -26,6 +26,34 @@ class Api(BaseModel):
 
 class ClusterScoped(Api):
     cluster_id: ClusterId = Field(description="The cluster the object lives on", examples=["OCP_GF1"])
+
+
+# PostgreSQL stores no U+0000, in text or in jsonb (its docs, sections 8.3 and 8.14), so a request that holds one is refused
+# before it is read: a body here, a path or a query in main.py's RefuseNulMiddleware (#653).
+NUL_REFUSED = "A value of the request holds the character NUL (U+0000), which cmapi does not take"
+
+
+def holds_nul(value: Any) -> bool:
+    """Whether a parsed JSON value holds U+0000 in a string or a key, at any depth."""
+    if isinstance(value, str):
+        return "\x00" in value
+    if isinstance(value, dict):
+        return any(holds_nul(k) or holds_nul(v) for k, v in value.items())
+    if isinstance(value, list):
+        return any(holds_nul(v) for v in value)
+    return False
+
+
+class RequestBody(Api):
+    """The base of every request body. A body with U+0000 anywhere, in a label or an annotation too, is 422 validation-failed
+    before a route reads it; before #653 PostgreSQL refused it at the first write, and the caller got 500."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def refuse_nul(cls, data: Any) -> Any:
+        if holds_nul(data):
+            raise ValueError(NUL_REFUSED)
+        return data
 
 
 # --------------------------------------------------------------------------- problems
@@ -211,7 +239,7 @@ class ApprovalStatus(Api):
     plan_hash: str = Field(description="The approved plan hash", examples=["9f2c..."])
 
 
-class DecisionBody(Api):
+class DecisionBody(RequestBody):
     comment: str = Field(default="", description="A comment; required for a rejection", examples=["sizing reviewed"])
 
 
@@ -236,7 +264,7 @@ class BeyondTier(Api):
                                                       "on top of the environment's rule")
 
 
-class NamespaceCreate(Api):
+class NamespaceCreate(RequestBody):
     namespace: DnsLabel = Field(description="Namespace name: DNS-1123, not reserved", examples=["payments-dev"])
     tier: str = Field(default="small", description="A tier from the catalog, or custom", examples=["small"])
     quota: dict[str, str] | None = Field(default=None, description="Custom tier only: each sizable quota key, and any overridable quota key of GET /tiers. An overridable value that differs from the tier needs the beyond-tier approval", examples=[None])
@@ -249,7 +277,7 @@ class NamespaceCreate(Api):
     justification: str | None = Field(default=None, description="Why the namespace is needed", examples=["Payments service dev namespace"])
 
 
-class NamespacePatch(Api):
+class NamespacePatch(RequestBody):
     tier: str | None = Field(default=None, description="New tier", examples=["large"])
     quota: dict[str, str] | None = Field(default=None, description="Custom quota values. On a namespace that is already on the custom tier, they are merged over its values in Git, key by key", examples=[None])
     limit_range: LimitRangeValues | None = Field(default=None, description="Custom container and PVC limits, custom tier only (a pvc value only where storageLimitRange.enabled of GET /tiers is true), merged over the namespace's values in Git, key by key. Send the tier's value to remove an override", examples=[LIMIT_RANGE_EXAMPLE])
@@ -1002,6 +1030,6 @@ class MetadataKeysView(Api):
                                             "notifyDaysBefore": [14, 7, 1], "graceDays": 7}, "prod": {"enabled": False}}}])
 
 
-class PruneConfirm(Api):
+class PruneConfirm(RequestBody):
     namespace: str = Field(description="Namespace whose delete is awaiting a prune", examples=["payments-dev"])
     cluster_id: str | None = Field(default=None, description="Cluster, when the name is ambiguous", examples=["CRC"])

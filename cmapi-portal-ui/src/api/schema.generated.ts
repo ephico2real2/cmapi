@@ -6318,7 +6318,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`, `namespace-exists`, `namespace-exists-unmanaged`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `namespace-exists`, `namespace-exists-unmanaged`.
              */
             409: {
                 headers: {
@@ -6541,6 +6541,19 @@ export interface operations {
              *     Codes: `cluster-not-found`, `object-not-found`.
              */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `folder-not-utf8`.
+             */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6829,7 +6842,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`, `folder-holds-submodule`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-holds-submodule`.
              */
             409: {
                 headers: {
@@ -7162,7 +7175,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`.
              */
             409: {
                 headers: {
@@ -7471,7 +7484,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`.
              */
             409: {
                 headers: {
@@ -7803,7 +7816,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`.
              */
             409: {
                 headers: {
@@ -8112,7 +8125,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`.
              */
             409: {
                 headers: {

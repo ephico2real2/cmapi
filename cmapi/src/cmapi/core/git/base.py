@@ -17,7 +17,7 @@ import base64
 import ssl
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Iterable, Literal, Mapping
+from typing import Any, Callable, Iterable, Literal, Mapping
 
 import httpx
 
@@ -54,6 +54,70 @@ class NotMergeable(GitUnavailable):
     def __init__(self, message: str, transient: bool = False):
         super().__init__(message)
         self.transient = transient
+
+
+# U+FFFD, what a REST host answers for a byte that is not UTF-8 in a name: measured on api.github.com (git/trees and Contents,
+# 2026-11-24), and what Gitea's JSON encoder writes (json-iterator, writeStringSlowPathWithHTMLEscaped). It cannot be told from
+# a name that holds U+FFFD itself, so no provider carries either (#626).
+REPLACEMENT = "\ufffd"
+
+
+class NotUtf8(Exception):
+    """Paths under a folder whose name, or a manifest whose text (part), is not UTF-8, so cmapi cannot carry them (#626).
+
+    Git keeps a name as bytes, and a plan, the API's JSON and the database hold text. Each path is as shown() shows it. Not
+    GitUnavailable: Git answered, and a retry reads the same folder."""
+
+    def __init__(self, paths: Iterable[str], part: Literal["name", "text"]):
+        self.paths, self.part = sorted(paths), part
+        # U+FFFD is valid UTF-8: a REST host's stand-in for a lost byte, or typed on purpose. Either way no plan can carry it.
+        self.rule = "is not UTF-8 or holds U+FFFD" if any(REPLACEMENT in p for p in self.paths) else "is not UTF-8"
+        super().__init__(f"the {part} of {', '.join(self.paths[:3])}{' and more' if len(self.paths) > 3 else ''} {self.rule}")
+
+
+def shown(raw: bytes) -> str:
+    """A path of NotUtf8, to show: each backslash doubled, as Git's own quoting always escapes one (core.quotePath), and each
+    byte that is not UTF-8 as \\xNN (codecs, 'backslashreplace'). So each shown path stands for one name only (#626)."""
+    return raw.replace(b"\\", b"\\\\").decode(errors="backslashreplace")
+
+
+def git_name(raw: bytes) -> tuple[str, bool]:
+    """A name as `git ls-tree -z` gives it ("the filename is output verbatim", git-ls-tree(1)), as text, and whether cmapi can
+    carry it: valid UTF-8 with no U+FFFD. A name it cannot carry comes back as shown() shows it."""
+    try:
+        name = raw.decode()
+    except UnicodeDecodeError:
+        return shown(raw), False
+    return (name, True) if REPLACEMENT not in name else (shown(raw), False)
+
+
+def refuse_lost_names(paths: Iterable[str]) -> None:
+    """NotUtf8 for each name a REST host gave with U+FFFD: the byte it stands for is lost, so no plan can name the path."""
+    lost = [shown(p.encode()) for p in paths if REPLACEMENT in p]
+    if lost:
+        raise NotUtf8(lost, "name")
+
+
+def manifest_text(texts: Mapping[str, bytes]) -> dict[str, str]:
+    """Each manifest's bytes as text, strict UTF-8 as YAML is read here; NotUtf8 names every one that is not."""
+    files, bad = {}, []
+    for path, data in texts.items():
+        try:
+            files[path] = data.decode()
+        except UnicodeDecodeError:
+            bad.append(shown(path.encode()))
+    if bad:
+        raise NotUtf8(bad, "text")
+    return files
+
+
+def as_plan(read: Callable[[], bool]) -> bool:
+    """A folder read compared with the plan's, by read. A folder that holds a name or text that is not UTF-8 is never the
+    plan's, since the plan refuses one (#626), so the comparison is False rather than an error."""
+    try:
+        return read()
+    except NotUtf8:
+        return False
 
 
 @dataclass(frozen=True)
@@ -246,11 +310,15 @@ class HostGitProvider:
         from cmapi.core.git.oplog import Op
 
         with Op("merge_check", head_sha=head) as op:
-            on_main, main = self.read_folder(folder)
-            base_ok, result_ok = on_main == dict(prev), True
+            try:
+                on_main, main = self.read_folder(folder)
+                base_ok = on_main == dict(prev)
+            except NotUtf8:                      # a name the plan cannot hold: main is not its base (#626)
+                main, base_ok = self._folder_head(None), False
+            result_ok = True
             if whole_folder:
-                base_ok = base_ok and self.list_folder(folder, main)[0] == dict.fromkeys(files, "blob")
-                result_ok = not self.list_folder(folder, head)[0]
+                base_ok = base_ok and as_plan(lambda: self.list_folder(folder, main)[0] == dict.fromkeys(files, "blob"))
+                result_ok = as_plan(lambda: not self.list_folder(folder, head)[0])
             check = MergeCheck(main, head, (), base_ok, result_ok)
             op.set(main_sha=main, base_matches=check.base_matches, result_matches=check.result_matches)
             if not check.ok:
