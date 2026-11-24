@@ -100,7 +100,7 @@ Both calls verify Keycloak's certificate against the CA in ConfigMap `cmapi-trus
 
 ## From sign-in to a permitted call
 
-Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:135-136`, `core/auth.py:189-194`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
+Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:136-137`, `core/auth.py:189-194`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
 
 ```text
 Browser (Swagger UI at /docs)            Keycloak, realm cmapi                 cmapi-api
@@ -207,7 +207,7 @@ The owner decided on 2026-11-14 (#226): each instance gets one front door, nginx
 | Origins | `cors.allowedOrigins` of `instance.yaml`. No key, or an empty list: the API sends no CORS header at all. `portalUrl` does not turn CORS on | The front door makes the portal same-origin. An origin is listed on purpose |
 | The form of an origin | `https://host` or `https://host:port`, with a lower-case ASCII host (punycode for another script) and no default port. `http` only for `localhost`, `127.0.0.1` and `[::1]`. Each other value stops the start of cmapi, with the value named: `*`, `null`, a path, a query, a user, upper case, a trailing dot, a space | A typing error must not open the API to more pages than the list says. The value is matched as text, not parsed: a URL parser and a browser do not read each URL the same way (review finding F1) |
 | Credentials | `Access-Control-Allow-Credentials` is never sent | The API reads no cookie. The token is in `Authorization`, which a page of another origin does not have |
-| Methods | `GET`, `POST`, `PATCH`, `DELETE` | The methods of the API |
+| Methods | `GET`, `HEAD`, `POST`, `PATCH`, `DELETE` | The methods of the API. `HEAD` is a `GET` without its body, on every `GET` (#605); a `HEAD` with `Authorization` is preflighted, and Starlette refuses a preflight for a method that is not listed |
 | Request headers | `Authorization`, `Content-Type`, `Idempotency-Key`, `If-Match`, `If-None-Match`, `X-Request-Id` | The headers that the API reads. Each call with `Authorization` needs a preflight, so a page of an origin that is not listed cannot send the call at all |
 | Response headers a page can read | `ETag`, `Location`, `Retry-After`, `WWW-Authenticate`, `X-Request-Id` | `ETag` is the value of `If-Match` on a change. The others say what to do after a 401, a 429 or a 503, and which log line to find |
 | Preflight cache | `Access-Control-Max-Age: 600` | Ten minutes, which is WebKit's limit |

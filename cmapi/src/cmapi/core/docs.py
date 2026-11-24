@@ -15,6 +15,7 @@ that a run of the service suite recorded (contract/samples.json).
 """
 from __future__ import annotations
 
+import copy
 import inspect
 import json
 import shlex
@@ -534,6 +535,18 @@ class InstanceFacts:
     expiration: Any                 # plugins/expiration/rules.py ExpirationRules
 
 
+def _without_head(route: Any) -> Any:
+    """The route as the document shows it: a GET's HEAD (main.py, _serve_head_with_get, #605) is not an operation of its own.
+    RFC 9110 section 9.3.2 defines HEAD as GET without content, and FastAPI's author on the same question: "it should
+    handle HEAD requests automatically for GET requests, without adding them to the OpenAPI schema"
+    (https://github.com/fastapi/fastapi/issues/1773, 2020-08-11). FastAPI's get_openapi writes one operation per method
+    of a route, so the document gets a copy of the route without HEAD; the served route keeps it."""
+    if isinstance(route, APIRoute) and {"GET", "HEAD"} <= route.methods:
+        route = copy.copy(route)
+        route.methods = route.methods - {"HEAD"}
+    return route
+
+
 def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: str, problem_base: str = BASE,
                   metadata: Any = None, instance: InstanceFacts | None = None) -> dict[str, Any]:
     """The OpenAPI 3.1 document: FastAPI's, plus the tag descriptions, ReDoc's x-tagGroups, and a curl sample per operation.
@@ -545,7 +558,7 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
     tags = [{"name": name, "description": r.plugin_description, "x-plugin-version": r.version}
             for name, r in sorted(plugins.items())]
     spec = get_openapi(title=app.title, version=app.version, openapi_version=app.openapi_version, description=app.description,
-                       routes=app.routes, tags=tags, servers=app.servers)
+                       routes=[_without_head(r) for r in app.routes], tags=tags, servers=app.servers)
     spec["x-tagGroups"] = [{"name": g, "tags": names} for g in TAG_GROUPS
                            if (names := [n for n, r in sorted(plugins.items()) if r.group == g])]
     if metadata is not None:
