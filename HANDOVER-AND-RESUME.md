@@ -68,9 +68,10 @@ the rulings and merges on green.
    - Reviewer 1 has reviewed it before the PR exists: `workbench/review-605/codex-result.txt`, "request changes". Two findings matter:
      - an authenticated HEAD on the quota export writes the same audit row as a GET;
      - HEAD on POST-only paths that share a GET's path (`:approve`, `:reject`, `:cancel`, `:retry`, `:revert`) answers 401 from the GET route, not 405.
+   - **The coordinator's full suite fails one test** (2026-11-24 01:14Z, `workbench/wt-605-outputs/full-suite.txt`: 1 failed, 2530 passed). The failing test is `test_review_c_authz.py::test_declared_permission_is_the_enforced_one_and_every_route_answers`. It lists HEAD on public GET routes as routes that answer without a token: `/api/v1/version` 200, `/docs` 503, `/docs/swagger.css` 200 and others. Decide in the review whether the test's public set should take HEAD wherever it takes GET (RFC 9110 §9.3.2), or whether the code is wrong. Fix it in this branch before the PR, with the failing test as the proof.
    - Next: reviewer 2, then open the PR with `workbench/wt-605-outputs/pr-body.md`. Fill its blanks:
      - BEFORE and BEFORE_FULL: `before.txt`, 9 of 9 failed;
-     - AFTER and FULLSUITE: `full-suite.txt`;
+     - AFTER and FULLSUITE: `full-suite.txt`, after the authz fix above (it was 1 failed, 2530 passed);
      - MUTANTS: `mutants.txt`, M1 to M5 killed;
      - CONTRACT: `openapi.json` unchanged, 0 diff lines;
      - CITATIONS: 0 problems.

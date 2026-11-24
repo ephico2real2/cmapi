@@ -40,7 +40,7 @@ Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pa
 | `examples/local` refuses `dryRun` | #613 | Merged #618 | 16 tests; 13 failed before the review fix. Not in the image |
 | The migrator's `migrated` event; the #615 lock test | #614, #615 | PR #617, review in progress | Implementer: service suite 2467 passed. Reviewer 1 and 2 reports in `workbench/review-617/` |
 | Static files: If-Match, If-Unmodified-Since, If-Modified-Since | #604, #619, #620 | PR #621, reviewer 1 done | Implementer: full suite 2522 passed; 25 tests failed on main |
-| HEAD on every GET | #605 | Branch `fix/605-head`, reviewer 1 done, no PR | 9 of 9 tests fail before; mutants M1-M5 killed; contract unchanged; full suite running at the switch |
+| HEAD on every GET | #605 | Branch `fix/605-head`, reviewer 1 done, no PR | 9 of 9 tests fail before; mutants M1-M5 killed; contract unchanged; full suite 1 failed, 2530 passed (`test_review_c_authz`: HEAD on public GET routes is not in its public set) |
 | A delete removes the whole folder | #616, #623 | PR #622, reviewer 1 done | Implementer: 14 tests fail on main; full suite 2493 passed |
 | Idempotency release 2 (migration 0009) | #603 | Not started; after #617 | None |
 
