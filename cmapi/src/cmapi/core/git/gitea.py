@@ -21,7 +21,8 @@ from pathlib import PurePosixPath
 from typing import Any, Iterator, Mapping
 from urllib.parse import quote
 
-from cmapi.core.git.base import BranchRequest, CheckState, GitUnavailable, HostGitProvider, PushResult
+from cmapi.core.git.base import (BranchRequest, CheckState, GitUnavailable, HostGitProvider, PushResult, manifest_text,
+                                 refuse_lost_names)
 from cmapi.core.git.workspace import TRAILER_PLAN_HASH, TRAILER_REQUEST, BranchMoved, BranchRefused, request_branch
 from cmapi.core.ports import PrRef, PrStatus
 
@@ -70,19 +71,23 @@ class GiteaProvider(HostGitProvider):
             tree = entry["sha"]
         else:
             entries = self._tree_entries(tree)
-        files: dict[str, str] = {}
-        for e in entries:
-            if e["type"] == "blob" and e["mode"] in ("100644", "100755") and e["path"].endswith(".yaml"):
-                r = self._call("read_file", "GET", f"{self._repo()}/git/blobs/{e['sha']}")
-                if r.status_code != 200:
-                    raise GitUnavailable(f"read blob {e['sha']}: HTTP {r.status_code}")
-                files[str(directory / e["path"])] = base64.b64decode(r.json()["content"]).decode()
-        return files, head
+        manifests = {str(directory / e["path"]): e["sha"] for e in entries
+                     if e["type"] == "blob" and e["mode"] in ("100644", "100755") and e["path"].endswith(".yaml")}
+        # Gitea's JSON writes a byte that is not UTF-8 as U+FFFD (json-iterator): no plan can name the file (#626).
+        refuse_lost_names(manifests)
+        texts: dict[str, bytes] = {}
+        for path, sha in manifests.items():
+            r = self._call("read_file", "GET", f"{self._repo()}/git/blobs/{sha}")
+            if r.status_code != 200:
+                raise GitUnavailable(f"read blob {sha}: HTTP {r.status_code}")
+            texts[path] = base64.b64decode(r.json()["content"])
+        return manifest_text(texts), head
 
     def list_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
         """Every blob and submodule under path, at any depth (#616): each subtree read with _tree_entries, page by page, so no
         recursive listing that the host may cut is read as complete."""
         entries, head = self._walk(path, ref)
+        refuse_lost_names(entries)               # a delete removes each path, so it must name each one (#626)
         return {p: kind for p, (kind, _) in entries.items()}, head
 
     def _walk(self, path: str, ref: str | None) -> tuple[dict[str, tuple[str, str]], str]:

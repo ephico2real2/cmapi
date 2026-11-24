@@ -34,7 +34,7 @@ router = DocumentedRouter("namespaces", prefix="/api/v1/clusters/{cluster_id}", 
 # Every write: the cluster, the caller, the Idempotency-Key, Git and the cluster's watch.
 WRITE_PROBLEMS = ["cluster-not-found", "cluster-not-writable", "environment-not-served", "environment-forbidden", "plugin-disabled",
                   "validation-failed", "change-pending", "identity-incomplete", "on-behalf-of-required",
-                  "idempotency-key-required", "idempotency-replay", "git-unavailable", "cluster-unreachable"]
+                  "idempotency-key-required", "idempotency-replay", "git-unavailable", "folder-not-utf8", "cluster-unreachable"]
 # A body with onBehalfOf: create and change (resolve_requester). A metadata refusal, team-dl too, is a policy-violation item.
 ON_BEHALF_PROBLEMS = ["unknown-user", "on-behalf-of-not-allowed"]
 # Rendering and checking the new files: every write but a delete, which renders no namespace (plan_delete).
@@ -212,7 +212,7 @@ NAMESPACE_ETAG_HEADER = {"ETag": {
              returns="The namespace's labels, annotations, tier and sync state as Git and the cluster hold them, with "
                      "the ETag that a change sends in If-Match.",
              permission="objects:read", response_model=NamespaceView,
-             problems=["cluster-not-found", "object-not-found", "git-unavailable", "environment-forbidden"],
+             problems=["cluster-not-found", "object-not-found", "git-unavailable", "folder-not-utf8", "environment-forbidden"],
              responses={"200": {"headers": NAMESPACE_ETAG_HEADER}})
 def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> dict:

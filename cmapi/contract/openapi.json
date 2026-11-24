@@ -10247,6 +10247,15 @@
                       "type": "https://cmapi.ephico2real.com/problems/change-pending"
                     }
                   },
+                  "folder-not-utf8": {
+                    "value": {
+                      "code": "folder-not-utf8",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "status": 409,
+                      "title": "folder not utf8",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -10280,7 +10289,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `namespace-exists`, `namespace-exists-unmanaged`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `namespace-exists`, `namespace-exists-unmanaged`."
           },
           "422": {
             "content": {
@@ -10900,6 +10909,15 @@
                       "type": "https://cmapi.ephico2real.com/problems/folder-holds-submodule"
                     }
                   },
+                  "folder-not-utf8": {
+                    "value": {
+                      "code": "folder-not-utf8",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "status": 409,
+                      "title": "folder not utf8",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -10915,7 +10933,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-holds-submodule`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-holds-submodule`."
           },
           "412": {
             "content": {
@@ -11356,6 +11374,27 @@
               }
             },
             "description": "What the path names is not known.\n\nCodes: `cluster-not-found`, `object-not-found`."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "folder-not-utf8": {
+                    "value": {
+                      "code": "folder-not-utf8",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "status": 409,
+                      "title": "folder not utf8",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `folder-not-utf8`."
           },
           "422": {
             "content": {
@@ -11847,6 +11886,15 @@
                       "type": "https://cmapi.ephico2real.com/problems/change-pending"
                     }
                   },
+                  "folder-not-utf8": {
+                    "value": {
+                      "code": "folder-not-utf8",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "status": 409,
+                      "title": "folder not utf8",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -11863,7 +11911,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`."
           },
           "412": {
             "content": {
@@ -12501,6 +12549,15 @@
                       "type": "https://cmapi.ephico2real.com/problems/change-pending"
                     }
                   },
+                  "folder-not-utf8": {
+                    "value": {
+                      "code": "folder-not-utf8",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "status": 409,
+                      "title": "folder not utf8",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -12516,7 +12573,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`."
           },
           "412": {
             "content": {
@@ -13154,6 +13211,15 @@
                       "type": "https://cmapi.ephico2real.com/problems/change-pending"
                     }
                   },
+                  "folder-not-utf8": {
+                    "value": {
+                      "code": "folder-not-utf8",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "status": 409,
+                      "title": "folder not utf8",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -13169,7 +13235,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`."
           },
           "412": {
             "content": {
@@ -13766,6 +13832,15 @@
                       "type": "https://cmapi.ephico2real.com/problems/change-pending"
                     }
                   },
+                  "folder-not-utf8": {
+                    "value": {
+                      "code": "folder-not-utf8",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "status": 409,
+                      "title": "folder not utf8",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -13781,7 +13856,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`."
           },
           "412": {
             "content": {
