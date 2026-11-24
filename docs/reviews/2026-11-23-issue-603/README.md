@@ -127,3 +127,30 @@ portal types check, `changelog.py --check`, `api-examples-doc.py --check`, `depl
     refuse; it was not repeated for this change.
   - A real rolling update from release 1 to release 2 on a cluster.
   - A 0007 image against 0009: the check's refusal is tested with a 0007-shaped INSERT, not with 0007's code.
+
+## Review
+
+- **Reviewer 1:** Codex `gpt-6.2-astra` at xhigh, on head `08ef716` (`review/reviewer-1-codex-astra.md`). Four findings.
+- **Reviewer 2:** a separate Opus 5.5 agent at high (`review/reviewer-2-opus.md`, mutants in
+  `review/reviewer-2-mutants.txt`). All four hold; finding 1 is narrowed.
+- **The coordinator's rulings** (Opus 5.5, main session). All are accepted as reviewer 2 narrowed them.
+  1. **The round trip to 0007 and back.** It becomes a sentence in `docs/12` and a test, with no guard on 0008.
+     - Every row cmapi writes rebuilds to the same caller: `Pipeline.submit` stores `who.sub`, and `Requester.record()`
+       stores `submittedBySub` for a delegated write.
+     - The only bad shape is hand-written SQL, and it fails loudly: 0008 refuses and changes nothing.
+     - A guard would edit a shipped migration for rows nobody writes. Over-build only if it is the only solution.
+  2. **The #612 opaque-key test.** It now records the error that `RequestRepo.insert` raises. The substring mutant fails
+     it (`409 change-pending`).
+  3. **The models and the migrations.** Every constraint of every table is now compared, through `pg_get_constraintdef`,
+     because Alembic's autogenerate does not compare CHECK constraints. The model declares `ck_cr_requester_kind`
+     (0001's). Three parametrized probes prove that a missing CHECK is found.
+  4. **The `docs/12` rollout wording.** A contract step waits only for pods older than its expand step. The 409 did tell
+     the caller that the key was held. The other caller's request goes through the usual checks, so a held namespace is
+     still 409 `change-pending`.
+  - **The two gaps reviewer 1 predicted** (0009's `_LIVE` with `>`, and a weakened ambiguity check) survived head's
+    tests, and are now caught.
+  - **All eight mutants are killed.**
+- **The coordinator's run.** Reviewer 2's patch was applied with `patch -p1 -F0` and merged with `main` (`ea17cd1`).
+  - **The full service suite** in database `cmapi_603`, 2026-11-24T08:53:41Z to 09:28:01Z, after the gate (no other
+    suite, 1-minute load 8.18): **2594 passed in 2055.46 s**.
+  - `doc-citations.py --check`: 0 problems.
