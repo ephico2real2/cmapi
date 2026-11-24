@@ -1,0 +1,1292 @@
+........................................................................ [ 11%]
+........................................................................ [ 23%]
+..............................................F.................FFFFF.F. [ 35%]
+FFFFFFFFF........................................................
+GET    /docs                                                      decl=None enforced=None none=503 viewer=503 onboarding=503
+HEAD   /docs                                                      decl=None enforced=None none=503 viewer=503 onboarding=503
+GET    /docs/changelog                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/changelog                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/oauth2-redirect                                      decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/oauth2-redirect                                      decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/redoc-start.js                                       decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/redoc-start.js                                       decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/swagger.css                                          decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/swagger.css                                          decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /openapi.json                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /openapi.json                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /openapi.yaml                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /openapi.yaml                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /problems                                                  decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /problems                                                  decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /problems/{code}                                           decl=None enforced=None none=404 viewer=404 onboarding=404
+HEAD   /problems/{code}                                           decl=None enforced=None none=404 viewer=404 onboarding=404
+GET    /redoc                                                     decl=None enforced=None none=503 viewer=503 onboarding=503
+HEAD   /redoc                                                     decl=None enforced=None none=503 viewer=503 onboarding=503
+....... [ 47%]
+........................................................................ [ 59%]
+..............................................................FFF..F...F [ 71%]
+F.FF.FF.FF.FF........................................................... [ 83%]
+........................................................................ [ 95%]
+.........FFFFFF.......F...FF                                             [100%]
+=================================== FAILURES ===================================
+______ test_a_parameter_without_a_description_or_an_example_stops_startup ______
+
+    def test_a_parameter_without_a_description_or_an_example_stops_startup():
+        def app_with(**query) -> FastAPI:
+            r = DocumentedRouter("x", prefix="/api/v1", version="1", description="What the x plugin does.", group="Admin")
+    
+            @r.read("/x/{thing}", summary="Read x", permission=None, returns="The health.", response_model=Health)
+            def read(thing: str, limit: int = Query(default=5, **query)):
+                """Reads it."""
+    
+            app = FastAPI()
+            app.include_router(r)
+            return app
+    
+>       with pytest.raises(RuntimeError) as exc:
+E       Failed: DID NOT RAISE <class 'RuntimeError'>
+
+tests/service/test_api_docs.py:330: Failed
+_ test_head_on_a_conditional_read_is_its_get_without_content[/api/v1/metadata-keys] _
+
+world = (<starlette.testclient.TestClient object at 0x110db7380>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x112d3f1a0>, <conftest.FakeValidator object at 0x112d3df10>, <conftest.Keys object at 0x10f7c5af0>)
+path = '/api/v1/metadata-keys'
+
+    @pytest.mark.parametrize("path", CONDITIONAL)
+    def test_head_on_a_conditional_read_is_its_get_without_content(world, path):
+        client, *_, keys = world
+        credentials = _credentials(path, keys)
+>       status, headers = _same_answer(client, path, credentials)
+
+tests/service/test_head_605.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+client = <starlette.testclient.TestClient object at 0x110db7380>
+path = '/api/v1/metadata-keys'
+headers = {'Authorization': 'Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3Qta2lkLTEiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2tle...5CGTAp6yyiYeeycUkrfvt58oGgxfjuWE1UlR4yPuDp6811YcLi1mv9OZrQ', 'Idempotency-Key': '5b845a83-a825-4383-a937-3ed2ac8dd9ff'}
+
+    def _same_answer(client, path: str, headers) -> tuple[int, dict[str, str | None]]:
+        """GET and HEAD of `path` with the same request headers: HEAD has GET's status and SAME headers, and no content."""
+        get, head = client.get(path, headers=headers), client.head(path, headers=headers)
+>       assert head.status_code == get.status_code, (path, get.status_code, head.status_code)    # never the token
+E       AssertionError: ('/api/v1/metadata-keys', 200, 405)
+E       assert 405 == 200
+E        +  where 405 = <Response [405 Method Not Allowed]>.status_code
+E        +  and   200 = <Response [200 OK]>.status_code
+
+tests/service/test_head_605.py:34: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:12.632117Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:12.641013Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/api/v1/metadata-keys", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 16.6, "event": "http", "request_id": "9e044a24d98546c5", "level": "info", "timestamp": "2026-11-24T14:28:12.736565Z"}
+{"method": "HEAD", "route": "/api/v1/metadata-keys", "status": 405, "caller_sub": null, "client": null, "ms": 193.3, "event": "http", "request_id": "2648326a6c4841bf", "level": "info", "timestamp": "2026-11-24T14:28:12.933140Z"}
+_ test_head_on_a_conditional_read_is_its_get_without_content[/api/v1/capacity] _
+
+world = (<starlette.testclient.TestClient object at 0x11294c5c0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x112792450>, <conftest.FakeValidator object at 0x112793530>, <conftest.Keys object at 0x10f7c5af0>)
+path = '/api/v1/capacity'
+
+    @pytest.mark.parametrize("path", CONDITIONAL)
+    def test_head_on_a_conditional_read_is_its_get_without_content(world, path):
+        client, *_, keys = world
+        credentials = _credentials(path, keys)
+>       status, headers = _same_answer(client, path, credentials)
+
+tests/service/test_head_605.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+client = <starlette.testclient.TestClient object at 0x11294c5c0>
+path = '/api/v1/capacity'
+headers = {'Authorization': 'Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3Qta2lkLTEiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2tle...-w8RaIFzXm7LgSZjCOQ75tpo15R1JynAYK8HGJu51I9A_o-85AGMgXi1zA', 'Idempotency-Key': 'f1c5605c-baf2-4789-934c-9d206532cee7'}
+
+    def _same_answer(client, path: str, headers) -> tuple[int, dict[str, str | None]]:
+        """GET and HEAD of `path` with the same request headers: HEAD has GET's status and SAME headers, and no content."""
+        get, head = client.get(path, headers=headers), client.head(path, headers=headers)
+>       assert head.status_code == get.status_code, (path, get.status_code, head.status_code)    # never the token
+E       AssertionError: ('/api/v1/capacity', 200, 405)
+E       assert 405 == 200
+E        +  where 405 = <Response [405 Method Not Allowed]>.status_code
+E        +  and   200 = <Response [200 OK]>.status_code
+
+tests/service/test_head_605.py:34: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:14.119231Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:14.125932Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/api/v1/capacity", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 173.4, "event": "http", "request_id": "8cdbe3f6927d4a58", "level": "info", "timestamp": "2026-11-24T14:28:14.384762Z"}
+{"method": "HEAD", "route": "/api/v1/capacity", "status": 405, "caller_sub": null, "client": null, "ms": 2.1, "event": "http", "request_id": "3565a37bac7c44ac", "level": "info", "timestamp": "2026-11-24T14:28:14.389984Z"}
+________ test_head_is_authorized_exactly_as_get[/api/v1/metadata-keys] _________
+
+world = (<starlette.testclient.TestClient object at 0x113102120>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x11324ac30>, <conftest.FakeValidator object at 0x11324a5d0>, <conftest.Keys object at 0x10f7c5af0>)
+path = '/api/v1/metadata-keys'
+
+    @pytest.mark.parametrize("path", ["/api/v1/metadata-keys", "/api/v1/capacity"])
+    def test_head_is_authorized_exactly_as_get(world, path):
+        """The same route answers both methods, so HEAD has GET's sign-in and permission: 401 with WWW-Authenticate without a
+        token, 403 for a caller without the permission."""
+        client, *_, keys = world
+>       assert _same_answer(client, path, {})[0] == 401
+
+tests/service/test_head_605.py:60: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+client = <starlette.testclient.TestClient object at 0x113102120>
+path = '/api/v1/metadata-keys', headers = {}
+
+    def _same_answer(client, path: str, headers) -> tuple[int, dict[str, str | None]]:
+        """GET and HEAD of `path` with the same request headers: HEAD has GET's status and SAME headers, and no content."""
+        get, head = client.get(path, headers=headers), client.head(path, headers=headers)
+>       assert head.status_code == get.status_code, (path, get.status_code, head.status_code)    # never the token
+E       AssertionError: ('/api/v1/metadata-keys', 401, 405)
+E       assert 405 == 401
+E        +  where 405 = <Response [405 Method Not Allowed]>.status_code
+E        +  and   401 = <Response [401 Unauthorized]>.status_code
+
+tests/service/test_head_605.py:34: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:15.524028Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:15.530748Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/api/v1/metadata-keys", "status": 401, "caller_sub": null, "client": null, "ms": 15.2, "event": "http", "request_id": "d9850a4e403549ab", "level": "info", "timestamp": "2026-11-24T14:28:15.549963Z"}
+{"method": "HEAD", "route": "/api/v1/metadata-keys", "status": 405, "caller_sub": null, "client": null, "ms": 158.6, "event": "http", "request_id": "f2cf8ee054864cf7", "level": "info", "timestamp": "2026-11-24T14:28:15.711590Z"}
+___________ test_head_is_authorized_exactly_as_get[/api/v1/capacity] ___________
+
+world = (<starlette.testclient.TestClient object at 0x113195970>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x1130e28d0>, <conftest.FakeValidator object at 0x1131199d0>, <conftest.Keys object at 0x10f7c5af0>)
+path = '/api/v1/capacity'
+
+    @pytest.mark.parametrize("path", ["/api/v1/metadata-keys", "/api/v1/capacity"])
+    def test_head_is_authorized_exactly_as_get(world, path):
+        """The same route answers both methods, so HEAD has GET's sign-in and permission: 401 with WWW-Authenticate without a
+        token, 403 for a caller without the permission."""
+        client, *_, keys = world
+>       assert _same_answer(client, path, {})[0] == 401
+
+tests/service/test_head_605.py:60: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+client = <starlette.testclient.TestClient object at 0x113195970>
+path = '/api/v1/capacity', headers = {}
+
+    def _same_answer(client, path: str, headers) -> tuple[int, dict[str, str | None]]:
+        """GET and HEAD of `path` with the same request headers: HEAD has GET's status and SAME headers, and no content."""
+        get, head = client.get(path, headers=headers), client.head(path, headers=headers)
+>       assert head.status_code == get.status_code, (path, get.status_code, head.status_code)    # never the token
+E       AssertionError: ('/api/v1/capacity', 401, 405)
+E       assert 405 == 401
+E        +  where 405 = <Response [405 Method Not Allowed]>.status_code
+E        +  and   401 = <Response [401 Unauthorized]>.status_code
+
+tests/service/test_head_605.py:34: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:16.784781Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:16.793621Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/api/v1/capacity", "status": 401, "caller_sub": null, "client": null, "ms": 155.5, "event": "http", "request_id": "051c212e0e6a4329", "level": "info", "timestamp": "2026-11-24T14:28:16.953094Z"}
+{"method": "HEAD", "route": "/api/v1/capacity", "status": 405, "caller_sub": null, "client": null, "ms": 1.5, "event": "http", "request_id": "a28446724a6d462c", "level": "info", "timestamp": "2026-11-24T14:28:16.957633Z"}
+_________________ test_every_get_route_answers_head_as_its_get _________________
+
+world = (<starlette.testclient.TestClient object at 0x1131ac0e0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x113179280>, <conftest.FakeValidator object at 0x113178140>, <conftest.Keys object at 0x10f7c5af0>)
+
+    def test_every_get_route_answers_head_as_its_get(world):
+        """Every GET route of the app, with no token, a placeholder for each path parameter: HEAD has GET's status and headers.
+        A route that HEAD answers with 405 fails here, whoever added it."""
+        client, *_ = world
+        paths = sorted({r.path for r in client.app.routes if isinstance(r, APIRoute) and "GET" in r.methods})
+>       assert len(paths) > 30, paths
+E       AssertionError: ['/docs', '/docs/changelog', '/docs/oauth2-redirect', '/docs/redoc-start.js', '/docs/swagger.css', '/openapi.json', ...]
+E       assert 10 > 30
+E        +  where 10 = len(['/docs', '/docs/changelog', '/docs/oauth2-redirect', '/docs/redoc-start.js', '/docs/swagger.css', '/openapi.json', ...])
+
+tests/service/test_head_605.py:70: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:18.094222Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:18.104536Z"}
+___________ test_a_head_from_the_listed_portal_passes_its_preflight ____________
+
+test_config = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-2030/config0')
+tmp_path = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-2030/test_a_head_from_the_listed_po0')
+fresh_db = <cmapi.core.db.Database object at 0x10f7c4b00>
+keys = <conftest.Keys object at 0x10f7c5af0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113485fa0>
+
+    def test_a_head_from_the_listed_portal_passes_its_preflight(test_config, tmp_path, fresh_db, keys, monkeypatch):
+        """A HEAD with Authorization from another origin is preflighted (Fetch: Authorization is not a CORS-safelisted request
+        header). Starlette's CORSMiddleware refuses a preflight whose method is not in allow_methods with 400."""
+        d = with_instance(test_config, tmp_path, lambda i: i.update({"cors": {"allowedOrigins": [PORTAL]}}))
+        with build_world(d, keys, monkeypatch) as (client, *_):
+            r = preflight(client, PORTAL, method="HEAD", headers="authorization,if-none-match", path="/api/v1/capacity")
+            assert r.status_code == 200, r.text
+            assert "HEAD" in r.headers["access-control-allow-methods"].split(", ")
+            h = client.head("/api/v1/capacity", headers={"Origin": PORTAL, **auth(keys, "ola", **OLA)})
+>           assert h.status_code == 200 and h.headers["access-control-allow-origin"] == PORTAL
+E           assert (405 == 200)
+E            +  where 405 = <Response [405 Method Not Allowed]>.status_code
+
+tests/service/test_head_605.py:95: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:21.535879Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:21.543004Z"}
+{"method": "HEAD", "route": "/api/v1/capacity", "status": 405, "caller_sub": null, "client": null, "ms": 190.7, "event": "http", "request_id": "0395da0fc90a4ce1", "level": "info", "timestamp": "2026-11-24T14:28:21.809116Z"}
+______________ test_head_enforces_each_documented_read_permission ______________
+
+world = (<starlette.testclient.TestClient object at 0x113270ce0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x113602360>, <conftest.FakeValidator object at 0x1136022a0>, <conftest.Keys object at 0x10f7c5af0>)
+
+    def test_head_enforces_each_documented_read_permission(world):
+        """A signed-in caller with no role gets 403 from HEAD on every GET that declares a permission, as from the GET. An
+        anonymous HEAD stops at the sign-in (test_every_get_route_answers_head_as_its_get), before most permission checks."""
+        client, *_, keys = world
+        headers = auth(keys, "nobody", roles=[], groups=[])
+        routes = [r for r in client.app.routes if isinstance(r, APIRoute) and "GET" in r.methods
+                  and (r.openapi_extra or {}).get("x-cmapi-permission")]
+>       assert len(routes) > 20, [r.path for r in routes]
+E       AssertionError: []
+E       assert 0 > 20
+E        +  where 0 = len([])
+
+tests/service/test_head_605.py:116: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:23.138795Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:23.147628Z"}
+__________________ test_a_head_of_the_export_exports_nothing ___________________
+
+world = (<starlette.testclient.TestClient object at 0x1137c39e0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x1137c3980>, <conftest.FakeValidator object at 0x1137c3ec0>, <conftest.Keys object at 0x10f7c5af0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1137c36e0>
+
+    def test_a_head_of_the_export_exports_nothing(world, monkeypatch):
+        """docs/01, "Audit": the audit log records exports. A HEAD sends no rows (RFC 9110, section 9.3.2), so it is not an
+        export: no quotas.export event, and no CSV made to be dropped (9.3.2: "preferable to generating and discarding the
+        content"). Its headers are the GET's, with no Content-Length: the GET streams (section 8.6). The GET still writes one."""
+        import cmapi.plugins.quotas as quotas
+        from cmapi.core.db.repo import AuditRepo
+    
+        client, ctx, *_, keys = world
+        sorts, filtered = [], ctx.lister.filtered
+    
+        def counted(*args):
+            sorts.append(args)      # at the call: the export filters and sorts every matching row there, before its 200
+            return filtered(*args)
+    
+        monkeypatch.setattr(ctx.lister, "filtered", counted)
+        monkeypatch.setattr(quotas, "quota_rows", lambda c, who: [])
+    
+        def exports() -> int:
+            with ctx.db.session() as s:
+                return sum(1 for e in AuditRepo(s).recent() if e.action == "quotas.export")
+    
+        path, headers = "/api/v1/quotas:export?sort=severity", auth(keys, "ola", **OLA)
+        head = client.head(path, headers=headers)
+>       assert (head.status_code, head.content, exports(), sorts) == (200, b"", 0, [])
+E       AssertionError: assert (405, b'', 0, []) == (200, b'', 0, [])
+E         
+E         At index 0 diff: 405 != 200
+E         Use -v to get more diff
+
+tests/service/test_head_605.py:147: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:24.561551Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:24.567963Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "HEAD", "route": "/api/v1/quotas:export", "status": 405, "caller_sub": null, "client": null, "ms": 201.3, "event": "http", "request_id": "767aef66f5604d5c", "level": "info", "timestamp": "2026-11-24T14:28:24.842247Z"}
+__________________ test_405_lists_the_methods_of_the_resource __________________
+
+world = (<starlette.testclient.TestClient object at 0x11367a330>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x11367b020>, <conftest.FakeValidator object at 0x11367b2f0>, <conftest.Keys object at 0x10f7c5af0>)
+
+    def test_405_lists_the_methods_of_the_resource(world):
+        """RFC 9110, section 15.5.6: the Allow of a 405 lists "the target resource's currently supported methods", every route
+        of the path, not the first one only (Starlette 0.41.3)."""
+        client, *_ = world
+        cases = [("PUT", "/api/v1/version", {"GET", "HEAD"}),
+                 ("HEAD", "/api/v1/clusters/CRC:probe", {"POST"}),
+                 ("PUT", "/api/v1/clusters/CRC/namespaces", {"GET", "HEAD", "POST"}),
+                 ("PUT", "/api/v1/clusters/CRC/namespaces/demo", {"GET", "HEAD", "PATCH", "DELETE"})]
+        for method, path, allowed in cases:
+            response = client.request(method, path)
+            assert response.status_code == 405, (method, path, response.status_code)
+>           assert set(response.headers["allow"].split(", ")) == allowed, (method, path, response.headers["allow"])
+E           AssertionError: ('PUT', '/api/v1/version', 'GET')
+E           assert {'GET'} == {'GET', 'HEAD'}
+E             
+E             Extra items in the right set:
+E             'HEAD'
+E             Use -v to get more diff
+
+tests/service/test_head_605.py:166: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:26.155298Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:26.165835Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "PUT", "route": "/api/v1/version", "status": 405, "caller_sub": null, "client": null, "ms": 199.5, "event": "http", "request_id": "179b5c4712b642d3", "level": "info", "timestamp": "2026-11-24T14:28:26.369237Z"}
+_________________ test_a_request_action_is_post_only[approve] __________________
+
+world = (<starlette.testclient.TestClient object at 0x113b931a0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x113a7eb70>, <conftest.FakeValidator object at 0x113a7ebd0>, <conftest.Keys object at 0x10f7c5af0>)
+action = 'approve'
+
+    @pytest.mark.parametrize("action", ["approve", "reject", "cancel", "retry", "revert"])
+    def test_a_request_action_is_post_only(world, action):
+        """GET and HEAD on a request's action are 405 with Allow: POST, not a read of a request named "x:approve"; the read of
+        a request still needs the sign-in, and its metric label is still the document's path."""
+        from cmapi.core.observability import HTTP_REQUESTS
+    
+        client, *_ = world
+        for method in ("GET", "HEAD"):
+            response = client.request(method, f"/api/v1/requests/req-x:{action}")
+            assert (response.status_code, response.headers.get("allow")) == (405, "POST"), (method, action)
+        counted = HTTP_REQUESTS.labels("HEAD", "/api/v1/requests/{request_id}", "401")
+        before = counted._value.get()
+>       assert client.head("/api/v1/requests/req-x").status_code == 401
+E       AssertionError: assert 405 == 401
+E        +  where 405 = <Response [405 Method Not Allowed]>.status_code
+E        +    where <Response [405 Method Not Allowed]> = head('/api/v1/requests/req-x')
+E        +      where head = <starlette.testclient.TestClient object at 0x113b931a0>.head
+
+tests/service/test_head_605.py:181: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:27.622175Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:27.634880Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/api/v1/requests/{request_id}:approve", "status": 405, "caller_sub": null, "client": null, "ms": 216.5, "event": "http", "request_id": "369de4d793334e46", "level": "info", "timestamp": "2026-11-24T14:28:27.857232Z"}
+{"method": "HEAD", "route": "/api/v1/requests/{request_id}:approve", "status": 405, "caller_sub": null, "client": null, "ms": 2.6, "event": "http", "request_id": "74bce10c8f6c4ab6", "level": "info", "timestamp": "2026-11-24T14:28:27.863851Z"}
+{"method": "HEAD", "route": "/api/v1/requests/{request_id}", "status": 405, "caller_sub": null, "client": null, "ms": 2.6, "event": "http", "request_id": "292076269a024ee5", "level": "info", "timestamp": "2026-11-24T14:28:27.869830Z"}
+__________________ test_a_request_action_is_post_only[reject] __________________
+
+world = (<starlette.testclient.TestClient object at 0x113d21760>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x113bfce60>, <conftest.FakeValidator object at 0x113bfcf80>, <conftest.Keys object at 0x10f7c5af0>)
+action = 'reject'
+
+    @pytest.mark.parametrize("action", ["approve", "reject", "cancel", "retry", "revert"])
+    def test_a_request_action_is_post_only(world, action):
+        """GET and HEAD on a request's action are 405 with Allow: POST, not a read of a request named "x:approve"; the read of
+        a request still needs the sign-in, and its metric label is still the document's path."""
+        from cmapi.core.observability import HTTP_REQUESTS
+    
+        client, *_ = world
+        for method in ("GET", "HEAD"):
+            response = client.request(method, f"/api/v1/requests/req-x:{action}")
+            assert (response.status_code, response.headers.get("allow")) == (405, "POST"), (method, action)
+        counted = HTTP_REQUESTS.labels("HEAD", "/api/v1/requests/{request_id}", "401")
+        before = counted._value.get()
+>       assert client.head("/api/v1/requests/req-x").status_code == 401
+E       AssertionError: assert 405 == 401
+E        +  where 405 = <Response [405 Method Not Allowed]>.status_code
+E        +    where <Response [405 Method Not Allowed]> = head('/api/v1/requests/req-x')
+E        +      where head = <starlette.testclient.TestClient object at 0x113d21760>.head
+
+tests/service/test_head_605.py:181: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:29.044555Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:29.054094Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/api/v1/requests/{request_id}:reject", "status": 405, "caller_sub": null, "client": null, "ms": 181.3, "event": "http", "request_id": "80e1273aed0f41c5", "level": "info", "timestamp": "2026-11-24T14:28:29.240079Z"}
+{"method": "HEAD", "route": "/api/v1/requests/{request_id}:reject", "status": 405, "caller_sub": null, "client": null, "ms": 2.7, "event": "http", "request_id": "b2eee7c2bd9f408a", "level": "info", "timestamp": "2026-11-24T14:28:29.246210Z"}
+{"method": "HEAD", "route": "/api/v1/requests/{request_id}", "status": 405, "caller_sub": null, "client": null, "ms": 2.0, "event": "http", "request_id": "d0c02c62eb284ac7", "level": "info", "timestamp": "2026-11-24T14:28:29.251646Z"}
+__________________ test_a_request_action_is_post_only[cancel] __________________
+
+world = (<starlette.testclient.TestClient object at 0x113e13bc0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x113d1e390>, <conftest.FakeValidator object at 0x113d1cec0>, <conftest.Keys object at 0x10f7c5af0>)
+action = 'cancel'
+
+    @pytest.mark.parametrize("action", ["approve", "reject", "cancel", "retry", "revert"])
+    def test_a_request_action_is_post_only(world, action):
+        """GET and HEAD on a request's action are 405 with Allow: POST, not a read of a request named "x:approve"; the read of
+        a request still needs the sign-in, and its metric label is still the document's path."""
+        from cmapi.core.observability import HTTP_REQUESTS
+    
+        client, *_ = world
+        for method in ("GET", "HEAD"):
+            response = client.request(method, f"/api/v1/requests/req-x:{action}")
+            assert (response.status_code, response.headers.get("allow")) == (405, "POST"), (method, action)
+        counted = HTTP_REQUESTS.labels("HEAD", "/api/v1/requests/{request_id}", "401")
+        before = counted._value.get()
+>       assert client.head("/api/v1/requests/req-x").status_code == 401
+E       AssertionError: assert 405 == 401
+E        +  where 405 = <Response [405 Method Not Allowed]>.status_code
+E        +    where <Response [405 Method Not Allowed]> = head('/api/v1/requests/req-x')
+E        +      where head = <starlette.testclient.TestClient object at 0x113e13bc0>.head
+
+tests/service/test_head_605.py:181: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:30.302459Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:30.308889Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/api/v1/requests/{request_id}:cancel", "status": 405, "caller_sub": null, "client": null, "ms": 164.6, "event": "http", "request_id": "c54a23f823164761", "level": "info", "timestamp": "2026-11-24T14:28:30.477170Z"}
+{"method": "HEAD", "route": "/api/v1/requests/{request_id}:cancel", "status": 405, "caller_sub": null, "client": null, "ms": 2.3, "event": "http", "request_id": "987e356670f64cfc", "level": "info", "timestamp": "2026-11-24T14:28:30.482574Z"}
+{"method": "HEAD", "route": "/api/v1/requests/{request_id}", "status": 405, "caller_sub": null, "client": null, "ms": 2.1, "event": "http", "request_id": "0b2f7dc5ac314ebc", "level": "info", "timestamp": "2026-11-24T14:28:30.487738Z"}
+__________________ test_a_request_action_is_post_only[retry] ___________________
+
+world = (<starlette.testclient.TestClient object at 0x114024800>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x113e8a510>, <conftest.FakeValidator object at 0x113ea95b0>, <conftest.Keys object at 0x10f7c5af0>)
+action = 'retry'
+
+    @pytest.mark.parametrize("action", ["approve", "reject", "cancel", "retry", "revert"])
+    def test_a_request_action_is_post_only(world, action):
+        """GET and HEAD on a request's action are 405 with Allow: POST, not a read of a request named "x:approve"; the read of
+        a request still needs the sign-in, and its metric label is still the document's path."""
+        from cmapi.core.observability import HTTP_REQUESTS
+    
+        client, *_ = world
+        for method in ("GET", "HEAD"):
+            response = client.request(method, f"/api/v1/requests/req-x:{action}")
+            assert (response.status_code, response.headers.get("allow")) == (405, "POST"), (method, action)
+        counted = HTTP_REQUESTS.labels("HEAD", "/api/v1/requests/{request_id}", "401")
+        before = counted._value.get()
+>       assert client.head("/api/v1/requests/req-x").status_code == 401
+E       AssertionError: assert 405 == 401
+E        +  where 405 = <Response [405 Method Not Allowed]>.status_code
+E        +    where <Response [405 Method Not Allowed]> = head('/api/v1/requests/req-x')
+E        +      where head = <starlette.testclient.TestClient object at 0x114024800>.head
+
+tests/service/test_head_605.py:181: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:31.790483Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:31.799783Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/api/v1/requests/{request_id}:retry", "status": 405, "caller_sub": null, "client": null, "ms": 192.8, "event": "http", "request_id": "98478a16753f4b98", "level": "info", "timestamp": "2026-11-24T14:28:31.996485Z"}
+{"method": "HEAD", "route": "/api/v1/requests/{request_id}:retry", "status": 405, "caller_sub": null, "client": null, "ms": 1.8, "event": "http", "request_id": "724d0d5bb31446e1", "level": "info", "timestamp": "2026-11-24T14:28:32.002022Z"}
+{"method": "HEAD", "route": "/api/v1/requests/{request_id}", "status": 405, "caller_sub": null, "client": null, "ms": 2.0, "event": "http", "request_id": "9f92857b1c1f45b9", "level": "info", "timestamp": "2026-11-24T14:28:32.006826Z"}
+__________________ test_a_request_action_is_post_only[revert] __________________
+
+world = (<starlette.testclient.TestClient object at 0x114193560>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x114043aa0>, <conftest.FakeValidator object at 0x114041f40>, <conftest.Keys object at 0x10f7c5af0>)
+action = 'revert'
+
+    @pytest.mark.parametrize("action", ["approve", "reject", "cancel", "retry", "revert"])
+    def test_a_request_action_is_post_only(world, action):
+        """GET and HEAD on a request's action are 405 with Allow: POST, not a read of a request named "x:approve"; the read of
+        a request still needs the sign-in, and its metric label is still the document's path."""
+        from cmapi.core.observability import HTTP_REQUESTS
+    
+        client, *_ = world
+        for method in ("GET", "HEAD"):
+            response = client.request(method, f"/api/v1/requests/req-x:{action}")
+            assert (response.status_code, response.headers.get("allow")) == (405, "POST"), (method, action)
+        counted = HTTP_REQUESTS.labels("HEAD", "/api/v1/requests/{request_id}", "401")
+        before = counted._value.get()
+>       assert client.head("/api/v1/requests/req-x").status_code == 401
+E       AssertionError: assert 405 == 401
+E        +  where 405 = <Response [405 Method Not Allowed]>.status_code
+E        +    where <Response [405 Method Not Allowed]> = head('/api/v1/requests/req-x')
+E        +      where head = <starlette.testclient.TestClient object at 0x114193560>.head
+
+tests/service/test_head_605.py:181: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:33.777987Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:33.787705Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/api/v1/requests/{request_id}:revert", "status": 405, "caller_sub": null, "client": null, "ms": 160.0, "event": "http", "request_id": "4b45603c809943e9", "level": "info", "timestamp": "2026-11-24T14:28:33.951796Z"}
+{"method": "HEAD", "route": "/api/v1/requests/{request_id}:revert", "status": 405, "caller_sub": null, "client": null, "ms": 2.0, "event": "http", "request_id": "cec735da5eb7493a", "level": "info", "timestamp": "2026-11-24T14:28:33.956805Z"}
+{"method": "HEAD", "route": "/api/v1/requests/{request_id}", "status": 405, "caller_sub": null, "client": null, "ms": 1.7, "event": "http", "request_id": "724cbfcc0413495e", "level": "info", "timestamp": "2026-11-24T14:28:33.961475Z"}
+________ test_a_refused_export_is_refused_before_its_audit_and_its_200 _________
+
+world = (<starlette.testclient.TestClient object at 0x1142cd7c0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x1141a6660>, <conftest.FakeValidator object at 0x1141a6570>, <conftest.Keys object at 0x10f7c5af0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1141a90d0>
+
+    def test_a_refused_export_is_refused_before_its_audit_and_its_200(world, monkeypatch):
+        """An unknown state (422) or sort (400) is refused before the export is audited, and the sort before the stream's 200:
+        it was read only while the CSV was written, after the status had gone. `newest` is the request list's order, not one of
+        the quota list's (docs/01, Lists). HEAD refuses what GET refuses, the sign-in and the permission first."""
+        import cmapi.plugins.quotas as quotas
+        from cmapi.core.db.repo import AuditRepo
+        from fastapi.testclient import TestClient
+    
+        client, ctx, *_, keys = world
+        monkeypatch.setattr(quotas, "quota_rows", lambda c, who: [])
+        c = TestClient(client.app, raise_server_exceptions=False)
+        ola, nobody = auth(keys, "ola", **OLA), auth(keys, "nobody", roles=[], groups=[])
+        cases = [("state=bogus", ola, 422), ("sort=bogus", ola, 400), ("sort=newest", ola, 400),
+                 ("sort=bogus", {}, 401), ("sort=bogus", nobody, 403)]
+        for query, headers, status in cases:
+            for method in ("GET", "HEAD"):
+                response = c.request(method, f"/api/v1/quotas:export?{query}", headers=headers)
+>               assert response.status_code == status, (method, query, status, response.status_code)
+E               AssertionError: ('HEAD', 'state=bogus', 422, 405)
+E               assert 405 == 422
+E                +  where 405 = <Response [405 Method Not Allowed]>.status_code
+
+tests/service/test_head_605.py:203: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:28:35.141955Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:28:35.158706Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/api/v1/quotas:export", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 160.6, "event": "http", "request_id": "d4bfdaf912e34b29", "level": "info", "timestamp": "2026-11-24T14:28:35.492218Z"}
+{"method": "HEAD", "route": "/api/v1/quotas:export", "status": 405, "caller_sub": null, "client": null, "ms": 26.8, "event": "http", "request_id": "7addbb8f6aef4bfc", "level": "info", "timestamp": "2026-11-24T14:28:35.524443Z"}
+______ test_a_vary_that_has_origin_or_star_is_kept_as_it_is[ \tOrigin\t ] ______
+
+vary = ' \tOrigin\t '
+
+    @pytest.mark.parametrize("vary", [" \tOrigin\t ", "Accept, origin", "*"])
+    def test_a_vary_that_has_origin_or_star_is_kept_as_it_is(vary):
+        """SP and HTAB are OWS, so these already vary on Origin (or on everything): nothing is added."""
+>       assert _vary_after_cors(vary) == [vary.encode("latin-1")]
+E       AssertionError: assert [b' \tOrigin\t , Origin'] == [b' \tOrigin\t ']
+E         
+E         At index 0 diff: b' \tOrigin\t , Origin' != b' \tOrigin\t '
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:182: AssertionError
+_____ test_a_vary_that_has_origin_or_star_is_kept_as_it_is[Accept, origin] _____
+
+vary = 'Accept, origin'
+
+    @pytest.mark.parametrize("vary", [" \tOrigin\t ", "Accept, origin", "*"])
+    def test_a_vary_that_has_origin_or_star_is_kept_as_it_is(vary):
+        """SP and HTAB are OWS, so these already vary on Origin (or on everything): nothing is added."""
+>       assert _vary_after_cors(vary) == [vary.encode("latin-1")]
+E       AssertionError: assert [b'Accept, origin, Origin'] == [b'Accept, origin']
+E         
+E         At index 0 diff: b'Accept, origin, Origin' != b'Accept, origin'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:182: AssertionError
+___________ test_a_vary_that_has_origin_or_star_is_kept_as_it_is[*] ____________
+
+vary = '*'
+
+    @pytest.mark.parametrize("vary", [" \tOrigin\t ", "Accept, origin", "*"])
+    def test_a_vary_that_has_origin_or_star_is_kept_as_it_is(vary):
+        """SP and HTAB are OWS, so these already vary on Origin (or on everything): nothing is added."""
+>       assert _vary_after_cors(vary) == [vary.encode("latin-1")]
+E       AssertionError: assert [b'*, Origin'] == [b'*']
+E         
+E         At index 0 diff: b'*, Origin' != b'*'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:182: AssertionError
+__________________ test_origin_on_a_second_vary_line_is_read ___________________
+
+    def test_origin_on_a_second_vary_line_is_read():
+        """Origin on the second line already varies on Origin: nothing is added, and both lines stay."""
+>       assert _vary_after_cors(["Accept", "Origin"]) == [b"Accept", b"Origin"]
+E       AssertionError: assert [b'Accept, Origin, Origin'] == [b'Accept', b'Origin']
+E         
+E         At index 0 diff: b'Accept, Origin, Origin' != b'Accept'
+E         Right contains one more item: b'Origin'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:197: AssertionError
+_ test_each_origin_gets_every_vary_line_and_one_origin[upstream1-expected1-None] _
+
+upstream = ['oRiGiN', 'Cookie'], expected = [b'oRiGiN', b'Cookie']
+origin = None
+
+    @pytest.mark.parametrize("origin", [None, "https://other.example", ALLOWED])
+    @pytest.mark.parametrize("upstream, expected", [
+        (["Accept", "Cookie"], [b"Accept, Cookie, Origin"]),
+        (["oRiGiN", "Cookie"], [b"oRiGiN", b"Cookie"]),
+        (["Accept", "OrIgIn"], [b"Accept", b"OrIgIn"]),
+        (["Origin"], [b"Origin"]),
+        (["Accept", "*"], [b"Accept", b"*"]),
+        (["*"], [b"*"]),
+        ([], [b"Origin"]),
+    ])
+    def test_each_origin_gets_every_vary_line_and_one_origin(upstream, expected, origin):
+        """The same Vary for no origin, a denied one and the listed one: Starlette's allow_explicit_origin, which runs for the
+        listed origin only, no longer rewrites Vary (#596). Only the listed origin gets Access-Control-Allow-Origin."""
+        r = _cors_answer(upstream, origin)
+>       assert [v for k, v in r.headers.raw if k.lower() == b"vary"] == expected
+E       AssertionError: assert [b'oRiGiN, Cookie, Origin'] == [b'oRiGiN', b'Cookie']
+E         
+E         At index 0 diff: b'oRiGiN, Cookie, Origin' != b'oRiGiN'
+E         Right contains one more item: b'Cookie'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:214: AssertionError
+_ test_each_origin_gets_every_vary_line_and_one_origin[upstream1-expected1-https://other.example] _
+
+upstream = ['oRiGiN', 'Cookie'], expected = [b'oRiGiN', b'Cookie']
+origin = 'https://other.example'
+
+    @pytest.mark.parametrize("origin", [None, "https://other.example", ALLOWED])
+    @pytest.mark.parametrize("upstream, expected", [
+        (["Accept", "Cookie"], [b"Accept, Cookie, Origin"]),
+        (["oRiGiN", "Cookie"], [b"oRiGiN", b"Cookie"]),
+        (["Accept", "OrIgIn"], [b"Accept", b"OrIgIn"]),
+        (["Origin"], [b"Origin"]),
+        (["Accept", "*"], [b"Accept", b"*"]),
+        (["*"], [b"*"]),
+        ([], [b"Origin"]),
+    ])
+    def test_each_origin_gets_every_vary_line_and_one_origin(upstream, expected, origin):
+        """The same Vary for no origin, a denied one and the listed one: Starlette's allow_explicit_origin, which runs for the
+        listed origin only, no longer rewrites Vary (#596). Only the listed origin gets Access-Control-Allow-Origin."""
+        r = _cors_answer(upstream, origin)
+>       assert [v for k, v in r.headers.raw if k.lower() == b"vary"] == expected
+E       AssertionError: assert [b'oRiGiN, Cookie, Origin'] == [b'oRiGiN', b'Cookie']
+E         
+E         At index 0 diff: b'oRiGiN, Cookie, Origin' != b'oRiGiN'
+E         Right contains one more item: b'Cookie'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:214: AssertionError
+_ test_each_origin_gets_every_vary_line_and_one_origin[upstream2-expected2-None] _
+
+upstream = ['Accept', 'OrIgIn'], expected = [b'Accept', b'OrIgIn']
+origin = None
+
+    @pytest.mark.parametrize("origin", [None, "https://other.example", ALLOWED])
+    @pytest.mark.parametrize("upstream, expected", [
+        (["Accept", "Cookie"], [b"Accept, Cookie, Origin"]),
+        (["oRiGiN", "Cookie"], [b"oRiGiN", b"Cookie"]),
+        (["Accept", "OrIgIn"], [b"Accept", b"OrIgIn"]),
+        (["Origin"], [b"Origin"]),
+        (["Accept", "*"], [b"Accept", b"*"]),
+        (["*"], [b"*"]),
+        ([], [b"Origin"]),
+    ])
+    def test_each_origin_gets_every_vary_line_and_one_origin(upstream, expected, origin):
+        """The same Vary for no origin, a denied one and the listed one: Starlette's allow_explicit_origin, which runs for the
+        listed origin only, no longer rewrites Vary (#596). Only the listed origin gets Access-Control-Allow-Origin."""
+        r = _cors_answer(upstream, origin)
+>       assert [v for k, v in r.headers.raw if k.lower() == b"vary"] == expected
+E       AssertionError: assert [b'Accept, OrIgIn, Origin'] == [b'Accept', b'OrIgIn']
+E         
+E         At index 0 diff: b'Accept, OrIgIn, Origin' != b'Accept'
+E         Right contains one more item: b'OrIgIn'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:214: AssertionError
+_ test_each_origin_gets_every_vary_line_and_one_origin[upstream2-expected2-https://other.example] _
+
+upstream = ['Accept', 'OrIgIn'], expected = [b'Accept', b'OrIgIn']
+origin = 'https://other.example'
+
+    @pytest.mark.parametrize("origin", [None, "https://other.example", ALLOWED])
+    @pytest.mark.parametrize("upstream, expected", [
+        (["Accept", "Cookie"], [b"Accept, Cookie, Origin"]),
+        (["oRiGiN", "Cookie"], [b"oRiGiN", b"Cookie"]),
+        (["Accept", "OrIgIn"], [b"Accept", b"OrIgIn"]),
+        (["Origin"], [b"Origin"]),
+        (["Accept", "*"], [b"Accept", b"*"]),
+        (["*"], [b"*"]),
+        ([], [b"Origin"]),
+    ])
+    def test_each_origin_gets_every_vary_line_and_one_origin(upstream, expected, origin):
+        """The same Vary for no origin, a denied one and the listed one: Starlette's allow_explicit_origin, which runs for the
+        listed origin only, no longer rewrites Vary (#596). Only the listed origin gets Access-Control-Allow-Origin."""
+        r = _cors_answer(upstream, origin)
+>       assert [v for k, v in r.headers.raw if k.lower() == b"vary"] == expected
+E       AssertionError: assert [b'Accept, OrIgIn, Origin'] == [b'Accept', b'OrIgIn']
+E         
+E         At index 0 diff: b'Accept, OrIgIn, Origin' != b'Accept'
+E         Right contains one more item: b'OrIgIn'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:214: AssertionError
+_ test_each_origin_gets_every_vary_line_and_one_origin[upstream3-expected3-None] _
+
+upstream = ['Origin'], expected = [b'Origin'], origin = None
+
+    @pytest.mark.parametrize("origin", [None, "https://other.example", ALLOWED])
+    @pytest.mark.parametrize("upstream, expected", [
+        (["Accept", "Cookie"], [b"Accept, Cookie, Origin"]),
+        (["oRiGiN", "Cookie"], [b"oRiGiN", b"Cookie"]),
+        (["Accept", "OrIgIn"], [b"Accept", b"OrIgIn"]),
+        (["Origin"], [b"Origin"]),
+        (["Accept", "*"], [b"Accept", b"*"]),
+        (["*"], [b"*"]),
+        ([], [b"Origin"]),
+    ])
+    def test_each_origin_gets_every_vary_line_and_one_origin(upstream, expected, origin):
+        """The same Vary for no origin, a denied one and the listed one: Starlette's allow_explicit_origin, which runs for the
+        listed origin only, no longer rewrites Vary (#596). Only the listed origin gets Access-Control-Allow-Origin."""
+        r = _cors_answer(upstream, origin)
+>       assert [v for k, v in r.headers.raw if k.lower() == b"vary"] == expected
+E       AssertionError: assert [b'Origin, Origin'] == [b'Origin']
+E         
+E         At index 0 diff: b'Origin, Origin' != b'Origin'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:214: AssertionError
+_ test_each_origin_gets_every_vary_line_and_one_origin[upstream3-expected3-https://other.example] _
+
+upstream = ['Origin'], expected = [b'Origin'], origin = 'https://other.example'
+
+    @pytest.mark.parametrize("origin", [None, "https://other.example", ALLOWED])
+    @pytest.mark.parametrize("upstream, expected", [
+        (["Accept", "Cookie"], [b"Accept, Cookie, Origin"]),
+        (["oRiGiN", "Cookie"], [b"oRiGiN", b"Cookie"]),
+        (["Accept", "OrIgIn"], [b"Accept", b"OrIgIn"]),
+        (["Origin"], [b"Origin"]),
+        (["Accept", "*"], [b"Accept", b"*"]),
+        (["*"], [b"*"]),
+        ([], [b"Origin"]),
+    ])
+    def test_each_origin_gets_every_vary_line_and_one_origin(upstream, expected, origin):
+        """The same Vary for no origin, a denied one and the listed one: Starlette's allow_explicit_origin, which runs for the
+        listed origin only, no longer rewrites Vary (#596). Only the listed origin gets Access-Control-Allow-Origin."""
+        r = _cors_answer(upstream, origin)
+>       assert [v for k, v in r.headers.raw if k.lower() == b"vary"] == expected
+E       AssertionError: assert [b'Origin, Origin'] == [b'Origin']
+E         
+E         At index 0 diff: b'Origin, Origin' != b'Origin'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:214: AssertionError
+_ test_each_origin_gets_every_vary_line_and_one_origin[upstream4-expected4-None] _
+
+upstream = ['Accept', '*'], expected = [b'Accept', b'*'], origin = None
+
+    @pytest.mark.parametrize("origin", [None, "https://other.example", ALLOWED])
+    @pytest.mark.parametrize("upstream, expected", [
+        (["Accept", "Cookie"], [b"Accept, Cookie, Origin"]),
+        (["oRiGiN", "Cookie"], [b"oRiGiN", b"Cookie"]),
+        (["Accept", "OrIgIn"], [b"Accept", b"OrIgIn"]),
+        (["Origin"], [b"Origin"]),
+        (["Accept", "*"], [b"Accept", b"*"]),
+        (["*"], [b"*"]),
+        ([], [b"Origin"]),
+    ])
+    def test_each_origin_gets_every_vary_line_and_one_origin(upstream, expected, origin):
+        """The same Vary for no origin, a denied one and the listed one: Starlette's allow_explicit_origin, which runs for the
+        listed origin only, no longer rewrites Vary (#596). Only the listed origin gets Access-Control-Allow-Origin."""
+        r = _cors_answer(upstream, origin)
+>       assert [v for k, v in r.headers.raw if k.lower() == b"vary"] == expected
+E       AssertionError: assert [b'Accept, *, Origin'] == [b'Accept', b'*']
+E         
+E         At index 0 diff: b'Accept, *, Origin' != b'Accept'
+E         Right contains one more item: b'*'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:214: AssertionError
+_ test_each_origin_gets_every_vary_line_and_one_origin[upstream4-expected4-https://other.example] _
+
+upstream = ['Accept', '*'], expected = [b'Accept', b'*']
+origin = 'https://other.example'
+
+    @pytest.mark.parametrize("origin", [None, "https://other.example", ALLOWED])
+    @pytest.mark.parametrize("upstream, expected", [
+        (["Accept", "Cookie"], [b"Accept, Cookie, Origin"]),
+        (["oRiGiN", "Cookie"], [b"oRiGiN", b"Cookie"]),
+        (["Accept", "OrIgIn"], [b"Accept", b"OrIgIn"]),
+        (["Origin"], [b"Origin"]),
+        (["Accept", "*"], [b"Accept", b"*"]),
+        (["*"], [b"*"]),
+        ([], [b"Origin"]),
+    ])
+    def test_each_origin_gets_every_vary_line_and_one_origin(upstream, expected, origin):
+        """The same Vary for no origin, a denied one and the listed one: Starlette's allow_explicit_origin, which runs for the
+        listed origin only, no longer rewrites Vary (#596). Only the listed origin gets Access-Control-Allow-Origin."""
+        r = _cors_answer(upstream, origin)
+>       assert [v for k, v in r.headers.raw if k.lower() == b"vary"] == expected
+E       AssertionError: assert [b'Accept, *, Origin'] == [b'Accept', b'*']
+E         
+E         At index 0 diff: b'Accept, *, Origin' != b'Accept'
+E         Right contains one more item: b'*'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:214: AssertionError
+_ test_each_origin_gets_every_vary_line_and_one_origin[upstream5-expected5-None] _
+
+upstream = ['*'], expected = [b'*'], origin = None
+
+    @pytest.mark.parametrize("origin", [None, "https://other.example", ALLOWED])
+    @pytest.mark.parametrize("upstream, expected", [
+        (["Accept", "Cookie"], [b"Accept, Cookie, Origin"]),
+        (["oRiGiN", "Cookie"], [b"oRiGiN", b"Cookie"]),
+        (["Accept", "OrIgIn"], [b"Accept", b"OrIgIn"]),
+        (["Origin"], [b"Origin"]),
+        (["Accept", "*"], [b"Accept", b"*"]),
+        (["*"], [b"*"]),
+        ([], [b"Origin"]),
+    ])
+    def test_each_origin_gets_every_vary_line_and_one_origin(upstream, expected, origin):
+        """The same Vary for no origin, a denied one and the listed one: Starlette's allow_explicit_origin, which runs for the
+        listed origin only, no longer rewrites Vary (#596). Only the listed origin gets Access-Control-Allow-Origin."""
+        r = _cors_answer(upstream, origin)
+>       assert [v for k, v in r.headers.raw if k.lower() == b"vary"] == expected
+E       AssertionError: assert [b'*, Origin'] == [b'*']
+E         
+E         At index 0 diff: b'*, Origin' != b'*'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:214: AssertionError
+_ test_each_origin_gets_every_vary_line_and_one_origin[upstream5-expected5-https://other.example] _
+
+upstream = ['*'], expected = [b'*'], origin = 'https://other.example'
+
+    @pytest.mark.parametrize("origin", [None, "https://other.example", ALLOWED])
+    @pytest.mark.parametrize("upstream, expected", [
+        (["Accept", "Cookie"], [b"Accept, Cookie, Origin"]),
+        (["oRiGiN", "Cookie"], [b"oRiGiN", b"Cookie"]),
+        (["Accept", "OrIgIn"], [b"Accept", b"OrIgIn"]),
+        (["Origin"], [b"Origin"]),
+        (["Accept", "*"], [b"Accept", b"*"]),
+        (["*"], [b"*"]),
+        ([], [b"Origin"]),
+    ])
+    def test_each_origin_gets_every_vary_line_and_one_origin(upstream, expected, origin):
+        """The same Vary for no origin, a denied one and the listed one: Starlette's allow_explicit_origin, which runs for the
+        listed origin only, no longer rewrites Vary (#596). Only the listed origin gets Access-Control-Allow-Origin."""
+        r = _cors_answer(upstream, origin)
+>       assert [v for k, v in r.headers.raw if k.lower() == b"vary"] == expected
+E       AssertionError: assert [b'*, Origin'] == [b'*']
+E         
+E         At index 0 diff: b'*, Origin' != b'*'
+E         Use -v to get more diff
+
+tests/service/test_read_preconditions_590_593.py:214: AssertionError
+___ test_the_plugins_that_the_switch_knows_are_the_routers_and_their_writes ____
+
+world = (<starlette.testclient.TestClient object at 0x1290aa150>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x128f24050>, <conftest.FakeValidator object at 0x128f24a10>, <conftest.Keys object at 0x10f7c5af0>)
+
+    def test_the_plugins_that_the_switch_knows_are_the_routers_and_their_writes(world):
+        """core/plugins.py names each built-in plugin and the ones with a write. This holds both lists to the routers, so a new
+        plugin cannot be mounted without the switch, and an override cannot be accepted for a plugin that it would not stop."""
+        from cmapi.core.plugins import BUILT_IN, CORE, WRITERS, PluginSwitch
+    
+        client, *_ = world
+        routers = {r.plugin: r for r in PluginSwitch(None, "nonprod", {"dev"}).routers()}
+        assert sorted(routers) == sorted(BUILT_IN)
+        mounted = {route.openapi_extra["x-cmapi-plugin"] for route in client.app.routes
+                   if isinstance(route, APIRoute) and route.path.startswith("/api/")}
+>       assert mounted == set(BUILT_IN) | set(CORE)
+E       AssertionError: assert set() == {'admin', 'ca...espaces', ...}
+E         
+E         Extra items in the right set:
+E         'core'
+E         'namespaces'
+E         'tiers'
+E         'admin'
+E         'quotas'...
+E         
+E         ...Full output truncated (6 lines hidden), use '-vv' to show
+
+tests/service/test_plugins_switch.py:222: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:39:16.801343Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:39:16.808190Z"}
+___ test_an_approve_or_a_cancel_with_dry_run_is_refused_and_changes_nothing ____
+
+world = (<starlette.testclient.TestClient object at 0x1290da810>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x128fbe930>, <conftest.FakeValidator object at 0x1290abbf0>, <conftest.Keys object at 0x10f7c5af0>)
+
+    def test_an_approve_or_a_cancel_with_dry_run_is_refused_and_changes_nothing(world):
+        client, ctx, git, kube, validator, keys = world
+>       rid = pending(client, keys)
+
+tests/service/test_dry_run_refused_606.py:40: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+client = <starlette.testclient.TestClient object at 0x1290da810>
+keys = <conftest.Keys object at 0x10f7c5af0>, name = 'payments-dev'
+
+    def pending(client, keys, name="payments-dev") -> str:
+        """A large create, which waits for an approver."""
+        r = client.post("/api/v1/clusters/CRC/namespaces", json={**NS, "namespace": name, "tier": "large"}, headers=auth(keys, "ola", **OLA))
+>       assert r.status_code == 202 and r.json()["status"] == "pending_approval", r.text
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       assert (500 == 202)
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests/service/test_dry_run_refused_606.py:28: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:39:17.931484Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:39:17.937883Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "event": "unhandled", "request_id": "6d761530193446a7", "level": "error", "timestamp": "2026-11-24T14:39:18.276170Z", "exception": "Traceback (most recent call last):\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 154, in __init__\n    self._dbapi_connection = engine.raw_connection()\n                             ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 3303, in raw_connection\n    return self.pool.connect()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 445, in connect\n    return _ConnectionFairy._checkout(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 1340, in _checkout\n    fairy = _ConnectionRecord.checkout(pool)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 713, in checkout\n    rec = pool._do_get()\n          ^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 176, in _do_get\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 174, in _do_get\n    return self._create_connection()\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 386, in _create_connection\n    return _ConnectionRecord(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 675, in __init__\n    self.__connect()\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 932, in __connect\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/poo ...[cut]
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 500, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 315.9, "event": "http", "request_id": "6d761530193446a7", "level": "info", "timestamp": "2026-11-24T14:39:18.315159Z"}
+______ test_the_admin_writes_with_dry_run_are_refused_and_change_nothing _______
+
+self = <sqlalchemy.engine.base.Connection object at 0x12924ba70>
+engine = Engine(postgresql+psycopg://cmapi:***@127.0.0.1:55432/cmapi_wt605)
+connection = None, _has_events = None, _allow_revalidate = True
+_allow_autobegin = True
+
+    def __init__(
+        self,
+        engine: Engine,
+        connection: Optional[PoolProxiedConnection] = None,
+        _has_events: Optional[bool] = None,
+        _allow_revalidate: bool = True,
+        _allow_autobegin: bool = True,
+    ):
+        """Construct a new Connection."""
+        self.engine = engine
+        self.dialect = dialect = engine.dialect
+    
+        if connection is None:
+            try:
+>               self._dbapi_connection = engine.raw_connection()
+
+../../venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:154: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3303: in raw_connection
+    return self.pool.connect()
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:445: in connect
+    return _ConnectionFairy._checkout(self)
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:1340: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:713: in checkout
+    rec = pool._do_get()
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:176: in _do_get
+    with util.safe_reraise():
+../../venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:166: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:174: in _do_get
+    return self._create_connection()
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:386: in _create_connection
+    return _ConnectionRecord(self)
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:675: in __init__
+    self.__connect()
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:932: in __connect
+    with util.safe_reraise():
+../../venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:166: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:928: in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+../../venv/lib/python3.12/site-packages/sqlalchemy/engine/create.py:645: in connect
+    return dialect.connect(*cargs_tup, **cparams)
+../../venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:869: in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = <class 'psycopg.Connection'>
+conninfo = 'host=127.0.0.1 dbname=cmapi_wt605 user=cmapi password=cmapi port=55432 hostaddr=127.0.0.1'
+autocommit = False, prepare_threshold = 5
+context = <psycopg.adapt.AdaptersMap object at 0x129259dc0>, row_factory = None
+cursor_factory = None
+kwargs = {'dbname': 'cmapi_wt605', 'host': '127.0.0.1', 'password': 'cmapi', 'port': 55432, ...}
+params = {'dbname': 'cmapi_wt605', 'host': '127.0.0.1', 'password': 'cmapi', 'port': 55432, ...}
+timeout = 130
+
+    @classmethod
+    def connect(
+        cls,
+        conninfo: str = "",
+        *,
+        autocommit: bool = False,
+        prepare_threshold: int | None = 5,
+        context: AdaptContext | None = None,
+        row_factory: RowFactory[Row] | None = None,
+        cursor_factory: type[Cursor[Row]] | None = None,
+        **kwargs: ConnParam,
+    ) -> Self:
+        """
+        Connect to a database server and return a new `Connection` instance.
+        """
+    
+        params = cls._get_connection_params(conninfo, **kwargs)
+        timeout = timeout_from_conninfo(params)
+        rv = None
+        attempts = conninfo_attempts(params)
+        conn_errors: list[tuple[e.Error, str]] = []
+        for attempt in attempts:
+            tdescr = (attempt.get("host"), attempt.get("port"), attempt.get("hostaddr"))
+            descr = "host: %r, port: %r, hostaddr: %r" % tdescr
+            logger.debug("connection attempt: %s", descr)
+            try:
+                conninfo = make_conninfo("", **attempt)
+                gen = cls._connect_gen(conninfo)
+                rv = waiting.wait_conn(gen, interval=_WAIT_INTERVAL, timeout=timeout)
+            except e._WaitTimeout:
+                tex = e.ConnectionTimeout("connection timeout expired")
+                logger.debug("connection failed: %s: %s", descr, str(tex))
+                conn_errors.append((tex, descr))
+            except e.Error as ex:
+                logger.debug("connection failed: %s: %s", descr, str(ex))
+                conn_errors.append((ex, descr))
+            except e._NO_TRACEBACK as ex:
+                raise ex.with_traceback(None)
+            else:
+                logger.debug("connection succeeded: %s", descr)
+                break
+    
+        if not rv:
+            last_ex = conn_errors[-1][0]
+            if len(conn_errors) == 1:
+>               raise last_ex.with_traceback(None)
+E               psycopg.OperationalError: connection failed: connection to server at "127.0.0.1", port 55432 failed: FATAL:  sorry, too many clients already
+
+../../venv/lib/python3.12/site-packages/psycopg/connection.py:126: OperationalError
+
+The above exception was the direct cause of the following exception:
+
+world = (<starlette.testclient.TestClient object at 0x128e39b50>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x129107e30>, <conftest.FakeValidator object at 0x129104890>, <conftest.Keys object at 0x10f7c5af0>)
+
+    def test_the_admin_writes_with_dry_run_are_refused_and_change_nothing(world):
+        client, ctx, git, kube, validator, keys = world
+>       before = rows(ctx)
+
+tests/service/test_dry_run_refused_606.py:58: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/service/test_dry_run_refused_606.py:21: in rows
+    return {t: s.execute(text(f"SELECT count(*) FROM {t}")).scalar_one()
+../../venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2555: in execute
+    return self._execute_internal(
+../../venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2432: in _execute_internal
+    conn = self._connection_for_bind(bind)
+../../venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2255: in _connection_for_bind
+    return trans._connection_for_bind(engine, execution_options)
+<sqlalchemy generated _go() wrapper for sqlalchemy.orm.session.SessionTransaction._connection_for_bind>:2: in _connection_for_bind
+    return target(fn, self, bind, execution_options)
+../../venv/lib/python3.12/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+../../venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:1282: in _connection_for_bind
+    conn = bind.connect()
+../../venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3279: in connect
+    return self._connection_cls(self)
+../../venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:156: in __init__
+    Connection._handle_dbapi_exception_noconnection(
+../../venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:2436: in _handle_dbapi_exception_noconnection
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+../../venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:154: in __init__
+    self._dbapi_connection = engine.raw_connection()
+../../venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3303: in raw_connection
+    return self.pool.connect()
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:445: in connect
+    return _ConnectionFairy._checkout(self)
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:1340: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:713: in checkout
+    rec = pool._do_get()
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:176: in _do_get
+    with util.safe_reraise():
+../../venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:166: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:174: in _do_get
+    return self._create_connection()
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:386: in _create_connection
+    return _ConnectionRecord(self)
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:675: in __init__
+    self.__connect()
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:932: in __connect
+    with util.safe_reraise():
+../../venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:166: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+../../venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:928: in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+../../venv/lib/python3.12/site-packages/sqlalchemy/engine/create.py:645: in connect
+    return dialect.connect(*cargs_tup, **cparams)
+../../venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:869: in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = <class 'psycopg.Connection'>
+conninfo = 'host=127.0.0.1 dbname=cmapi_wt605 user=cmapi password=cmapi port=55432 hostaddr=127.0.0.1'
+autocommit = False, prepare_threshold = 5
+context = <psycopg.adapt.AdaptersMap object at 0x129259dc0>, row_factory = None
+cursor_factory = None
+kwargs = {'dbname': 'cmapi_wt605', 'host': '127.0.0.1', 'password': 'cmapi', 'port': 55432, ...}
+params = {'dbname': 'cmapi_wt605', 'host': '127.0.0.1', 'password': 'cmapi', 'port': 55432, ...}
+timeout = 130
+
+    @classmethod
+    def connect(
+        cls,
+        conninfo: str = "",
+        *,
+        autocommit: bool = False,
+        prepare_threshold: int | None = 5,
+        context: AdaptContext | None = None,
+        row_factory: RowFactory[Row] | None = None,
+        cursor_factory: type[Cursor[Row]] | None = None,
+        **kwargs: ConnParam,
+    ) -> Self:
+        """
+        Connect to a database server and return a new `Connection` instance.
+        """
+    
+        params = cls._get_connection_params(conninfo, **kwargs)
+        timeout = timeout_from_conninfo(params)
+        rv = None
+        attempts = conninfo_attempts(params)
+        conn_errors: list[tuple[e.Error, str]] = []
+        for attempt in attempts:
+            tdescr = (attempt.get("host"), attempt.get("port"), attempt.get("hostaddr"))
+            descr = "host: %r, port: %r, hostaddr: %r" % tdescr
+            logger.debug("connection attempt: %s", descr)
+            try:
+                conninfo = make_conninfo("", **attempt)
+                gen = cls._connect_gen(conninfo)
+                rv = waiting.wait_conn(gen, interval=_WAIT_INTERVAL, timeout=timeout)
+            except e._WaitTimeout:
+                tex = e.ConnectionTimeout("connection timeout expired")
+                logger.debug("connection failed: %s: %s", descr, str(tex))
+                conn_errors.append((tex, descr))
+            except e.Error as ex:
+                logger.debug("connection failed: %s: %s", descr, str(ex))
+                conn_errors.append((ex, descr))
+            except e._NO_TRACEBACK as ex:
+                raise ex.with_traceback(None)
+            else:
+                logger.debug("connection succeeded: %s", descr)
+                break
+    
+        if not rv:
+            last_ex = conn_errors[-1][0]
+            if len(conn_errors) == 1:
+>               raise last_ex.with_traceback(None)
+E               sqlalchemy.exc.OperationalError: (psycopg.OperationalError) connection failed: connection to server at "127.0.0.1", port 55432 failed: FATAL:  sorry, too many clients already
+E               (Background on this error at: https://sqlalche.me/e/21/e3q8)
+
+../../venv/lib/python3.12/site-packages/psycopg/connection.py:126: OperationalError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:39:19.732476Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:39:19.740637Z"}
+________________ test_every_write_without_a_dry_run_refuses_one ________________
+
+world = (<starlette.testclient.TestClient object at 0x129105e50>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x129249f40>, <conftest.FakeValidator object at 0x129249ee0>, <conftest.Keys object at 0x10f7c5af0>)
+
+    def test_every_write_without_a_dry_run_refuses_one(world):
+        """Each route of the app: a write that declares no `dryRun` has the guard, and the document declares its 400. A new
+        write cannot forget it, because DocumentedRouter adds it."""
+        client, ctx, *_ = world
+        spec = client.get("/openapi.json").json()
+        guarded, planned = [], []
+        for route in client.app.routes:
+            if not isinstance(route, APIRoute) or not route.methods & WRITES:
+                continue
+            query = {p.alias for p in route.dependant.query_params}
+            calls = {d.call.__name__ for d in route.dependant.dependencies if d.call is not None}
+            op = spec["paths"][route.path_format][next(iter(route.methods & WRITES)).lower()]
+            declared = op["responses"].get("400", {}).get("content", {}).get("application/problem+json", {}).get("examples", {})
+            if "dryRun" in query:
+                planned.append(route.path_format)
+                assert "refuse_dry_run" not in calls and "dry-run-not-supported" not in declared, route.path_format
+                assert "refuse_repeated_dry_run" in calls, f"{route.path_format} takes dryRun and does not refuse it repeated"
+            else:
+                guarded.append(route.path_format)
+                assert "refuse_dry_run" in calls, f"{route.path_format} takes no dryRun and does not refuse one"
+                assert "dry-run-not-supported" in declared, f"{route.path_format} does not declare 400 dry-run-not-supported"
+>       assert len(planned) == 6 and "/api/v1/requests/{request_id}:approve" in guarded, (planned, guarded)
+E       AssertionError: ([], [])
+E       assert (0 == 6)
+E        +  where 0 = len([])
+
+tests/service/test_dry_run_refused_606.py:89: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:39:28.086820Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:39:28.095009Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/openapi.json", "status": 200, "caller_sub": null, "client": null, "ms": 1120.8, "event": "http", "request_id": "a3bf9f10a8174dcb", "level": "info", "timestamp": "2026-11-24T14:39:29.219521Z"}
+_____________ test_the_writes_that_have_a_dry_run_still_answer_it ______________
+
+world = (<starlette.testclient.TestClient object at 0x1290db4d0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x1290cccb0>, <conftest.FakeValidator object at 0x1290cc350>, <conftest.Keys object at 0x10f7c5af0>)
+
+    def test_the_writes_that_have_a_dry_run_still_answer_it(world):
+        client, ctx, git, kube, validator, keys = world
+        r = client.post("/api/v1/clusters/CRC/namespaces?dryRun=true", json=NS, headers=auth(keys, "ola", **OLA))
+>       assert r.status_code == 200 and "planHash" in r.json(), r.text
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       assert (500 == 200)
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests/service/test_dry_run_refused_606.py:95: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:39:30.797906Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:39:30.809167Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "event": "unhandled", "request_id": "8e62bad7f65f4838", "level": "error", "timestamp": "2026-11-24T14:39:31.095349Z", "exception": "Traceback (most recent call last):\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 154, in __init__\n    self._dbapi_connection = engine.raw_connection()\n                             ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 3303, in raw_connection\n    return self.pool.connect()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 445, in connect\n    return _ConnectionFairy._checkout(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 1340, in _checkout\n    fairy = _ConnectionRecord.checkout(pool)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 713, in checkout\n    rec = pool._do_get()\n          ^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 176, in _do_get\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 174, in _do_get\n    return self._create_connection()\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 386, in _create_connection\n    return _ConnectionRecord(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 675, in __init__\n    self.__connect()\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 932, in __connect\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/poo ...[cut]
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 500, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 205.1, "event": "http", "request_id": "8e62bad7f65f4838", "level": "info", "timestamp": "2026-11-24T14:39:31.107691Z"}
+_________ test_sign_in_comes_first_then_the_guard_then_the_permission __________
+
+world = (<starlette.testclient.TestClient object at 0x125ee1670>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x127fe1cd0>, <conftest.FakeValidator object at 0x127fe1bb0>, <conftest.Keys object at 0x10f7c5af0>)
+
+    def test_sign_in_comes_first_then_the_guard_then_the_permission(world):
+        """The router's sign-in runs before a route's own dependencies (main.py, include_router), so a call without a token is
+        401 with or without dryRun. A signed-in caller meets the guard before the route's permission check (#607 review)."""
+        client, ctx, git, kube, validator, keys = world
+>       rid = pending(client, keys)
+
+tests/service/test_dry_run_refused_606.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+client = <starlette.testclient.TestClient object at 0x125ee1670>
+keys = <conftest.Keys object at 0x10f7c5af0>, name = 'payments-dev'
+
+    def pending(client, keys, name="payments-dev") -> str:
+        """A large create, which waits for an approver."""
+        r = client.post("/api/v1/clusters/CRC/namespaces", json={**NS, "namespace": name, "tier": "large"}, headers=auth(keys, "ola", **OLA))
+>       assert r.status_code == 202 and r.json()["status"] == "pending_approval", r.text
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       assert (500 == 202)
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests/service/test_dry_run_refused_606.py:28: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:39:32.619223Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:39:32.645612Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "event": "unhandled", "request_id": "dd1abf3decea4fbe", "level": "error", "timestamp": "2026-11-24T14:39:33.089624Z", "exception": "Traceback (most recent call last):\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 154, in __init__\n    self._dbapi_connection = engine.raw_connection()\n                             ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 3303, in raw_connection\n    return self.pool.connect()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 445, in connect\n    return _ConnectionFairy._checkout(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 1340, in _checkout\n    fairy = _ConnectionRecord.checkout(pool)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 713, in checkout\n    rec = pool._do_get()\n          ^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 176, in _do_get\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 174, in _do_get\n    return self._create_connection()\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 386, in _create_connection\n    return _ConnectionRecord(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 675, in __init__\n    self.__connect()\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 932, in __connect\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/poo ...[cut]
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 500, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 357.7, "event": "http", "request_id": "dd1abf3decea4fbe", "level": "info", "timestamp": "2026-11-24T14:39:33.100034Z"}
+___________________ test_pyproject_pins_a_patched_starlette ____________________
+
+    def test_pyproject_pins_a_patched_starlette():
+        """The image resolves the dependencies of pyproject.toml when it is built, so FastAPI's own `starlette>=...` could
+        pick any version; the pin decides it."""
+        dependencies = [Requirement(d) for d in tomllib.loads(PYPROJECT.read_text())["project"]["dependencies"]]
+        pins = {r.name: r for r in dependencies}
+>       assert "starlette" in pins, "pyproject.toml does not pin starlette"
+E       AssertionError: pyproject.toml does not pin starlette
+E       assert 'starlette' in {'alembic': <Requirement('alembic==1.20.1')>, 'fastapi': <Requirement('fastapi==0.115.6')>, 'google-re2': <Requirement('google-re2==1.1.20251105')>, 'httpx': <Requirement('httpx==0.28.1')>, ...}
+
+tests/service/test_framework_upgrade_651.py:63: AssertionError
+___________ test_a_route_of_an_included_router_is_one_of_api_routes ____________
+
+    def test_a_route_of_an_included_router_is_one_of_api_routes():
+        """FastAPI 0.137.0: an included router is one entry of app.routes, no longer its copied routes (release notes,
+        "Specific Breaking Changes"). api_routes lists each route as it is served, with the including router's prefix."""
+>       from cmapi.core.docs import api_routes
+E       ImportError: cannot import name 'api_routes' from 'cmapi.core.docs' (<outputs>/main-export/cmapi/src/cmapi/core/docs.py)
+
+tests/service/test_framework_upgrade_651.py:112: ImportError
+______________ test_head_stays_on_a_route_when_its_router_changes ______________
+
+    def test_head_stays_on_a_route_when_its_router_changes():
+        """main.py, _serve_head_with_get: HEAD goes on the served context and on the route it is built from, so the context
+        that FastAPI builds again after a router's routes change answers HEAD too."""
+        from cmapi.main import _serve_head_with_get
+    
+        inner = APIRouter()
+    
+        @inner.get("/thing")
+        def thing() -> dict[str, str]:
+            return {"ok": "yes"}
+    
+        app = FastAPI()
+        app.include_router(inner)
+        _serve_head_with_get(app)
+        client = TestClient(app)
+>       assert client.head("/thing").status_code == 200
+E       AssertionError: assert 405 == 200
+E        +  where 405 = <Response [405 Method Not Allowed]>.status_code
+E        +    where <Response [405 Method Not Allowed]> = head('/thing')
+E        +      where head = <starlette.testclient.TestClient object at 0x129a69ca0>.head
+
+tests/service/test_framework_upgrade_651.py:141: AssertionError
+=========================== short test summary info ============================
+FAILED tests/service/test_api_docs.py::test_a_parameter_without_a_description_or_an_example_stops_startup
+FAILED tests/service/test_head_605.py::test_head_on_a_conditional_read_is_its_get_without_content[/api/v1/metadata-keys]
+FAILED tests/service/test_head_605.py::test_head_on_a_conditional_read_is_its_get_without_content[/api/v1/capacity]
+FAILED tests/service/test_head_605.py::test_head_is_authorized_exactly_as_get[/api/v1/metadata-keys]
+FAILED tests/service/test_head_605.py::test_head_is_authorized_exactly_as_get[/api/v1/capacity]
+FAILED tests/service/test_head_605.py::test_every_get_route_answers_head_as_its_get
+FAILED tests/service/test_head_605.py::test_a_head_from_the_listed_portal_passes_its_preflight
+FAILED tests/service/test_head_605.py::test_head_enforces_each_documented_read_permission
+FAILED tests/service/test_head_605.py::test_a_head_of_the_export_exports_nothing
+FAILED tests/service/test_head_605.py::test_405_lists_the_methods_of_the_resource
+FAILED tests/service/test_head_605.py::test_a_request_action_is_post_only[approve]
+FAILED tests/service/test_head_605.py::test_a_request_action_is_post_only[reject]
+FAILED tests/service/test_head_605.py::test_a_request_action_is_post_only[cancel]
+FAILED tests/service/test_head_605.py::test_a_request_action_is_post_only[retry]
+FAILED tests/service/test_head_605.py::test_a_request_action_is_post_only[revert]
+FAILED tests/service/test_head_605.py::test_a_refused_export_is_refused_before_its_audit_and_its_200
+FAILED tests/service/test_read_preconditions_590_593.py::test_a_vary_that_has_origin_or_star_is_kept_as_it_is[ \tOrigin\t ]
+FAILED tests/service/test_read_preconditions_590_593.py::test_a_vary_that_has_origin_or_star_is_kept_as_it_is[Accept, origin]
+FAILED tests/service/test_read_preconditions_590_593.py::test_a_vary_that_has_origin_or_star_is_kept_as_it_is[*]
+FAILED tests/service/test_read_preconditions_590_593.py::test_origin_on_a_second_vary_line_is_read
+FAILED tests/service/test_read_preconditions_590_593.py::test_each_origin_gets_every_vary_line_and_one_origin[upstream1-expected1-None]
+FAILED tests/service/test_read_preconditions_590_593.py::test_each_origin_gets_every_vary_line_and_one_origin[upstream1-expected1-https://other.example]
+FAILED tests/service/test_read_preconditions_590_593.py::test_each_origin_gets_every_vary_line_and_one_origin[upstream2-expected2-None]
+FAILED tests/service/test_read_preconditions_590_593.py::test_each_origin_gets_every_vary_line_and_one_origin[upstream2-expected2-https://other.example]
+FAILED tests/service/test_read_preconditions_590_593.py::test_each_origin_gets_every_vary_line_and_one_origin[upstream3-expected3-None]
+FAILED tests/service/test_read_preconditions_590_593.py::test_each_origin_gets_every_vary_line_and_one_origin[upstream3-expected3-https://other.example]
+FAILED tests/service/test_read_preconditions_590_593.py::test_each_origin_gets_every_vary_line_and_one_origin[upstream4-expected4-None]
+FAILED tests/service/test_read_preconditions_590_593.py::test_each_origin_gets_every_vary_line_and_one_origin[upstream4-expected4-https://other.example]
+FAILED tests/service/test_read_preconditions_590_593.py::test_each_origin_gets_every_vary_line_and_one_origin[upstream5-expected5-None]
+FAILED tests/service/test_read_preconditions_590_593.py::test_each_origin_gets_every_vary_line_and_one_origin[upstream5-expected5-https://other.example]
+FAILED tests/service/test_plugins_switch.py::test_the_plugins_that_the_switch_knows_are_the_routers_and_their_writes
+FAILED tests/service/test_dry_run_refused_606.py::test_an_approve_or_a_cancel_with_dry_run_is_refused_and_changes_nothing
+FAILED tests/service/test_dry_run_refused_606.py::test_the_admin_writes_with_dry_run_are_refused_and_change_nothing
+FAILED tests/service/test_dry_run_refused_606.py::test_every_write_without_a_dry_run_refuses_one
+FAILED tests/service/test_dry_run_refused_606.py::test_the_writes_that_have_a_dry_run_still_answer_it
+FAILED tests/service/test_dry_run_refused_606.py::test_sign_in_comes_first_then_the_guard_then_the_permission
+FAILED tests/service/test_framework_upgrade_651.py::test_pyproject_pins_a_patched_starlette
+FAILED tests/service/test_framework_upgrade_651.py::test_a_route_of_an_included_router_is_one_of_api_routes
+FAILED tests/service/test_framework_upgrade_651.py::test_head_stays_on_a_route_when_its_router_changes
+39 failed, 565 passed in 787.10s (0:13:07)
+exit=1
