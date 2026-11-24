@@ -289,7 +289,20 @@ class FakeGit(HostGitProvider):
         assert self.heads[pr.branch] == expected_head, "head moved"
         required = self.statuses.get(expected_head, {})
         assert all(required.get(c) == "success" for c in ("ci/kubeconform", "ci/kyverno", "cmapi/check")), "protection refused the merge"
-        self.branches["main"] = dict(self.branches[pr.branch])
+        base = self.based_on.get(pr.branch)
+        if base is None:
+            self.branches["main"] = dict(self.branches[pr.branch])
+        else:
+            # A merge, as a host makes it: main keeps what it gained since the branch left it, and takes the branch's own
+            # changes. Copying the branch over main would drop a path added to main before the merge (#616).
+            merged, branch = dict(self.branches["main"]), self.branches[pr.branch]
+            for path in set(base) | set(branch):
+                if base.get(path) != branch.get(path):
+                    if path in branch:
+                        merged[path] = branch[path]
+                    else:
+                        merged.pop(path, None)
+            self.branches["main"] = merged
         merge_sha = self._sha("main")
         p["state"], p["merge_sha"] = "merged", merge_sha
         self.commits.append(f"{merge_sha[:8]} Merge {pr.branch}")

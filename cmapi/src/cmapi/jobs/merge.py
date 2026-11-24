@@ -73,7 +73,8 @@ def _merge(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) 
             merge_failed(ctx, repo, jobs, row, f"the PR was closed and it cannot open again: {exc}", {"branch": row.pr["branch"]})
             jobs.done(job)
             return
-    check = ctx.git.merge_check(pinned, folder(row.cluster_id, row.namespace), row.plan.get("prev") or {}, row.plan["files"])
+    check = ctx.git.merge_check(pinned, folder(row.cluster_id, row.namespace), row.plan.get("prev") or {}, row.plan["files"],
+                                whole_folder=row.action == "delete")
     if not check.ok:
         MERGE_CONFLICTS.labels("merge").inc()
         why = check.reason(ctx.git.default_branch)

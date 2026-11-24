@@ -131,8 +131,9 @@ class GitHubProvider(HostGitProvider):
     def recreate_branch(self, req: BranchRequest, base: str, expected: str) -> str:
         return self._git().recreate(req, base, expected)
 
-    def merge_check(self, head: str, folder: str, prev: Mapping[str, str], files: Mapping[str, str | None]) -> MergeCheck:
-        return self._git().merge_check(head, folder, prev, files)
+    def merge_check(self, head: str, folder: str, prev: Mapping[str, str], files: Mapping[str, str | None], *,
+                    whole_folder: bool = False) -> MergeCheck:
+        return self._git().merge_check(head, folder, prev, files, whole_folder=whole_folder)
 
     def delete_branch(self, branch: str, expected: str) -> bool:
         return self._git().delete_branch(branch, expected)

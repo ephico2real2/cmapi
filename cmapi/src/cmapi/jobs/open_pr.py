@@ -107,4 +107,13 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
     new = ctx.pipeline.submit(who, plan, repo, jobs, idempotency_key=None, body_fingerprint="revert:" + row.request_id,
                               justification=f"Revert of {row.request_id}")
     repo.event(row, "revert_opened", "worker", new.request_id)
+    if row.action == "delete":
+        # The plan's prev holds cmapi's manifests, the only text a revert can write. Every other path that the delete removed
+        # (#616) is named here with the commit that still holds it, never dropped in silence.
+        unrestored = sorted(set(row.plan["files"]) - set(prev))
+        if unrestored:
+            repo.event(row, "revert_partial", "worker",
+                       f"{new.request_id} restores the manifests; {len(unrestored)} paths the delete removed are not restored, "
+                       f"they are in Git at {row.base_sha[:8]}: {', '.join(unrestored)}"[:300],
+                       {"paths": unrestored, "base_sha": row.base_sha})
     jobs.done(job)

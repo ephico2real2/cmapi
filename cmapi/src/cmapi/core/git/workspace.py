@@ -393,8 +393,8 @@ class GitWorkspace:
     def _check_files(self, req: BranchRequest) -> str:
         folder = req.folder.strip("/")
         check_path(folder)
-        for path in req.files:
-            check_path(path)
+        for path, text in req.files.items():
+            check_path(path, removal=text is None)
             if not path.startswith(folder + "/"):
                 raise ValueError(f"{path} is outside the request's folder {folder}")
         return folder
@@ -538,10 +538,14 @@ class GitWorkspace:
                 self._push(self.worktree_path(req.cluster_id, req.request_id), branch, head, current or "", "created")
             return head
 
-    def merge_check(self, head: str, folder: str, prev: Mapping[str, str], files: Mapping[str, str | None]) -> MergeCheck:
+    def merge_check(self, head: str, folder: str, prev: Mapping[str, str], files: Mapping[str, str | None], *,
+                    whole_folder: bool = False) -> MergeCheck:
         """Fable 2.3 with the measured exit rule (OB1, the arbitration's row 10): git merge-tree --write-tree exits 0 on a clean
         merge, and 1 on a conflict, but also 1 on "not something we can merge" (measured on git 2.52.0 and 2.55.0). So a conflict
-        is exit 1 with a tree OID as the first field; any other result is an error, raised and retried, never read as clean."""
+        is exit 1 with a tree OID as the first field; any other result is an error, raised and retried, never read as clean.
+
+        whole_folder, a delete (#616): main's full listing is the plan's removals, each a file, and the merged tree holds nothing
+        of the folder at any depth, the check _merged makes after the merge, made here before it."""
         expected = {p: t for p, t in files.items() if t is not None}
         with self._lock:
             main = self.fetch_main()
@@ -565,7 +569,11 @@ class GitWorkspace:
                         names.append(item)
                     conflicts = tuple(sorted(set(names)))
                 base_ok = self._folder(main, folder) == dict(prev)
-                result_ok = not conflicts and self._folder(tree, folder) == expected
+                if whole_folder:
+                    base_ok = base_ok and self._entries(main, folder) == dict.fromkeys(files, "blob")
+                    result_ok = not conflicts and not self._entries(tree, folder)
+                else:
+                    result_ok = not conflicts and self._folder(tree, folder) == expected
                 check = MergeCheck(main, head, conflicts, base_ok, result_ok, tree if not conflicts else None)
                 op.set(conflict_paths=list(conflicts), base_matches=base_ok, result_matches=result_ok, tree=check.tree,
                        reason=check.reason(self.default_branch))

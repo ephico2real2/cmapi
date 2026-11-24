@@ -79,6 +79,12 @@ class GiteaProvider(HostGitProvider):
     def list_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
         """Every blob and submodule under path, at any depth (#616): each subtree read with _tree_entries, page by page, so no
         recursive listing that the host may cut is read as complete."""
+        entries, head = self._walk(path, ref)
+        return {p: kind for p, (kind, _) in entries.items()}, head
+
+    def _walk(self, path: str, ref: str | None) -> tuple[dict[str, tuple[str, str]], str]:
+        """list_folder with each entry's object ID: {path: (type, ID)}. The ID is what a delete sends as its sha, the tree
+        entry's own, which Gitea compares it with, so no URL has to carry a name that holds "#" or "?" (#616)."""
         head = self._folder_head(ref)
         tree = head
         directory = PurePosixPath(path.strip("/"))
@@ -87,7 +93,7 @@ class GiteaProvider(HostGitProvider):
             if entry is None or entry["type"] != "tree":
                 return {}, head
             tree = entry["sha"]
-        listed: dict[str, str] = {}
+        listed: dict[str, tuple[str, str]] = {}
         pending = [(directory, tree)]
         while pending:
             where, oid = pending.pop()
@@ -95,7 +101,7 @@ class GiteaProvider(HostGitProvider):
                 if e["type"] == "tree":
                     pending.append((where / e["path"], e["sha"]))
                 else:
-                    listed[str(where / e["path"])] = e["type"]
+                    listed[str(where / e["path"])] = (e["type"], e["sha"])
         return listed, head
 
     def push_request_branch(self, req: BranchRequest) -> PushResult:
@@ -125,12 +131,13 @@ class GiteaProvider(HostGitProvider):
         if r.status_code != 201:
             raise GitUnavailable(f"create branch {branch}: {r.status_code} {self.host_text(r, 200)}")
         current, _ = self.read_folder(req.folder, branch)
-        listed, _ = self.list_folder(req.folder, branch)      # a removal is any path of the folder, not only a manifest (#616)
+        # A removal is any path of the folder, not only a manifest (#616). Only a plan that removes one walks the subfolders.
+        listed = self._walk(req.folder, branch)[0] if any(text is None for text in req.files.values()) else {}
         ops = []
         for path, text in req.files.items():
             if text is None:
                 if path in listed:
-                    ops.append({"operation": "delete", "path": path, "sha": self._blob_sha(path, branch)})
+                    ops.append({"operation": "delete", "path": path, "sha": listed[path][1]})
             elif path in current:
                 if current[path] != text:
                     ops.append({"operation": "update", "path": path, "sha": self._blob_sha(path, branch), "content": _b64(text)})

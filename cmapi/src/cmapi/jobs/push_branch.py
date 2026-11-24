@@ -27,10 +27,10 @@ def push_branch(ctx: AppContext, s: Session, job: JobRow) -> None:
         return
     with request_context(ctx, row, job):
         current, main = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
-        # A delete removes each path of the folder that its plan listed: a path added or removed since then is a changed
-        # folder too, or the merge would leave it in Git (#616).
+        # A delete removes each path of the folder that its plan listed, each a file: a path added or removed since then, or
+        # one that became a submodule, is a changed folder too, or the merge would leave it in Git (#616).
         moved = row.action == "delete" and \
-            set(ctx.git.list_folder(folder(row.cluster_id, row.namespace), main)[0]) != set(row.plan["files"])
+            ctx.git.list_folder(folder(row.cluster_id, row.namespace), main)[0] != dict.fromkeys(row.plan["files"], "blob")
         if current != row.plan["prev"] or moved:
             repo.move(row, E.BASE_CHANGED, "worker", f"folder changed in Git since the plan (at {main[:8]})")
             jobs.done(job)
