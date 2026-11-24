@@ -68,6 +68,9 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
         return
     prev = row.plan.get("prev") or {}
     now_files, base_sha = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
+    # A revert of a create is a delete, and a delete removes every file of the folder, at any depth (#616). A submodule cannot
+    # be removed inside the folder: push_branch then finds the folder is not the plan's, and the revert ends superseded.
+    listed = {} if prev else ctx.git.list_folder(folder(row.cluster_id, row.namespace), base_sha)[0]
     # Only after Git answered, and in the transaction that records the new request: an outage leaves the
     # request sync_failed, ready to be reverted again, never reverted with nothing behind it.
     by = job.payload.get("by", "worker") if job.payload else "worker"
@@ -77,6 +80,10 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
         if p not in prev:
             files[p] = None
     changes = {p: ("removed" if t is None else "changed") for p, t in files.items() if now_files.get(p) != t}
+    if not prev:
+        removed = {p: None for p, kind in listed.items() if kind == "blob"}
+        files.update(removed)
+        changes = {p: "removed" for p in removed}
     if not changes:
         repo.event(row, "revert_noop", "worker", "the folder already matches the state before the plan")
         jobs.done(job)

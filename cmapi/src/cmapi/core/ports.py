@@ -115,6 +115,7 @@ class GitProvider(Protocol):
     external_ci: bool
     post_statuses: bool
     def read_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]: ...  # files, commit sha
+    def list_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]: ...  # {path: blob|commit}, sha
     def push_request_branch(self, req: Any) -> Any: ...                  # BranchRequest -> PushResult
     def open_pr(self, branch: str, head: str, title: str, body: str) -> PrRef: ...
     def pr_status(self, pr: PrRef) -> PrStatus: ...

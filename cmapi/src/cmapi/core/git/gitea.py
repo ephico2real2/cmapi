@@ -76,6 +76,28 @@ class GiteaProvider(HostGitProvider):
                 files[str(directory / e["path"])] = base64.b64decode(r.json()["content"]).decode()
         return files, head
 
+    def list_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
+        """Every blob and submodule under path, at any depth (#616): each subtree read with _tree_entries, page by page, so no
+        recursive listing that the host may cut is read as complete."""
+        head = self._folder_head(ref)
+        tree = head
+        directory = PurePosixPath(path.strip("/"))
+        for part in directory.parts:
+            entry = next((e for e in self._tree_entries(tree) if e["path"] == part), None)
+            if entry is None or entry["type"] != "tree":
+                return {}, head
+            tree = entry["sha"]
+        listed: dict[str, str] = {}
+        pending = [(directory, tree)]
+        while pending:
+            where, oid = pending.pop()
+            for e in self._tree_entries(oid):
+                if e["type"] == "tree":
+                    pending.append((where / e["path"], e["sha"]))
+                else:
+                    listed[str(where / e["path"])] = e["type"]
+        return listed, head
+
     def push_request_branch(self, req: BranchRequest) -> PushResult:
         """Through Gitea's REST API, not the Git layer: the chart's stand-in, whose Gitea the cluster serves over plain http, which
         the Git layer refuses. A branch that exists is handled as the Git layer handles it (the arbitration of #286, row 3;
@@ -103,10 +125,11 @@ class GiteaProvider(HostGitProvider):
         if r.status_code != 201:
             raise GitUnavailable(f"create branch {branch}: {r.status_code} {self.host_text(r, 200)}")
         current, _ = self.read_folder(req.folder, branch)
+        listed, _ = self.list_folder(req.folder, branch)      # a removal is any path of the folder, not only a manifest (#616)
         ops = []
         for path, text in req.files.items():
             if text is None:
-                if path in current:
+                if path in listed:
                     ops.append({"operation": "delete", "path": path, "sha": self._blob_sha(path, branch)})
             elif path in current:
                 if current[path] != text:

@@ -27,7 +27,11 @@ def push_branch(ctx: AppContext, s: Session, job: JobRow) -> None:
         return
     with request_context(ctx, row, job):
         current, main = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
-        if current != row.plan["prev"]:
+        # A delete removes each path of the folder that its plan listed: a path added or removed since then is a changed
+        # folder too, or the merge would leave it in Git (#616).
+        moved = row.action == "delete" and \
+            set(ctx.git.list_folder(folder(row.cluster_id, row.namespace), main)[0]) != set(row.plan["files"])
+        if current != row.plan["prev"] or moved:
             repo.move(row, E.BASE_CHANGED, "worker", f"folder changed in Git since the plan (at {main[:8]})")
             jobs.done(job)
             jobs.enqueue("git_cleanup", request_id=row.request_id, cluster_id=row.cluster_id)

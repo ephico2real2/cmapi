@@ -16,15 +16,16 @@ write, Metadata read; Commit statuses read and write only with host CI or postSt
     GET  /repos/{o}/{r}/pulls?head=&state=open      POST /repos/{o}/{r}/pulls          GET /repos/{o}/{r}/pulls/{n}
     PUT  /repos/{o}/{r}/pulls/{n}/merge {sha}       PATCH /repos/{o}/{r}/pulls/{n}     POST /repos/{o}/{r}/issues/{n}/comments
     GET  /repos/{o}/{r}/commits/{sha}/status        POST /repos/{o}/{r}/statuses/{sha} GET /repos/{o}/{r}/pulls?state=open (list)
-    The API process, reads only: GET /repos/{o}/{r}/branches/{b}, /contents/{path}?ref=, /commits?sha=
+    The API process, reads only: GET /repos/{o}/{r}/branches/{b}, /contents/{path}?ref=, /commits?sha=,
+    /git/trees/{sha}[?recursive=1] (the folder a delete lists, #616)
 """
 from __future__ import annotations
 
 import base64
 from typing import Any, Iterable, Mapping
 
-from cmapi.core.git.base import (BranchRequest, CheckState, GitUnavailable, HeadMoved, HostGitProvider, MergeCheck, NotMergeable,
-                                 PlatformRefused, PushResult)
+from cmapi.core.git.base import (BranchRequest, CheckState, GitUnavailable, HeadMoved, HostGitProvider, IncompleteList, MergeCheck,
+                                 NotMergeable, PlatformRefused, PushResult)
 from cmapi.core.ports import PrRef, PrStatus
 
 
@@ -76,6 +77,38 @@ class GitHubProvider(HostGitProvider):
                     f = self._call("read_file", "GET", f"{self._repo()}/contents/{e['path']}", params={"ref": head})
                     files[e["path"]] = base64.b64decode(f.json()["content"]).decode()
         return files, head
+
+    def _tree(self, oid: str, *, recursive: bool = False) -> list[dict[str, Any]]:
+        """GET git/trees/{oid}: the entries of one tree, or of every tree under it. "If truncated is true in the response then
+        the number of items in the tree array exceeded our maximum limit" (100,000 entries or 7 MB recursive; REST docs,
+        2026-11): IncompleteList, never a short list read as complete."""
+        r = self._call("list_folder", "GET", f"{self._repo()}/git/trees/{oid}", params={"recursive": "1"} if recursive else None)
+        if r.status_code != 200:
+            raise GitUnavailable(f"read tree {oid[:8]}: HTTP {r.status_code}")
+        body = r.json()
+        if body.get("truncated"):
+            raise IncompleteList(f"the tree {oid[:8]} is truncated: past GitHub's limit for a tree")
+        return body["tree"]
+
+    def list_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
+        """The Git Trees API, not Contents: a tree gives each entry's Git type and mode, and Contents stops at 1,000 entries.
+        From the commit's root tree (GET git/commits/{sha}), the walk to the folder reads one tree per part, then the folder's
+        tree with recursive=1."""
+        if self.workspace is not None:
+            return self.workspace.list_folder(path, ref)
+        head = self._folder_head(ref)
+        c = self._call("list_folder", "GET", f"{self._repo()}/git/commits/{head}")
+        if c.status_code != 200:
+            raise GitUnavailable(f"read commit {head[:8]}: HTTP {c.status_code}")
+        directory = path.strip("/")
+        tree = c.json()["tree"]["sha"]
+        for part in filter(None, directory.split("/")):
+            entry = next((e for e in self._tree(tree) if e["path"] == part), None)
+            if entry is None or entry["type"] != "tree":
+                return {}, head
+            tree = entry["sha"]
+        prefix = f"{directory}/" if directory else ""
+        return {prefix + e["path"]: e["type"] for e in self._tree(tree, recursive=True) if e["type"] in ("blob", "commit")}, head
 
     def log(self, n: int = 20) -> list[str]:
         if self.workspace is not None:

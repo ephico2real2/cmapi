@@ -146,6 +146,7 @@ class FakeGit(HostGitProvider):
         self.owners: dict[str, tuple[str, str]] = {}
         self.based_on_sha: dict[str, str] = {}
         self.pushes: list[str] = []
+        self.submodules: set[str] = set()          # paths whose entry is a submodule (a gitlink), for list_folder
 
     def _check(self):
         if self.down:
@@ -164,7 +165,7 @@ class FakeGit(HostGitProvider):
         self._check()
         return self.heads.get(branch) if branch in self.branches else None
 
-    def read_folder(self, path, ref=None):
+    def _branch_of(self, ref):
         self._check()
         ref = ref or "main"
         # Only a branch that still exists: a merged branch is deleted and its head stays in self.heads, and a later head with
@@ -173,11 +174,22 @@ class FakeGit(HostGitProvider):
         if branch is None:
             from cmapi.core.git.base import GitUnavailable
             raise GitUnavailable(f"no branch {ref}")
+        return branch
+
+    def read_folder(self, path, ref=None):
+        branch = self._branch_of(ref)
         # The .yaml files directly in the folder, as github.py, gitea.py and workspace.py list one folder, not its subfolders (#578).
         prefix = path.rstrip("/") + "/"
         files = {p: t for p, t in self.branches[branch].items()
                  if p.startswith(prefix) and "/" not in p[len(prefix):] and p.endswith(".yaml")}
         return files, self.heads[branch]
+
+    def list_folder(self, path, ref=None):
+        """Every path under the folder, at any depth, as the real listings give it (#616). A path in submodules is one."""
+        branch = self._branch_of(ref)
+        prefix = path.rstrip("/") + "/"
+        return ({p: ("commit" if p in self.submodules else "blob") for p in self.branches[branch] if p.startswith(prefix)},
+                self.heads[branch])
 
     def contains(self, revision, sha):
         self._check()

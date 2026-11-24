@@ -205,6 +205,13 @@ class HostGitProvider:
         files, _ = self.read_folder(folder, ref)
         return files
 
+    def list_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
+        """Every entry under path at ref, at any depth, that is not a folder, and the commit sha: {repository path: Git object
+        type}, "blob" for a file, an executable or a symlink and "commit" for a submodule. read_folder reads cmapi's manifests
+        (the .yaml files directly in the folder); this lists what a delete removes, whatever made it (#616). IncompleteList
+        when the host cannot give each entry."""
+        raise NotImplementedError
+
     def branch_head(self, branch: str) -> str | None:
         raise NotImplementedError
 

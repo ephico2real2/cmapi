@@ -139,6 +139,9 @@ def _merged(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow,
     after_apply = row.status in AFTER_APPLY
     on_main = ctx.git.tree_files(sha, folder(row.cluster_id, row.namespace)) if sha else None
     fulfilled = on_main == planned(row)
+    if fulfilled and row.action == "delete":
+        # A delete's folder is empty at the merge: no file of any kind, at any depth, is left of it (#616).
+        fulfilled = not ctx.git.list_folder(folder(row.cluster_id, row.namespace), sha)[0]
     row.merge_sha = sha or None
     how = "adopted: merged on the host" if adopted else "merged"
     repo.event(row, "merge_verified", "worker", f"{how} {sha[:8]}; the folder at it {'is' if fulfilled else 'is not'} the plan's",

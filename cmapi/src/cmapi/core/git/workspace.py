@@ -324,6 +324,23 @@ class GitWorkspace:
             head = self._resolve(ref)
             return self._folder(head, path), head
 
+    def _entries(self, treeish: str, path: str) -> dict[str, str]:
+        """git ls-tree -r: every blob and submodule under path, at any depth, with its object type. Trees only: a partial clone
+        (blob:none) fetches no blob for it. Git never descends through a symlink, which is one blob."""
+        path = path.strip("/")
+        listing = self._m("ls-tree", "-r", "-z", treeish, "--", f"{path}/" if path else ".").stdout.decode()
+        entries: dict[str, str] = {}
+        for entry in filter(None, listing.split("\0")):
+            meta, name = entry.split("\t", 1)
+            entries[name] = meta.split(" ")[1]
+        return entries
+
+    def list_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
+        """Every file and submodule under path at ref, at any depth ({path: "blob" | "commit"}), and that commit's sha (#616)."""
+        with self._lock:
+            head = self._resolve(ref)
+            return self._entries(head, path), head
+
     def branch_head(self, branch: str) -> str | None:
         """The remote branch's head, fetched. The default branch, or a request branch."""
         if branch == self.default_branch:
@@ -423,14 +440,22 @@ class GitWorkspace:
                 raise
         with Op("commit", base_sha=base, plan_hash=req.plan_hash) as op:
             try:
-                for rel, text in req.files.items():
+                # A removal is git rm, not an unlink: it removes a file, an executable or a symlink itself, never what a symlink
+                # points to, and matches nothing beyond a symlink (#616, #446). It stages the removal, and git add stages each
+                # written file. Literal pathspecs: a "*" in a name is a name, never a glob over the folder.
+                literal = {**self._env, "GIT_LITERAL_PATHSPECS": "1"}
+                removed = [rel for rel, text in req.files.items() if text is None]
+                written = [rel for rel, text in req.files.items() if text is not None]
+                if removed:
+                    self._run("rm", "--quiet", "--ignore-unmatch", "--pathspec-from-file=-", "--pathspec-file-nul", cwd=path,
+                              input="".join(f"{rel}\0" for rel in removed).encode(), env=literal)
+                for rel in written:
                     target = _inside(path, rel)
-                    if text is None:
-                        target.unlink(missing_ok=True)
-                    else:
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        target.write_text(text)
-                self._run("add", "--all", "--", folder, cwd=path)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(req.files[rel])
+                if written:
+                    self._run("add", "--pathspec-from-file=-", "--pathspec-file-nul", cwd=path,
+                              input="".join(f"{rel}\0" for rel in written).encode(), env=literal)
                 staged = {p for p in self._run("diff", "--cached", "--name-only", "-z", cwd=path).stdout.decode().split("\0") if p}
                 if not staged:
                     raise GitFailed(f"the plan changes nothing on {base[:8]}: nothing to commit")
