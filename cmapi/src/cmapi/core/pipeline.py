@@ -259,8 +259,12 @@ class Pipeline:
             check_not_unmanaged(ns, cache.namespace(ns))
         requester = self.requester_for(who, body.get("onBehalfOf"))
         if action == "create":
-            # The label is only written at create; refuse here, not as a 422 from the API server at apply.
-            label_value_of(requester.person.username)
+            # The label is only written at create; refuse here, not as a 422 from the API server at apply. The refusal is
+            # explicit: a ValueError that escapes a route is the service's fault, 500 internal-error (#648).
+            try:
+                label_value_of(requester.person.username)
+            except ValueError as exc:
+                raise Problem.unprocessable("validation-failed", str(exc)[:300]) from exc
         operator = self.cfg.roles.is_operator(who, env)
         prev_files, base_sha = self._read_folder(cluster_id, ns)
         prev_ns = namespace_doc(prev_files)

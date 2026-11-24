@@ -14,8 +14,8 @@ from cmapi.core.docs import DocumentedRouter
 from cmapi.core.errors import Problem
 from cmapi.core.identity.claims import Identity
 from cmapi.core.listquery import ListQuery
-from cmapi.core.models import (Api, ChangeRequest, NamespaceCreate, NamespaceList, NamespacePatch, NamespaceView,
-                               PlanView)
+from cmapi.core.models import (ChangeRequest, NamespaceCreate, NamespaceList, NamespacePatch, NamespaceView, PlanView,
+                               RequestBody)
 from cmapi.core.pipeline import folder_etag, metadata_of, namespace_doc, require_if_match
 from cmapi.core.rejections import record_warned, refusals
 from cmapi.core.render.manifests import folder
@@ -57,19 +57,19 @@ SearchLimit = Annotated[int | None, Query(ge=1, le=SEARCH_LIMIT_MAX, examples=[S
                                                       "three, every namespace is returned, by name.")]
 
 
-class ExtendBody(Api):
+class ExtendBody(RequestBody):
     days: int | None = Field(default=None, description="Days to extend by, up to the environment's limit", examples=[30])
     until: str | None = Field(default=None, description="A date to extend to", examples=["2026-12-15"])
     justification: str | None = Field(default=None, description="Why", examples=["Another sprint"])
 
 
-class SetBody(Api):
+class SetBody(RequestBody):
     until: date = Field(description="The expiry date: after today, and at most the environment's maxExtensionDays away",
                         examples=["2026-12-15"])
     justification: str | None = Field(default=None, description="Why", examples=["A test namespace for one sprint"])
 
 
-class PermanentBody(Api):
+class PermanentBody(RequestBody):
     justification: str | None = Field(default=None, description="Why", examples=["The service went to production use"])
 
 

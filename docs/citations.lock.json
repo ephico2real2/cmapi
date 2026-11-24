@@ -511,13 +511,13 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|260-260": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|264-264": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|268-268": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|477-477": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|481-481": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|528-528": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|532-532": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|65-65": [
@@ -532,51 +532,51 @@
   "        \"approval\": approval_view(req, ledger), \"requester\": {k: v for k, v in row.requester.items() if k != \"submittedBySub\"},"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|141-142": [
-  "    app.include_router(health.router)",
-  "    app.include_router(health.version_router)"
+  "        await self.app(scope, receive, send)",
+  ""
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|144-146": [
-  "    authed_routers = (me.router, requests.router, admin.router, *cfg.plugins.routers())",
-  "    for r in authed_routers:",
-  "        app.include_router(r, dependencies=[Depends(authed)])"
+  "def instance_facts(cfg: InstanceConfig, cluster_environments: Mapping[str, str] | None = None) -> InstanceFacts:",
+  "    \"\"\"The create example's target and the expiry rules of the API document (#479). cluster_environments: the writable",
+  "    clusters of clusters.yaml. The target is CRC when it is one of them, else the first of them, with its environment,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|179-180": [
-  "        if s.metrics_port:",
-  "            start_metrics(s.metrics_port, ctx.cfg.name, s.component)"
+  "    public_url = cfg.raw_instance[\"instance\"].get(\"publicUrl\") or URL_VARIABLE",
+  "    problem_base = type_base(cfg.raw_instance[\"instance\"])"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|213-215": [
-  "    @app.exception_handler(Problem)",
-  "    async def problem_handler(_: Request, exc: Problem) -> Response:",
-  "        return problem_response(exc, dict(unauthenticated_headers(exc)))"
+  "        ctx.shutdown()",
+  "",
+  "    docs_cfg = (ctx.cfg.raw_instance[\"instance\"].get(\"docs\") or {})"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|297-298": [
-  "    if docs_enabled:",
-  "        _add_docs(app, ctx, docs_cfg, authed, problem_response)"
+  "",
+  "        FastAPI raises its 400 \"There was an error parsing the body\" from whatever reading the body raised"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|318-332": [
-  "def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None:",
-  "    \"\"\"/problems and /problems/{code}: what the `type` of a problem resolves to (RFC 9457, section 4; #182).",
+  "            if isinstance(cause, (ValueError, RecursionError)):",
+  "                return problem_response(validation_failed([{\"field\": \"body\", \"message\": \"the body cannot be read as JSON\",",
+  "                                                            \"code\": \"json_invalid\"}]))",
+  "            if cause is None:",
+  "                return problem_response(Problem(400, \"bad-request\", str(exc.detail)[:300]), dict(exc.headers or {}))",
+  "        log.error(\"framework_refusal\", method=request.method, status=exc.status_code, detail=str(exc.detail)[:200],",
+  "                  cause=type(cause).__name__ if cause else None,",
+  "                  route=getattr(request.scope.get(\"route\"), \"path_format\", \"unmatched\"))",
+  "        return problem_response(Problem(500, \"internal-error\", PROBLEMS[\"internal-error\"][1]))",
   "",
-  "    Public always, also with docs.public false or docs.enabled false: a caller with no token gets the problem unauthenticated,",
-  "    and its type must resolve for that caller. The pages hold the registry of core/docs.py and nothing of the instance's data.",
-  "    \"\"\"",
-  "    @app.get(\"/problems\", include_in_schema=False)",
-  "    def problems_index() -> Response:",
-  "        return HTMLResponse(problems_index_html(problem_base, ctx.cfg.name))",
-  "",
-  "    @app.get(\"/problems/{code}\", include_in_schema=False)",
-  "    def problem_page(code: str) -> Response:",
-  "        if code not in PROBLEMS:",
-  "            raise Problem(404, \"object-not-found\", \"No such problem type. /problems lists each one\")",
-  "        return HTMLResponse(problem_html(code, problem_base, ctx.cfg.name))"
+  "    _add_problem_pages(app, ctx, problem_base)",
+  "    if docs_enabled:",
+  "        _add_docs(app, ctx, docs_cfg, authed, problem_response)",
+  "    _serve_head_with_get(app)",
+  "    return app"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|343-343": [
-  "    guard = [] if docs_cfg.get(\"public\", True) else [Depends(authed)]"
+  "    GET does not have, and a 405 lists HEAD in Allow. uvicorn sends no content for a HEAD (h11_impl.py and httptools_impl.py"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/main.py|393-395": [
-  "    @app.get(\"/docs/oauth2-redirect\", include_in_schema=False)",
-  "    def docs_redirect() -> Response:",
-  "        return get_swagger_ui_oauth2_redirect_html()"
+  "        headers = {\"ETag\": etag, \"Cache-Control\": \"no-cache\"}",
+  "        if not_modified(request.headers, etag):",
+  "            return Response(status_code=304, headers=headers)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|117-117": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
@@ -866,7 +866,7 @@
  "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|66-66": [
   "            groups=frozenset(claims.get(\"groups\", [])),"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|139-140": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|167-168": [
   "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
   "                                         \"scopes\": \"openid\"})"
  ],

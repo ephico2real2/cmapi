@@ -24,12 +24,14 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from decimal import ROUND_CEILING, Decimal, localcontext
+from decimal import ROUND_CEILING, Decimal, DecimalException, localcontext
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping
 
 import yaml
 from pydantic import BaseModel, ConfigDict, StrictBool
+
+from cmapi.core.errors import Problem
 
 # --------------------------------------------------------------------------- quantities
 
@@ -42,6 +44,10 @@ _SUFFIX = {
 }
 _QTY = re.compile(r"^\+?([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|E|[eE][+-]?[0-9]+)?$")
 _NANO = Decimal("1e-9")
+# The smallest quantity that qty refuses: 10**1000000, one past Decimal's default Emax, so every quantity that qty could
+# hold before still parses. Kubernetes takes larger ones (suffix.go reads the exponent with strconv.ParseInt(..., 10, 64)),
+# but qty holds a quantity to the nano-unit, one digit for each power of ten: "1e2147483647" took 904 MB before it failed.
+_TOO_LARGE = Decimal("1e1000000")
 
 
 def qty(value: str | int | float) -> Decimal:
@@ -50,21 +56,39 @@ def qty(value: str | int | float) -> Decimal:
     Two values that this function gives as equal are one amount for Kubernetes, and no others are: the approval of a value
     beyond the tier depends on it. So no digit is lost in the multiplication (Decimal's default is 28 digits), and a fraction
     below one nano-unit is rounded up, as apimachinery's ParseQuantity does ("2.0000000000000000000000000001" is 2000000001n).
+
+    A quantity of _TOO_LARGE or more, or one whose exponent Decimal cannot hold, is a ValueError with a text for the caller,
+    not decimal's own error (#648, review of PR #652).
     """
     m = _QTY.fullmatch(str(value).strip())
     if not m:
         raise ValueError(f"not a Kubernetes quantity: {value!r}")
+    out_of_range = f"quantity out of range (cmapi takes one below 1e1000000): {value!r}"
     suffix = m.group(2) or ""
-    if len(suffix) > 1 and suffix[0] in "eE" and suffix[1] != "i":          # a decimal exponent, not the suffix E or Ei
-        amount = Decimal(m.group(1) + suffix)
-    else:
-        number, factor = Decimal(m.group(1)), _SUFFIX[suffix]
+    try:
+        if len(suffix) > 1 and suffix[0] in "eE" and suffix[1] != "i":          # a decimal exponent, not the suffix E or Ei
+            amount = Decimal(m.group(1) + suffix)
+        else:
+            number, factor = Decimal(m.group(1)), _SUFFIX[suffix]
+            with localcontext() as exact:
+                exact.prec = max(28, len(number.as_tuple().digits) + len(factor.as_tuple().digits))
+                amount = number * factor
+        if amount >= _TOO_LARGE:                # checked before quantize, which writes one digit per power of ten
+            raise ValueError(out_of_range)
         with localcontext() as exact:
-            exact.prec = max(28, len(number.as_tuple().digits) + len(factor.as_tuple().digits))
-            amount = number * factor
+            exact.prec = max(28, len(amount.as_tuple().digits), amount.adjusted() + 10)
+            return amount.quantize(_NANO, rounding=ROUND_CEILING)
+    except DecimalException:                    # an exponent Decimal cannot hold, or a product or rounding past Emax
+        raise ValueError(out_of_range) from None
+
+
+def _off_step(value: Decimal, step: Decimal) -> bool:
+    """Whether value is not a whole number of steps. Decimal's % stops with DivisionImpossible when the integer quotient has
+    more digits than the context's precision, 28 by default, and a requested value can have more. Both come from qty, so
+    both are whole nano-units, and the quotient has at most as many digits as value."""
     with localcontext() as exact:
-        exact.prec = max(28, len(amount.as_tuple().digits), amount.adjusted() + 10)
-        return amount.quantize(_NANO, rounding=ROUND_CEILING)
+        exact.prec = max(28, len(value.as_tuple().digits) + 1)
+        return value % step != 0
 
 
 # --------------------------------------------------------------------------- limit keys
@@ -126,6 +150,27 @@ def flatten_limits(limits: Mapping[str, Mapping[str, Mapping[str, str]]] | None)
 def _same(a: str | None, b: str | None) -> bool:
     """Two quantities are the same amount: "1" and "1000m" are, a missing value and a value are not."""
     return (a is None and b is None) or (a is not None and b is not None and qty(a) == qty(b))
+
+
+def requested_qty(value: str) -> Decimal:
+    """qty of a value that the request sends. One that is not a quantity is the caller's to correct: 422 validation-failed
+    with qty's text (#648). A ValueError of qty elsewhere, on a value of Git, the catalog or the cluster, is the service's
+    fault, and answers 500 internal-error."""
+    try:
+        return qty(value)
+    except ValueError as exc:
+        raise Problem.unprocessable("validation-failed", str(exc)[:300]) from exc
+
+
+def _kept(value: str, approved: str | None) -> bool:
+    """Whether a value of the request is the amount that Git holds for its key (approved: None when Git holds none). A value
+    with other text than Git's is the request's own, so it is parsed as one (requested_qty); a value with Git's text is
+    Git's (#648)."""
+    if approved is None:
+        return False
+    if value != approved:
+        requested_qty(value)
+    return _same(value, approved)
 
 
 def _unequal_fixed_defaults(parts: Mapping[str, Mapping[str, str]]) -> list[str]:
@@ -354,7 +399,7 @@ class TierCatalog:
                     p.append(f"{env}: custom.min.{k} above custom.max.{k}")
                 if k in b.step and qty(b.step[k]) > 0:
                     for part in ("min", "max"):
-                        if k in getattr(b, part) and qty(getattr(b, part)[k]) % qty(b.step[k]) != 0:
+                        if k in getattr(b, part) and _off_step(qty(getattr(b, part)[k]), qty(b.step[k])):
                             p.append(f"{env}: custom.{part}.{k} is not a multiple of custom.step.{k}")
 
             # each tier, resolved
@@ -497,11 +542,11 @@ class TierCatalog:
         checked again: a later, lower bound must not refuse a change of a label on a namespace that was approved before it."""
         b, bad = self.bounds(env), []
         for k in sorted(values):
-            if k in approved and _same(values[k], approved[k]):
+            if _kept(values[k], approved.get(k)):
                 continue
-            v = qty(values[k])
+            v = requested_qty(values[k])
             lo, hi, st = (qty(x) if x is not None else None for x in (b.min.get(k), b.max.get(k), b.step.get(k)))
-            if (lo is not None and v < lo) or (hi is not None and v > hi) or (st and v % st != 0):
+            if (lo is not None and v < lo) or (hi is not None and v > hi) or (st and _off_step(v, st)):
                 bad.append({"key": k, "value": values[k], "min": b.min.get(k), "max": b.max.get(k), "step": b.step.get(k)})
         return bad
 
@@ -521,7 +566,7 @@ class TierCatalog:
         approved = approved or {}
         allowed = [*self.sizable, *self.overridable_quota]
         # A value that Git holds stays valid when the catalog no longer names its key: the approval stands until a change.
-        not_sizable = sorted(k for k in set(hard) - set(allowed) if not _same(hard[k], approved.get(k)))
+        not_sizable = sorted(k for k in set(hard) - set(allowed) if not _kept(hard[k], approved.get(k)))
         if not_sizable:
             raise TierError("quota-key-not-sizable", f"Only {allowed} can be requested",
                             keys=not_sizable, sizable=self.sizable, overridable=self.overridable_quota)
@@ -554,14 +599,14 @@ class TierCatalog:
             # A pvc value that Git holds from before the switch went off is dropped, not refused, so a change of a label
             # still goes through; the plan then removes <ns>-limits-storage. A new pvc value is refused.
             pvc = {k for k in asked if (limit_key_parts(k) or ("",))[0] == STORAGE_KIND}
-            new = sorted(k for k in pvc if not _same(asked[k], approved.get(k)))
+            new = sorted(k for k in pvc if not _kept(asked[k], approved.get(k)))
             if new:
                 raise TierError("storage-limits-off",
                                 f"Storage limits are off in environment {env}: {', '.join(new)} cannot be set",
                                 keys=new, environment=env)
             asked = {k: v for k, v in asked.items() if k not in pvc}
         not_overridable = sorted(k for k in set(asked) - set(self.overridable_limits)
-                                 if limit_key_parts(k) is None or not _same(asked[k], approved.get(k)))
+                                 if limit_key_parts(k) is None or not _kept(asked[k], approved.get(k)))
         if not_overridable:
             raise TierError("limit-key-not-overridable", f"Only {self.overridable_limits} can be requested",
                             keys=not_overridable, overridable=self.overridable_limits)
