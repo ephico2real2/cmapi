@@ -39,7 +39,7 @@ Each client that gets a token for the API has the default scopes `basic`, `cmapi
 
 | Scope | Mapper | Claim in the access token | cmapi reads it as |
 |---|---|---|---|
-| `cmapi-audience` | Audience | `aud` contains `cmapi-nonprod` | The audience check (`cmapi/src/cmapi/core/auth.py:184-186`) |
+| `cmapi-audience` | Audience | `aud` contains `cmapi-nonprod` | The audience check (`cmapi/src/cmapi/core/auth.py:199-201`) |
 | `roles` | Client roles | `resource_access.cmapi-nonprod.roles` | The roles of the caller (`cmapi/src/cmapi/core/identity/claims.py:54`) |
 | `cmapi-identity` | Group membership, full path | `groups`, for example `/cmapi/app-cmapi-rbac-requester` | The approving groups (`claims.py:66`) |
 | `cmapi-identity` | User attribute `employeeId` | `employee_id` | The requester's record (`claims.py:64`) |
@@ -86,7 +86,7 @@ From the realm settings in the import (`10-realm-import.yaml`, under `realm:`).
 | Swagger UI's client session | 1 hour idle, 8 hours at most |
 | Wrong passwords | Temporary lockout after 10 failures, in this realm only, never in LDAP |
 
-cmapi accepts a token until its `exp`, with a leeway of 30 seconds (`auth.py:160`, `:179-180`). It keeps the signing keys for 10 minutes, and keeps verifying with the last good keys when Keycloak does not answer (`auth.py:1-8`). A signing key of the realm that cannot be loaded is skipped, counted in `cmapi_jwks_keys_skipped_total` and logged as `jwks_key_skipped`, and the other keys still verify (`auth.py:63-72`, #656). RFC 7517, section 5: implementations "SHOULD ignore JWKs within a JWK Set that use "kty" (key type) values that are not understood by them, that are missing required members, or for which values are out of the supported ranges".
+cmapi accepts a token until its `exp`, with a leeway of 30 seconds (`auth.py:175`, `:194-195`). It keeps the signing keys for 10 minutes, and keeps verifying with the last good keys when Keycloak does not answer (`auth.py:1-8`). cmapi uses only the realm's RSA signing keys for RS256, or with no `alg`: an encryption key and a key for another algorithm are passed over, not counted. RFC 8725, section 3.1: "each key MUST be used with exactly one algorithm". A key for RS256 that cannot be loaded, whatever the error, that has no `kid` that is a string, or that holds private parameters is skipped, counted in `cmapi_jwks_keys_skipped_total` and logged as `jwks_key_skipped`, and the other keys still verify (`auth.py:66-87`, #656). The log line has the kid, the type of the error and the names of the key's parameters, and never a value of the key. A token that names a skipped key is 401, "unknown signing key": no other key verifies it. RFC 7517, section 5: implementations "SHOULD ignore JWKs within a JWK Set that use "kty" (key type) values that are not understood by them, that are missing required members, or for which values are out of the supported ranges".
 
 ## How cmapi reaches Keycloak
 
@@ -100,7 +100,7 @@ Both calls verify Keycloak's certificate against the CA in ConfigMap `cmapi-trus
 
 ## From sign-in to a permitted call
 
-Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:139-140`, `core/auth.py:203-208`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
+Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:139-140`, `core/auth.py:218-223`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
 
 ```text
 Browser (Swagger UI at /docs)            Keycloak, realm cmapi                 cmapi-api

@@ -109,7 +109,8 @@ jobs:
   dependency-audit:
     # #655: every Python package that the image ships (cmapi/requirements.txt, the hashed lock the Containerfile installs), that
     # the service tests run on, and that the reference code installs, against the OSV database by pip-audit. Any advisory
-    # fails the job; there is no ignore list. pip check in the same script fails it when the lock no longer satisfies
+    # fails the job (exit 1), and so does a set that OSV gave no answer for after three attempts (exit 3: run the job again);
+    # there is no ignore list. pip check in the same script fails it when the lock no longer satisfies
     # cmapi/pyproject.toml. A developer runs the same command: cmapi/audit.sh.
     runs-on: ubuntu-24.04
     steps:

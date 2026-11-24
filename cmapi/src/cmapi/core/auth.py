@@ -15,6 +15,7 @@ from typing import Any, Callable, Mapping, Protocol
 
 import httpx
 import jwt
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from fastapi import Depends, Request
 from fastapi.security import OAuth2AuthorizationCodeBearer
 from prometheus_client import Counter
@@ -56,19 +57,33 @@ class Jwks:
 
     @staticmethod
     def _signing_keys(raw: list[dict[str, Any]]) -> dict[str, jwt.PyJWK]:
-        # Keycloak's JWKS also holds an RSA-OAEP key with use=enc, which PyJWK cannot load. A signing key that cannot be loaded
-        # is skipped, counted and logged, and the others still verify (#656). RFC 7517, section 5: "Implementations SHOULD
-        # ignore JWKs within a JWK Set that use "kty" (key type) values that are not understood by them, that are missing
-        # required members, or for which values are out of the supported ranges." PyJWT 2.15 raises a PyJWTError for such a key.
+        # cmapi verifies RS256 only, so it uses only the RSA signing keys for RS256. Keycloak's JWKS also holds an RSA-OAEP key
+        # with use=enc, and can hold a key for another algorithm: both are passed over. RFC 8725, section 3.1: "each key MUST be
+        # used with exactly one algorithm". A key for RS256 that cannot be used is skipped, counted and logged, and the others
+        # still verify (#656). RFC 7517, section 5: "Implementations SHOULD ignore JWKs within a JWK Set that use "kty" (key
+        # type) values that are not understood by them, that are missing required members, or for which values are out of the
+        # supported ranges." A skipped key is in no dictionary: a token that names it is 401, and no other key verifies it.
         keys: dict[str, jwt.PyJWK] = {}
         for k in raw:
             if not isinstance(k, dict) or k.get("use", "sig") != "sig" or k.get("kty") != "RSA":
                 continue
+            if k.get("alg", "RS256") != "RS256":                    # "alg" is optional (RFC 7517, section 4.4)
+                continue
+            kid = k.get("kid")
             try:
-                keys[k["kid"]] = jwt.PyJWK(k)
-            except (KeyError, jwt.PyJWTError) as exc:
-                JWKS_KEYS_SKIPPED.inc()
-                log.warning("jwks_key_skipped", kid=str(k.get("kid"))[:100], error=f"{type(exc).__name__}: {str(exc)[:200]}")
+                key = jwt.PyJWK(k)
+                if not isinstance(kid, str) or not kid:
+                    why = "kid is not a non-empty string"           # a token's kid is one (RFC 7515, section 4.1.4)
+                elif not isinstance(key.key, RSAPublicKey):
+                    why = "not a public key"                        # private parameters: PyJWT cannot verify with it
+                else:
+                    keys[kid] = key
+                    continue
+            except Exception as exc:                                # noqa: BLE001 - PyJWT 2.10.1 raised ValueError and TypeError too
+                why = type(exc).__name__
+            JWKS_KEYS_SKIPPED.inc()
+            # Never the exception's message: PyJWT's can print the member itself, with its key material.
+            log.warning("jwks_key_skipped", kid=str(kid)[:100], error=why, members=sorted(str(m)[:20] for m in k)[:20])
         return keys
 
     def _refresh(self) -> bool:

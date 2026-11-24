@@ -128,23 +128,23 @@ request with a bearer token
 
 ### Step 1: the token
 
-The core routers and the plugin routers have the token check as a dependency (`cmapi/src/cmapi/main.py:144-146`). These routes answer without a token. `/healthz`, `/readyz` and `/api/v1/version` come from the health routers, which have no such dependency (`cmapi/src/cmapi/main.py:141-142`). `/problems` and `/problems/{code}` are always public (`cmapi/src/cmapi/main.py:318-332`). `/docs/oauth2-redirect` has no guard, and exists unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:393-395`). The seven other docs paths are public unless `docs.public` is `false` (`cmapi/src/cmapi/main.py:343`). They are `/docs`, `/redoc`, `/openapi.json`, `/openapi.yaml`, `/docs/changelog`, `/docs/redoc-start.js` and `/docs/swagger.css`. They exist unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:297-298`). `cmapi/tests/service/test_review_c_authz.py:15-22` lists these routes as `PUBLIC`, with the `HEAD` of each (#605), and every other route must answer 401 with no token. `/metrics` is not an API route: it is served on its own port (`cmapi/src/cmapi/main.py:179-180`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:164-200`). It verifies the token offline against the signing keys of the realm.
+The core routers and the plugin routers have the token check as a dependency (`cmapi/src/cmapi/main.py:144-146`). These routes answer without a token. `/healthz`, `/readyz` and `/api/v1/version` come from the health routers, which have no such dependency (`cmapi/src/cmapi/main.py:141-142`). `/problems` and `/problems/{code}` are always public (`cmapi/src/cmapi/main.py:318-332`). `/docs/oauth2-redirect` has no guard, and exists unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:393-395`). The seven other docs paths are public unless `docs.public` is `false` (`cmapi/src/cmapi/main.py:343`). They are `/docs`, `/redoc`, `/openapi.json`, `/openapi.yaml`, `/docs/changelog`, `/docs/redoc-start.js` and `/docs/swagger.css`. They exist unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:297-298`). `cmapi/tests/service/test_review_c_authz.py:15-22` lists these routes as `PUBLIC`, with the `HEAD` of each (#605), and every other route must answer 401 with no token. `/metrics` is not an API route: it is served on its own port (`cmapi/src/cmapi/main.py:179-180`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:179-215`). It verifies the token offline against the signing keys of the realm.
 
 | Check | Source | Refusal |
 |---|---|---|
-| The `Authorization: Bearer` header is present | `auth.py:215-217` | 401 `unauthenticated`, "Bearer token required" |
-| The token is a JWT, and its header parses. A header nested too deep to parse is refused too, never HTTP 500 (#655) | `auth.py:165-169` | 401 `unauthenticated`, "Invalid token" |
-| The algorithm is RS256 and the header has a `kid` | `auth.py:170-172` | 401 `unauthenticated`, "Invalid token: unsupported algorithm" |
-| The `kid` is a signing key of the realm | `auth.py:173-177` | 401 `unauthenticated`, "Invalid token: unknown signing key" |
-| The signing keys cannot be read and this key is not cached | `auth.py:141-143` | 503 `idp-unavailable`, with `retryAfter` 30. Never 401 |
-| The signature is valid, and `exp`, `iat`, `iss`, `aud` and `sub` are present | `auth.py:179-180`, `:190-192` | 401 `unauthenticated`, "Invalid token" |
-| The header lists no critical extension (`crit`) that cmapi does not understand: RFC 7515, section 4.1.11, "If any of the listed extension Header Parameters are not understood and supported by the recipient, then the JWS is invalid". PyJWT checks it from 2.12.0 (#655) | `auth.py:179-180`, `:190-192` | 401 `unauthenticated`, "Invalid token" |
-| The token is not expired, with a leeway of 30 seconds | `auth.py:181-183` | 401 `unauthenticated`, "Token expired" |
-| `aud` contains the audience of the instance | `auth.py:184-186` | 401 `unauthenticated`, "Token is not for audience cmapi-nonprod" |
-| `iss` is the issuer of the instance | `auth.py:187-189` | 401 `unauthenticated`, "Token issuer is not trusted" |
-| The token is an access token: its JOSE header `typ` is `at+jwt` or `application/at+jwt` (RFC 9068, section 4), and its claim `typ` is `Bearer` or absent. With `auth.acceptLegacyTokenType: true` in `instance.yaml`, the header `JWT` with the claim `Bearer` passes also | `auth.py:194-199` | 401 `unauthenticated`, "Token is not an access token" |
+| The `Authorization: Bearer` header is present | `auth.py:230-232` | 401 `unauthenticated`, "Bearer token required" |
+| The token is a JWT, and its header parses. A header nested too deep to parse is refused too, never HTTP 500 (#655) | `auth.py:180-184` | 401 `unauthenticated`, "Invalid token" |
+| The algorithm is RS256 and the header has a `kid` | `auth.py:185-187` | 401 `unauthenticated`, "Invalid token: unsupported algorithm" |
+| The `kid` is a signing key of the realm | `auth.py:188-192` | 401 `unauthenticated`, "Invalid token: unknown signing key" |
+| The signing keys cannot be read and this key is not cached | `auth.py:156-158` | 503 `idp-unavailable`, with `retryAfter` 30. Never 401 |
+| The signature is valid, and `exp`, `iat`, `iss`, `aud` and `sub` are present | `auth.py:194-195`, `:205-207` | 401 `unauthenticated`, "Invalid token" |
+| The header lists no critical extension (`crit`) that cmapi does not understand: RFC 7515, section 4.1.11, "If any of the listed extension Header Parameters are not understood and supported by the recipient, then the JWS is invalid". PyJWT checks it from 2.12.0 (#655) | `auth.py:194-195`, `:205-207` | 401 `unauthenticated`, "Invalid token" |
+| The token is not expired, with a leeway of 30 seconds | `auth.py:196-198` | 401 `unauthenticated`, "Token expired" |
+| `aud` contains the audience of the instance | `auth.py:199-201` | 401 `unauthenticated`, "Token is not for audience cmapi-nonprod" |
+| `iss` is the issuer of the instance | `auth.py:202-204` | 401 `unauthenticated`, "Token issuer is not trusted" |
+| The token is an access token: its JOSE header `typ` is `at+jwt` or `application/at+jwt` (RFC 9068, section 4), and its claim `typ` is `Bearer` or absent. With `auth.acceptLegacyTokenType: true` in `instance.yaml`, the header `JWT` with the claim `Bearer` passes also | `auth.py:209-214` | 401 `unauthenticated`, "Token is not an access token" |
 
-Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:225-226`, `main.py:213-215`). The tests are in `cmapi/tests/service/test_auth.py`.
+Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:240-241`, `main.py:213-215`). The tests are in `cmapi/tests/service/test_auth.py`.
 
 ### Step 2: the claims
 

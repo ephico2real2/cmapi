@@ -32,12 +32,12 @@ Starlette's 7).
 | Advisory | On 2.10.1 | Reaches cmapi? | Test |
 |---|---|---|---|
 | GHSA-752w-5fwx-jx9f, unknown `crit` | a realm-signed token with `crit: ["x-cmapi-unknown"]` was **accepted** by `Authenticator.authenticate` | **yes** | `test_a_token_with_an_unknown_critical_extension_is_refused`: fails on 2.10.1, passes on 2.15.1 |
-| GHSA-8wjv-2p76-3863 and GHSA-42vr-xj54-vc7v, recursion before verification | a header nested 9,997 deep (a 26,708-byte token) let `RecursionError` escape `jwt.get_unverified_header`; over uvicorn with httptools, as `main.run` serves, the answer was **HTTP 500**, with no token | **yes**, unauthenticated | `test_a_deeply_nested_header_is_401_and_no_recursion_error_escapes` and `..._over_http_not_500`: fail on 2.10.1, pass on 2.15.1 |
+| The class of GHSA-8wjv-2p76-3863 (header) and GHSA-42vr-xj54-vc7v (payload), recursion before verification. GHSA-8wjv's published range is `>= 2.13.0, < 2.14.0`, so neither it nor OSV names 2.10.1 for the header case; the behaviour below was measured on 2.10.1 all the same | a header nested 9,997 deep (a 26,708-byte token) let `RecursionError` escape `jwt.get_unverified_header`; over uvicorn with httptools, as `main.run` serves, the answer was **HTTP 500**, with no token | **yes**, unauthenticated | `test_a_deeply_nested_header_is_401_and_no_recursion_error_escapes` and `..._over_http_not_500`: fail on 2.10.1, pass on 2.15.1 |
 | GHSA-ffc3-869f-jxw9 (critical), GHSA-p4g4-x82p-q773, GHSA-xgmm-8j9v-c9wx, HS/asymmetric confusion | the library's own guard took the realm's public key, CR-only PEM, DER or JWK JSON, as an HS256 secret | **no**: cmapi refuses any `alg` but RS256 before decoding (`auth.py:170-172`), and decodes with the key object and `algorithms=["RS256"]` | two guards, passing on both versions |
 | GHSA-9v7f-9g4p-ffgj (redirects), GHSA-993g-76c3-p5m4 (schemes), GHSA-fhv5-28vv-h8m8 and GHSA-2gx3-rcp4-g85q (refetch on unknown kid) | PyJWKClient's | **no**: cmapi fetches the JWKS with httpx, which followed no 302 (the target was never asked) and refused `file:`, `ftp:` and `data:`; its own unknown-kid limit is `retry_after` | two guards, passing on both versions |
 | GHSA-hxm8-2xgr-2p9m, non-canonical signatures | | **no**: nothing in cmapi keys on the raw bearer string | |
 | GHSA-jq35-7prp-9v3f, GHSA-pxh4-856f-4h89, GHSA-jwrc-g2q2-pq5p, GHSA-w7vc-732c-9m39, GHSA-x33g-cr3x-6449 | | **no**: cmapi passes the key object, never a PyJWK, uses no HMAC, loads RSA keys only, and the payload segment is bounded by the header size | |
-| GHSA-w6j9-cwv2-h6wq, one bad key fails the set | PyJWKSet's | not through PyJWT, but cmapi's own loop did the same: **#656** | `test_jwks_skip_bad_key_656.py`: 6 of 7 fail on main's `auth.py` (`before-main-auth-656.txt`), 7 pass after |
+| GHSA-w6j9-cwv2-h6wq, one bad key fails the set | PyJWKSet's | not through PyJWT, but cmapi's own loop did the same: **#656** | `test_jwks_skip_bad_key_656.py`: 6 of 7 fail on main's `auth.py` (`before-main-auth-656.txt`), 7 pass after. The review of #658 (reviewer 1, Fable 5.2) then found that a `kid` or `alg` that is a list and `alg: none` still failed the whole set, that the log line could print the member, and that a published private key was HTTP 500; `Jwks._signing_keys` now skips a member on any error. Reviewer 2 (Opus 5.5) found that a key published for PS256 or RS512 verified RS256 tokens, against RFC 8725, section 3.1 ("each key MUST be used with exactly one algorithm"): a key whose `alg` is not RS256 is now passed over, and not counted. The file's 36 tests: 17 fail on the first fix, 10 on reviewer 1's |
 
 The examples' reference app (`examples/local/app.py`) does use `PyJWKClient`, so the PyJWKClient advisories reached it on
 2.10.1: a nested payload let `RecursionError` escape `get_signing_key_from_jwt` (`reach-old.txt`). It is on 2.15.1 now.
@@ -62,7 +62,9 @@ The examples' reference app (`examples/local/app.py`) does use `PyJWKClient`, so
 - **The audit: pip-audit against OSV**, in `cmapi/audit.sh`, which CI and a developer run the same way. OSV because the
   GitHub API's `affects=` filter is case-sensitive (measured: `pyjwt@2.10.1` and `PyJWT@2.10.1` return 8 different advisories
   each). pip-audit and not OSV-Scanner because it audits an installed Python environment, which is the set that ships, and
-  installs from a hashed lock of its own. No ignore list: none is needed.
+  installs from a hashed lock of its own. No ignore list: none is needed. pip-audit exits 1 for an advisory and for a
+  failed query alike (measured), so `cmapi/audit/osv_audit.py` reads its JSON report: no report is tried three times, and
+  is then exit 3, "not audited", never a pass and never an advisory (the review of #658).
 - **The service job now installs the lock** before `cmapi[test]`, so the tests run on the image's versions.
 
 ## How it composes with #654
@@ -75,7 +77,10 @@ The examples' reference app (`examples/local/app.py`) does use `PyJWKClient`, so
 - With #654's pins and `cmapi/lock.sh` run, the lock moves fastapi, starlette, and adds annotated-doc and opentelemetry-api
   (`lock-with-654.txt`), and every set passes (`audit-3-with-654-relocked.txt`).
 
-So #654 merges first; this branch then merges `main`, runs `cmapi/lock.sh`, and pushes. This branch regenerates the lock. If
+So #654 merges first; this branch then merges `main`, runs `cmapi/lock.sh`, and pushes. This branch regenerates the lock.
+In the merge, `docs/14`, `docs/15` and `docs/citations.lock.json` conflict where both branches moved a citation: keep this
+branch's side of each conflicting hunk, run `python scripts/doc-citations.py --relocate`, read each citation that `--check`
+still names (the `main.py` ones #654 moved), correct it, and run `--write` (the review of #658). If
 the order were reversed, #654 would fail `dependency-audit` and the image build until it ran `cmapi/lock.sh`.
 
 ## The tests
