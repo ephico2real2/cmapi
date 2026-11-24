@@ -116,10 +116,14 @@ portal types check, `changelog.py --check`, `api-examples-doc.py --check`, `depl
     `uq_cr_idempotency` on its trailing column, 771 buffers, 17.7 ms and 18.9 ms. This code's: an index scan of
     `uq_cr_idempotency_caller` on both columns, 4 buffers, 0.16 ms and 0.72 ms. 0009 took `transaction_seconds` 12.5 (its
     step 6.7), and its downgrade 3.3. After 0009, no keyed row had no caller.
-- **Inferred from the code:** release 1's image works on 0009's schema (it writes the caller with the key, reads
-  `idempotency_sub` first in `key_owner`, and maps `uq_cr_idempotency_caller` to 409). Not run.
+  - release 1's code on 0009's schema, the image-only rollback (`outputs/release-1-code-on-0009.txt`): the tests of
+    `cb59e19` (`test_flow.py` and the HTTP tests of `test_idempotency_caller_592.py`) against a database that this branch
+    migrated to 0009. Release 1's migrator skipped it as a later release's revision. 27 passed. The 3 that failed are
+    release 1's window answers that 0009 changes on purpose: the person's own use of a service's key is 202 (was 409);
+    setting `idempotency_sub` to NULL on a keyed row is refused by the check; and the key named after an index is 202
+    for the person (the requester's index that refused it is gone).
 - **Not tested:**
   - 0009 on CRC. It runs in a later deploy run. The read-only count on #592 (19 rows, 0 live keys) has nothing it would
     refuse; it was not repeated for this change.
-  - A real rolling update from release 1 to release 2 on a cluster, and release 1's own code against 0009's schema.
+  - A real rolling update from release 1 to release 2 on a cluster.
   - A 0007 image against 0009: the check's refusal is tested with a 0007-shaped INSERT, not with 0007's code.
