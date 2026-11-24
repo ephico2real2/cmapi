@@ -19,6 +19,7 @@ import base64
 from itertools import count
 from pathlib import PurePosixPath
 from typing import Any, Iterator, Mapping
+from urllib.parse import quote
 
 from cmapi.core.git.base import BranchRequest, CheckState, GitUnavailable, HostGitProvider, PushResult
 from cmapi.core.git.workspace import TRAILER_PLAN_HASH, TRAILER_REQUEST, BranchMoved, BranchRefused, request_branch
@@ -33,7 +34,7 @@ class GiteaProvider(HostGitProvider):
         return f"/repos/{self.repository}"
 
     def branch_head(self, branch: str) -> str | None:
-        r = self._call("branch_head", "GET", f"{self._repo()}/branches/{branch}", ok=(200, 404))
+        r = self._call("branch_head", "GET", f"{self._repo()}/branches/{quote(branch)}", ok=(200, 404))
         return r.json()["commit"]["id"] if r.status_code == 200 else None
 
     def _tree_entries(self, oid: str) -> Iterator[dict[str, Any]]:
@@ -191,7 +192,7 @@ class GiteaProvider(HostGitProvider):
             return True
         if head != expected:
             return False
-        r = self._call("delete_branch", "DELETE", f"{self._repo()}/branches/{branch}", ok=(204, 404))
+        r = self._call("delete_branch", "DELETE", f"{self._repo()}/branches/{quote(branch)}", ok=(204, 404))
         return r.status_code in (204, 404)
 
     def list_open(self, prefix: str) -> list[PrRef]:
@@ -219,7 +220,7 @@ class GiteaProvider(HostGitProvider):
         return r.json().get("total_commits", 1) == 0
 
     def changed_paths(self, head: str) -> set[str]:
-        r = self._call("compare", "GET", f"{self._repo()}/compare/{self.default_branch}...{head}")
+        r = self._call("compare", "GET", f"{self._repo()}/compare/{quote(self.default_branch)}...{head}")
         if r.status_code != 200:
             raise GitUnavailable(f"compare {head[:8]}: {r.status_code} {self.host_text(r, 200)}")
         return {f["filename"] for c in r.json().get("commits") or [] for f in c.get("files") or []}
@@ -284,7 +285,7 @@ class GiteaProvider(HostGitProvider):
                 "status_check_contexts": contexts, "block_on_rejected_reviews": True, "enable_merge_whitelist": False}
         r = self._call("protect", "POST", f"{self._repo()}/branch_protections", json=body, ok=(201, 403, 422))
         if r.status_code == 422:                               # already protected: update it
-            self._call("protect", "PATCH", f"{self._repo()}/branch_protections/{self.default_branch}", json=body)
+            self._call("protect", "PATCH", f"{self._repo()}/branch_protections/{quote(self.default_branch)}", json=body)
 
 
 def _b64(text: str) -> str:
