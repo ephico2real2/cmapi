@@ -1,0 +1,3 @@
+# The dependency audit's own tool (cmapi/audit.sh, #655), installed from requirements.txt beside this file with
+# --require-hashes, like every other download of CI. cmapi/lock.sh regenerates that file.
+pip-audit==2.10.1

@@ -77,4 +77,19 @@ check(bool(sign and verify and publish) and isteps.index(build_step(isteps)) < i
       and 'imagetools create --prefer-index=false --tag "$tag" "$IMAGE@$DIGEST"' in publish["run"]
       and publish.get("env", {}).get("DIGEST") == "${{ steps.build.outputs.digest }}" and "if" not in publish,
       "only a verified, successfully attested digest becomes the deployment tag")
+# #655: the dependency audit runs on every change with the command a developer runs, and what the image and the service tests
+# install comes from the hashed lock, so the audited set is the shipped one.
+audit = ci["jobs"].get("dependency-audit") or {}
+asteps = audit.get("steps") or []
+check(audit.get("runs-on") == "ubuntu-24.04" and "if" not in audit and "permissions" not in audit,
+      "dependency-audit: a named runner, every pull request and push, contents: read")
+check(bool(asteps) and all(re.search(r"@[0-9a-f]{40}$", s["uses"]) for s in asteps if "uses" in s), "dependency-audit: actions by full SHA")
+check(any(s.get("run", "").strip() == "cmapi/audit.sh python" for s in asteps), "dependency-audit: runs cmapi/audit.sh")
+service_install = next((s.get("run", "") for s in ci["jobs"]["service"]["steps"] if s.get("name") == "Install"), "")
+check("--require-hashes" in service_install and "-r cmapi/requirements.txt" in service_install,
+      "service: the tests run on the image's hashed lock")
+containerfile = open(os.path.join(ROOT, "cmapi/Containerfile")).read()
+pip_lines = re.findall(r"pip install [^\n]*", containerfile)
+check(any("--require-hashes" in line and "-r requirements.txt" in line for line in pip_lines)
+      and all("--no-deps" in line for line in pip_lines), "the image installs the hashed lock, and nothing else resolves")
 print("ci cases failed:", len(fails)); sys.exit(1 if fails else 0)
