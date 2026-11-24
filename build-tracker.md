@@ -1,7 +1,7 @@
 # cmapi build tracker
 
 What is done, what is in progress, what remains, and which cluster proved each thing. The next-step instructions are in
-[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-22 (see "Current"); first written on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
+[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-23 (see "Current"); first written on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
 
 **2026-11-15, 05:00Z.** `main` is at `08f7fe5`. The PRs merged since, the CRC state and the next steps are in the handover's section "State on 2026-11-15". In short:
 
@@ -19,7 +19,32 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-22, after 07:50Z
+## Current: 2026-11-23, 23:59Z
+
+`main` is `78ec33e` (PR #618). CRC runs `365b4b9` (OB1 run 37). Open PRs: #617, #621 and #622, each with reviewer 1's
+"request changes"; branch `fix/605-head` is pushed with no PR yet. The handover's 2026-11-23 section lists the next steps.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| Swagger UI at 390 px | #556, #558, #561 | Merged #559; Done, Local-Deploy | CI; CRC run 35: `/docs` at 390 px fits |
+| Docs: routes without a token, namespace ETag, glossary, drift, database KPIs | #560, #563, #565, #567-#570, #574, #575 | Merged #562, #564, #566, #572, #576, #577 | CI (doc tests, `doc-citations --check`) |
+| If-Match on writes: lists, `*` is 428, weak never matches | #571, #578, #580 | Merged #579 | CI; CRC run 36 and 37 table: current 200, list 200, `*` 428, stale 412, weak 412, none 428 |
+| If-None-Match lists, v2 folder ETags, complete caData | #583, #584, #585 | Merged #588 | CI; CRC run 36 |
+| The If-Match surface matches the code | #581, #582, #586, #587 | Merged #589 | CI |
+| caData with a non-ASCII line | #591, #594, #595, #597 | Merged #599 | CI; CRC run 36: caData still connected |
+| Conditional reads: If-Match first, CORS Vary | #590, #593, #596 | Merged #598 | CI; CRC run 36 and 37: metadata-keys and openapi.json 200/304/412/304 |
+| Idempotency-Key belongs to its caller (migration 0008) | #592, #611, #612 | Merged #601 | CI; full service suite; CRC run 36: alembic `0008` applied |
+| DELETE dry run; writes without a dry run refuse `dryRun`; repeated `dryRun` is 422 | #602, #606 | Merged #607; Done, Local-Deploy | CI; 233 targeted tests; **CRC run 37**: 400 `dry-run-not-supported` on approve and cancel (no token: 401), DELETE dry run 200 PlanView (5 files) on cmapi-live-a and 422 `namespace-protected` on cmap-live-g-dev, `dryRun=true&dryRun=false` 422; requests 19 → 19 |
+| Portal check 20 race | #600 | Merged #608 | Reviewer 2: base fails 3/3 with a 500 ms injection, head passes 3/3 |
+| Download retries in CI and the image | #609 | Merged #610 | `download-retry-test.py`: 17 downloads, 0 failed (before: 2 failed) |
+| `examples/local` refuses `dryRun` | #613 | Merged #618 | 16 tests; 13 failed before the review fix. Not in the image |
+| The migrator's `migrated` event; the #615 lock test | #614, #615 | PR #617, review in progress | Implementer: service suite 2467 passed. Reviewer 1 and 2 reports in `workbench/review-617/` |
+| Static files: If-Match, If-Unmodified-Since, If-Modified-Since | #604, #619, #620 | PR #621, reviewer 1 done | Implementer: full suite 2522 passed; 25 tests failed on main |
+| HEAD on every GET | #605 | Branch `fix/605-head`, reviewer 1 done, no PR | 9 of 9 tests fail before; mutants M1-M5 killed; contract unchanged; full suite 1 failed, 2530 passed (`test_review_c_authz`: HEAD on public GET routes is not in its public set) |
+| A delete removes the whole folder | #616, #623 | PR #622, reviewer 1 done | Implementer: 14 tests fail on main; full suite 2493 passed |
+| Idempotency release 2 (migration 0009) | #603 | Not started; after #617 | None |
+
+## Previous: 2026-11-22, after 07:50Z (superseded by the section above)
 
 `main` is `5c01876` (PR #555). CRC runs `5c01876` (`/api/v1/version`, read 2026-11-22). No open PRs. The owner approved stories #483, #484 and #485 on 2026-11-22 through `/decide`, and all three are closed. Epic #481 is open, with #482 its one open child.
 
