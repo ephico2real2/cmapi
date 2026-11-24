@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from calendar import monthrange
 from datetime import datetime, timezone
 
 from starlette.datastructures import Headers
@@ -38,7 +39,8 @@ CHANGED_SINCE = "This answer changed after the date in If-Unmodified-Since: read
 # email.utils.parsedate would read the first date of it (#620).
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _MONTH = "|".join(_MONTHS)
-_DAY_NAME = "Mon|Tue|Wed|Thu|Fri|Sat|Sun"
+_DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_DAY_NAME = "|".join(_DAYS)
 _DAY_NAME_L = "Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday"
 _TIME_OF_DAY = "([0-9]{2}):([0-9]{2}):([0-9]{2})"
 _IMF_FIXDATE = re.compile(rf"(?:{_DAY_NAME}), ([0-9]{{2}}) ({_MONTH}) ([0-9]{{4}}) {_TIME_OF_DAY} GMT")
@@ -99,29 +101,39 @@ def if_match_tags(if_match: str) -> list[str]:
 
 
 def http_date(value: str) -> datetime | None:
-    """The instant, in UTC, of a value that is exactly one HTTP-date (RFC 9110 section 5.6.7), or None.
+    """The instant, in UTC, of a value that is exactly one valid HTTP-date (RFC 9110 section 5.6.7), or None.
 
-    The day name is not checked against the date. A two-digit year of an rfc850-date is in this century, unless that is
-    more than 50 years ahead: then it is the century before ("MUST interpret a timestamp that appears to be more than 50
-    years in the future as representing the most recent year in the past that had the same last two digits"). A leap
-    second (:60, which time-of-day allows) is read as :59. An impossible date, 31 Feb or 25:00:00, is no HTTP-date."""
+    Section 5.6.7 gives day-name, day, month, year and time-of-day the semantics of RFC 5322 section 3.3, where "A date-time
+    specification MUST be semantically valid": the day name is the day of the date, "The year is any numeric year 1900 or
+    later", and the time is 00:00:00 to 23:59:60. So a wrong day name, 31 Feb, 1899, 25:00:00 or :61 is no HTTP-date, and
+    13.1.3 and 13.1.4 ignore it. A leap second, :60, is the last second of a month only, and is kept apart from :59: one
+    microsecond after it, as an HTTP-date has whole seconds, so it sorts before the next midnight, even in year 9999.
+
+    A two-digit year of an rfc850-date is in this century, unless the timestamp is then more than 50 years ahead, to the
+    second: then it is the century before ("MUST interpret a timestamp that appears to be more than 50 years in the future
+    as representing the most recent year in the past that had the same last two digits")."""
     if m := _IMF_FIXDATE.fullmatch(value):
         day, month, year, hour, minute, second = m.groups()
     elif m := _RFC850_DATE.fullmatch(value):
         day, month, two_digits, hour, minute, second = m.groups()
-        this_year = datetime.now(timezone.utc).year
-        year = this_year - this_year % 100 + int(two_digits)
-        if year > this_year + 50:
+        now = datetime.now(timezone.utc)
+        year = now.year - now.year % 100 + int(two_digits)
+        if (year, _MONTHS.index(month) + 1, int(day), int(hour), int(minute), int(second)) > \
+                (now.year + 50, now.month, now.day, now.hour, now.minute, now.second):
             year -= 100
     elif m := _ASCTIME_DATE.fullmatch(value):
         month, day, hour, minute, second, year = m.groups()
     else:
         return None
-    try:
-        return datetime(int(year), _MONTHS.index(month) + 1, int(day), int(hour), int(minute), min(int(second), 59),
-                        tzinfo=timezone.utc)
-    except ValueError:
+    y, mo, d, h, mi, s = int(year), _MONTHS.index(month) + 1, int(day), int(hour), int(minute), int(second)
+    leap = s == 60
+    if y < 1900 or (leap and (d, h, mi) != (monthrange(y, mo)[1], 23, 59)):
         return None
+    try:
+        instant = datetime(y, mo, d, h, mi, 59 if leap else s, int(leap), tzinfo=timezone.utc)
+    except ValueError:                                  # 31 Feb, 24:00:00, :61 to :99
+        return None
+    return instant if value[:3] == _DAYS[instant.weekday()] else None
 
 
 def _date_field(headers: Headers, name: str) -> datetime | None:
