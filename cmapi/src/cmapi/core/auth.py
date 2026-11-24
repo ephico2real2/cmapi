@@ -21,9 +21,11 @@ from prometheus_client import Counter
 
 from cmapi.core.errors import Problem
 from cmapi.core.identity.claims import Identity
+from cmapi.core.observability import log
 
 AUTH_FAILURES = Counter("cmapi_auth_failures_total", "Refused tokens", ["reason"])
 JWKS_REFRESH = Counter("cmapi_jwks_refresh_total", "JWKS fetches", ["result"])
+JWKS_KEYS_SKIPPED = Counter("cmapi_jwks_keys_skipped_total", "Signing keys of the realm's JWKS that could not be loaded")
 IDP_UNAVAILABLE = Counter("cmapi_idp_unavailable_total", "Calls refused because no signing key was available")
 
 
@@ -54,8 +56,20 @@ class Jwks:
 
     @staticmethod
     def _signing_keys(raw: list[dict[str, Any]]) -> dict[str, jwt.PyJWK]:
-        # Keycloak's JWKS also holds an RSA-OAEP key with use=enc, which PyJWK cannot load.
-        return {k["kid"]: jwt.PyJWK(k) for k in raw if k.get("use", "sig") == "sig" and k.get("kty") == "RSA"}
+        # Keycloak's JWKS also holds an RSA-OAEP key with use=enc, which PyJWK cannot load. A signing key that cannot be loaded
+        # is skipped, counted and logged, and the others still verify (#656). RFC 7517, section 5: "Implementations SHOULD
+        # ignore JWKs within a JWK Set that use "kty" (key type) values that are not understood by them, that are missing
+        # required members, or for which values are out of the supported ranges." PyJWT 2.15 raises a PyJWTError for such a key.
+        keys: dict[str, jwt.PyJWK] = {}
+        for k in raw:
+            if not isinstance(k, dict) or k.get("use", "sig") != "sig" or k.get("kty") != "RSA":
+                continue
+            try:
+                keys[k["kid"]] = jwt.PyJWK(k)
+            except (KeyError, jwt.PyJWTError) as exc:
+                JWKS_KEYS_SKIPPED.inc()
+                log.warning("jwks_key_skipped", kid=str(k.get("kid"))[:100], error=f"{type(exc).__name__}: {str(exc)[:200]}")
+        return keys
 
     def _refresh(self) -> bool:
         try:
