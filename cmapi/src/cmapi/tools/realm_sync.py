@@ -33,6 +33,7 @@ from typing import Any
 import httpx
 
 from cmapi.core.clients.redact import order_forms, redact, redact_cut, sent_forms
+from cmapi.core.identity.keycloak_admin import realm_segment, split_issuer
 
 RFC9068_HEADER = "access.token.header.type.rfc9068"      # Keycloak's client attribute, OIDCConfigAttributes (26.6.4)
 _SENT: tuple[str, ...] = ()                               # every form of every credential this run sends, longest first
@@ -76,7 +77,7 @@ class Realm:
     def _bearer(self) -> str:
         if self._token and time.time() < self._token[1]:
             return self._token[0]
-        r = self._request("POST", f"{self.base}/realms/{self.realm}/protocol/openid-connect/token",
+        r = self._request("POST", f"{self.base}/realms/{realm_segment(self.realm)}/protocol/openid-connect/token",
                           f"sign in as {self.client_id} in realm {self.realm}",
                           data={"grant_type": "client_credentials", "client_id": self.client_id, "client_secret": self.secret})
         if r.status_code != 200:
@@ -87,7 +88,7 @@ class Realm:
         return self._token[0]
 
     def call(self, method: str, path: str, *, ok: tuple[int, ...] = (200, 201, 204), **kw: Any) -> httpx.Response:
-        r = self._request(method, f"{self.base}/admin/realms/{self.realm}{path}", f"{method} {path}",
+        r = self._request(method, f"{self.base}/admin/realms/{realm_segment(self.realm)}{path}", f"{method} {path}",
                           headers={"Authorization": f"Bearer {self._bearer()}"}, **kw)
         if r.status_code not in ok:
             sys.exit(f"{method} {path}: {r.status_code} {answer(r, 300)}")
@@ -101,7 +102,7 @@ class Realm:
 def wait_for_realm(base: str, realm: str, verify: str | bool, attempts: int = 90) -> None:
     for i in range(attempts):
         try:
-            if httpx.get(f"{base}/realms/{realm}", timeout=10, verify=verify).status_code == 200:
+            if httpx.get(f"{base}/realms/{realm_segment(realm)}", timeout=10, verify=verify).status_code == 200:
                 return
         except httpx.HTTPError:
             pass
@@ -336,7 +337,7 @@ def test_users(rm: Realm, audience: str, group_ids: dict[str, str]) -> None:
 
 def main(argv: list[str]) -> None:
     issuer = os.environ["CMAPI_REALM_ISSUER"].rstrip("/")
-    base, realm = issuer.rsplit("/realms/", 1)
+    base, realm = split_issuer(issuer)                  # the realm's name, decoded once (#640); Realm encodes it once
     admin_base = os.environ.get("CMAPI_REALM_ADMIN_URL") or base
     secret = os.environ["CMAPI_REALM_ADMIN_CLIENT_SECRET"]
     audience = os.environ.get("CMAPI_REALM_AUDIENCE", "cmapi-nonprod")

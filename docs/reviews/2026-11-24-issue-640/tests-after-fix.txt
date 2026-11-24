@@ -1,0 +1,13 @@
+files: tests/service/test_keycloak_realm_in_url_path_640.py tests/service/test_auth.py tests/service/test_review_b_auth.py tests/service/test_review_r181_realm_sync_security.py tests/service/test_review_r184_realm_sync.py tests/service/test_review_h_tools_migrate.py tests/service/test_git_host_redaction_424.py tests/service/test_branch_name_in_url_path.py
+......................................................................
+[measure] 10 parallel valid tokens with a stale cache and Keycloak hanging 0.5 s: 0.51 s, 1 fetch attempts
+.. [ 27%]
+.......
+[measure] two cmapi-migrate at once, 5 rounds: [[(0, '{"direction": "upgrade", "target": "head", "from_revision": null, "revision": "0009", "app'), (0, '{"direction": "upgrade", "target": "head", "from_revision": "0009", "revision": "0009", "a')], [(0, '{"direction": "upgrade", "target": "head", "from_revision": null, "revision": "0009", "app'), (0, '{"direction": "upgrade", "target": "head", "fro
+................................................................. [ 54%]
+........................................................................ [ 82%]
+..............................................                           [100%]
+262 passed in 89.90s (0:01:29)
+--- tests/core/test_identity_metadata.py
+.....................                                                    [100%]
+21 passed in 0.87s

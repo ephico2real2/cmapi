@@ -659,7 +659,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/routers/requests.py|29-29": [
   "    envs = c.cfg.roles.environments(who, \"requests:read\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/tools/realm_sync.py|260-261": [
+ "docs/14-authorization.md|cmapi/src/cmapi/tools/realm_sync.py|261-262": [
   "    if cfg.get(\"usersFilter\"):",
   "        body[\"config\"][\"customUserSearchFilter\"] = [cfg[\"usersFilter\"]]"
  ],
@@ -894,7 +894,7 @@
   "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
   "                                         \"scopes\": \"openid\"})"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/tools/realm_sync.py|233-305": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/tools/realm_sync.py|234-306": [
   "def ldap(rm: Realm, cfg: dict[str, Any]) -> None:",
   "    bind_dn, bind_pw = os.environ.get(\"bindDN\") or os.environ.get(\"CMAPI_LDAP_BIND_DN\"), \\",
   "        os.environ.get(\"password\") or os.environ.get(\"CMAPI_LDAP_BIND_PASSWORD\")",

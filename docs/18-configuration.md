@@ -54,7 +54,7 @@ How to make the bot account, its token and its SSH key, and how to switch `insta
 | `instance.allowedEnvironments` | list of text | None. Needed | The environments that the instance serves. A write to another environment answers 422 `environment-not-served`, with the address of the instance that serves it when `directory` names one (`core/pipeline.py`, `check_env_served`) |
 | `instance.publicUrl` | text (URL) | None | The address of the API. It is in the links of the pull request checks and in the examples of the API document (`jobs/pr_checks.py`, `main.py`) |
 | `instance.portalUrl` | text (URL) | `""` | The address of the portal. The email channel uses it for its links (`core/channels.py`) |
-| `instance.auth.issuer` | text (URL) | None. Needed | The Keycloak realm. A token with another `iss` is refused |
+| `instance.auth.issuer` | text (URL) | None. Needed | The Keycloak realm, as the realm's `.well-known/openid-configuration` gives it in `issuer`: `<base>/realms/<realm>`, with the realm's name percent-encoded (the realm `cmapi 640` is `.../realms/cmapi%20640`). A token with another `iss` is refused, and the comparison is exact. With the Keycloak directory on, cmapi does not start when the issuer holds a `?` or `#` anywhere, or when the part after the last `/realms/` is not one path segment: a `/` at the end, a further path, a space, a `%` that starts no encoded octet, octets that are not UTF-8, or `.` or `..` (`core/identity/keycloak_admin.py`, #640). With the directory off the issuer is not parsed: it is used only as written, for the `iss` comparison, the default `CMAPI_OIDC_JWKS_URL` and the sign-in URLs of the API document (`core/context.py`, `core/auth.py`) |
 | `instance.auth.audience` | text | None. Needed | The client of the instance, for example `cmapi-nonprod`. A token for another audience is refused. The roles come from `resource_access.<audience>.roles` (`core/identity/claims.py`) |
 | `instance.auth.acceptLegacyTokenType` | boolean | `false` | `true` accepts the header `typ` `JWT` together with the claim `typ` `Bearer`. Set it for a Keycloak that cannot write the header `at+jwt` (RFC 9068). See `docs/14`, "Step 1" |
 | `instance.namespaces.reservedPatterns` | list of shell globs | `[]` | Names that nobody can ask for, added to the built-in list `default`, `openshift`, `openshift-*`, `kube-*`, `cmapi-system` and `cmapi-imports` (`core/naming.py`) |
@@ -847,7 +847,7 @@ The chart and the plain manifests also write `mode`, `snapshotInterval` and `tar
 | `CMAPI_DATABASE_POOL_SIZE` | `5` | The pool of connections of one process |
 | `CMAPI_OIDC_JWKS_URL` | `<issuer>/protocol/openid-connect/certs` | Where to read the signing keys |
 | `CMAPI_OIDC_LEEWAY_SECONDS` | `30` | The clock leeway for `exp` and `iat` |
-| `CMAPI_KEYCLOAK_ADMIN_URL` | The issuer, up to `/realms/` | The base of the Keycloak admin API |
+| `CMAPI_KEYCLOAK_ADMIN_URL` | The issuer, up to its last `/realms/` | The base of the Keycloak admin API |
 | `CMAPI_DIRECTORY_CLIENT_SECRET` | `""` | The secret of the `cmapi-directory` client. A secret |
 | `CMAPI_GIT_PROVIDER` | `gitea` | `gitea` or `github` |
 | `CMAPI_GIT_URL` | `""` | The API URL of the Git host |
