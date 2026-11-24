@@ -141,8 +141,8 @@ python3 -m venv $CMAPI_STACK/venv
 $CMAPI_STACK/venv/bin/pip install -r requirements.txt
 ```
 
-`requirements.txt` pins fastapi 0.115.6, uvicorn 0.32.1, pyjwt[crypto] 2.10.1, httpx 0.28.1,
-pyyaml 6.0.2 and pytest 8.3.4. The cmapi modules themselves are not installed. They are imported
+`requirements.txt` pins fastapi 0.115.6, uvicorn 0.32.1, pyjwt[crypto] 2.15.1, httpx 0.28.1,
+pyyaml 6.0.2 and pytest 9.2.0. The cmapi modules themselves are not installed. They are imported
 from `../src` with `PYTHONPATH=../src:.`
 
 ### 4.2 Keycloak
