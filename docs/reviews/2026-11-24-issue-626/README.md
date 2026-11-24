@@ -139,14 +139,29 @@ Why 409 and not 422: the request itself is valid, and the namespace's folder in 
 resolves it in Git and sends the request again, as RFC 9110 describes 409 and as `folder-holds-submodule` (#616) already
 does. `paths` is an extension member, so a client reads the paths without parsing `detail` (RFC 9457, 3.1.4 and 3.2).
 
-Why `\xNN` and not git's octal quoting: the escaping is Python's documented `backslashreplace`, and it changes only the
-bytes that are not UTF-8. Git shows the same name as `"caf\351.yaml"` with its default `core.quotePath`; the problem page
-says so, so a person can match the two.
+Why `\xNN` and not git's octal quoting: the escaping is Python's documented `backslashreplace`. Each backslash of a path in
+`paths` is doubled first, as Git's own quoting always escapes one (`core.quotePath`: "Double-quotes, backslash and control
+characters are always escaped"; `quote.c`, `cq_lookup`), so each shown path stands for one name only (reviewer 1's F4,
+widened by reviewer 2 to every path of `paths`). Git shows the same name as `"caf\351.yaml"` with its default
+`core.quotePath`; the problem page says so, so a person can match the two.
 
-## What is not handled specially
+## The reads after the plan (reviewer 1's findings F1, F2, F3, F7)
 
-These jobs read the folder after a merge or for a sync: `pr_checks` (the base it validates against, and a delete's empty
-head), `merge`'s `_merged`, `watch_sync` and `open_revert`. Where the folder holds such a name, they raise `NotUtf8`. The worker
-then retries and fails the request, as it does for any error, with the message `NotUtf8: the name of <path> is not UTF-8`
-instead of a codec error. The merge check, which runs before every merge in `pr_checks` and `merge`, reads such a folder as
-not the plan's, so the usual path is superseded or `merge_failed` before these reads.
+- `pr_checks` reads main's folder for the validators before it runs the merge check, so such a name there supersedes the
+  request, as the merge check would (F2).
+- `merge`'s `_merged` reads the folder at the merge sha after the host merged: such a folder is not the plan's, so the request
+  is merged and then `sync_failed`, with the path in the note (F1). Before, it was five errors and then `failed` (argocd) or
+  `merge_failed` (apply), with the PR merged on the host. Argo CD syncs such a main all the same: a directory application
+  loads every `.yaml` file of the folder whatever the bytes of its name, and reads a text that is not UTF-8 with U+FFFD in
+  place of each bad byte (argo-cd `reposerver/repository/repository.go`, `utfutil.OpenFile(manifestPath, utfutil.UTF8)`;
+  golang.org/x/text `encoding/unicode`, "Append RuneError to the destination"; read from source, not measured).
+- `watch_sync` compares main's folder with the plan through `as_plan`, as the merge check does (F7).
+- The Gitea stand-in reads the folder at main's commit before it creates the branch, so a read that fails (such a name, or
+  the host) leaves no branch at main's commit, which a retry would refuse as not cmapi's. `push_branch` supersedes on a
+  `NotUtf8` from the push itself (F3).
+
+Still the worker's retry, then failure, as for any error, with `NotUtf8: the name of <path> is not UTF-8` in the note: the
+reads of a PR head that a person pushed to (`pr_checks`' tree and a delete's head, `apply`'s tree; the request ends
+`failed`, or `sync_failed` once an apply started, as a failed check would), the retry of a `sync_failed` delete
+(`prune`), and `open_revert`. Each is bounded by the five attempts, and none leaves a lock held without a state that offers
+`:retry` or `:revert`.

@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo
-from cmapi.core.git.base import HeadMoved, NotMergeable, PlatformRefused
+from cmapi.core.git.base import HeadMoved, NotMergeable, NotUtf8, PlatformRefused
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.git.workspace import BranchRefused
 from cmapi.core.observability import GIT_ORPHANS, LEAD_TIME, MERGE_CONFLICTS
@@ -138,11 +138,16 @@ def _merged(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow,
     watch_sync. A merge whose folder is not the plan's, or with no sha to read, is merged and then sync_failed, with the lock
     held for an operator: nothing is applied from it and a delete never waits for a prune of it (#449)."""
     after_apply = row.status in AFTER_APPLY
-    on_main = ctx.git.tree_files(sha, folder(row.cluster_id, row.namespace)) if sha else None
-    fulfilled = on_main == planned(row)
-    if fulfilled and row.action == "delete":
-        # A delete's folder is empty at the merge: no file of any kind, at any depth, is left of it (#616).
-        fulfilled = not ctx.git.list_folder(folder(row.cluster_id, row.namespace), sha)[0]
+    unreadable: NotUtf8 | None = None
+    try:
+        on_main = ctx.git.tree_files(sha, folder(row.cluster_id, row.namespace)) if sha else None
+        fulfilled = on_main == planned(row)
+        if fulfilled and row.action == "delete":
+            # A delete's folder is empty at the merge: no file of any kind, at any depth, is left of it (#616).
+            fulfilled = not ctx.git.list_folder(folder(row.cluster_id, row.namespace), sha)[0]
+    except NotUtf8 as exc:
+        # The merge happened: a folder no plan can hold (#626) is not the plan's. Never retried into failed or merge_failed.
+        fulfilled, unreadable = False, exc
     row.merge_sha = sha or None
     how = "adopted: merged on the host" if adopted else "merged"
     repo.event(row, "merge_verified", "worker", f"{how} {sha[:8]}; the folder at it {'is' if fulfilled else 'is not'} the plan's",
@@ -150,7 +155,7 @@ def _merged(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow,
     repo.move(row, E.MERGED, "cmapi-bot", f"{how} {sha[:8]}")
     if not fulfilled:
         why = f"the folder at the merge {sha[:8]} is not the approved plan" if sha else "the host gave no merge sha to check"
-        repo.move(row, E.SYNC_TIMEOUT, "worker", why)
+        repo.move(row, E.SYNC_TIMEOUT, "worker", f"{why}: {unreadable}"[:240] if unreadable else why)
     elif after_apply:
         repo.move(row, E.SYNCED, "cmapi-deliverer", "applied and confirmed by a read before the merge")
         approval = "auto" if (row.requirement or {}).get("auto") else "human"

@@ -170,6 +170,8 @@ PROBLEM_EXTRAS: dict[str, dict[str, Any]] = {
     "idp-unavailable": {"retryAfter": 30},
     "cluster-unreachable": {"retryAfter": 30},
     "validator-unavailable": {"retryAfter": 60},
+    "folder-holds-submodule": {"paths": ["clusters/CRC/namespaces/payments-dev/vendor"]},
+    "folder-not-utf8": {"paths": ["clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"]},
 }
 
 

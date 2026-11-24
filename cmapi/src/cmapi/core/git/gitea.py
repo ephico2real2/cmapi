@@ -134,13 +134,15 @@ class GiteaProvider(HostGitProvider):
                 return PushResult(existing, parents[0], "adopted")
             if not self.delete_branch(branch, existing):
                 raise BranchMoved(f"branch {branch} moved from {existing[:8]} before its stale attempt was replaced")
+        # The folder at main's commit, which the new branch starts from, read before the branch exists: a read that fails (a name
+        # that is not UTF-8, #626, or the host) leaves no branch at main's commit, which a retry would refuse as not cmapi's.
+        current, _ = self.read_folder(req.folder, base)
+        # A removal is any path of the folder, not only a manifest (#616). Only a plan that removes one walks the subfolders.
+        listed = self._walk(req.folder, base)[0] if any(text is None for text in req.files.values()) else {}
         r = self._call("create_branch", "POST", f"{self._repo()}/branches",
                        json={"new_branch_name": branch, "old_ref_name": base}, ok=(201,))
         if r.status_code != 201:
             raise GitUnavailable(f"create branch {branch}: {r.status_code} {self.host_text(r, 200)}")
-        current, _ = self.read_folder(req.folder, branch)
-        # A removal is any path of the folder, not only a manifest (#616). Only a plan that removes one walks the subfolders.
-        listed = self._walk(req.folder, branch)[0] if any(text is None for text in req.files.values()) else {}
         ops = []
         for path, text in req.files.items():
             if text is None:

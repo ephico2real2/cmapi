@@ -40,14 +40,14 @@ def push_branch(ctx: AppContext, s: Session, job: JobRow) -> None:
             # The plan refuses a folder that holds such a path, so the folder changed since: superseded, never retried (#626).
             changed = f"folder changed in Git since the plan: {exc}"
         if changed:
-            repo.move(row, E.BASE_CHANGED, "worker", changed[:240])
-            jobs.done(job)
-            jobs.enqueue("git_cleanup", request_id=row.request_id, cluster_id=row.cluster_id)
-            return
+            return _superseded(repo, jobs, job, row, changed)
         req = branch_request(ctx, row)
         jobs.fence()
         try:
             pushed = ctx.git.push_request_branch(req)
+        except NotUtf8 as exc:
+            # The Gitea stand-in reads the folder again as it writes: a name that landed since the read above (#626).
+            return _superseded(repo, jobs, job, row, f"folder changed in Git since the plan: {exc}")
         except BranchRefused as exc:
             GIT_ORPHANS.labels("foreign_branch", "refused").inc()
             repo.event(row, "branch_refused", "worker", str(exc)[:300], {"branch": request_branch(row.cluster_id, row.request_id)})
@@ -59,3 +59,10 @@ def push_branch(ctx: AppContext, s: Session, job: JobRow) -> None:
                    {"head": pushed.head, "base": pushed.base, "adopted": pushed.result == "adopted", "result": pushed.result})
         jobs.done(job)
         jobs.enqueue("open_pr", request_id=row.request_id, cluster_id=row.cluster_id, payload={"head": pushed.head, "base": pushed.base})
+
+
+def _superseded(repo: RequestRepo, jobs: JobRepo, job: JobRow, row, why: str) -> None:
+    """The folder on main is not the plan's base: superseded, the lock released, and git_cleanup for anything left."""
+    repo.move(row, E.BASE_CHANGED, "worker", why[:240])
+    jobs.done(job)
+    jobs.enqueue("git_cleanup", request_id=row.request_id, cluster_id=row.cluster_id)

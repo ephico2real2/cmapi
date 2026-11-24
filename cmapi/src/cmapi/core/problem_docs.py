@@ -32,9 +32,9 @@ ACTIONS: dict[str, str] = {
                               "outside the folder.",
     "folder-not-utf8": "Rename each file that `paths` lists to a name in UTF-8, or write its text again as UTF-8, in the namespace's "
                        "folder in Git, then send the request again. Git keeps a file name as bytes, and cmapi carries names and "
-                       "manifests as UTF-8 text. `paths` shows each byte that is not UTF-8 as `\\xNN`, as in `caf\\xe9.yaml`; "
-                       "a name with U+FFFD is the one a Git host's API gave for such a byte. `git ls-tree` shows the same "
-                       "name quoted, with each byte in octal (`caf\\351.yaml`).",
+                       "manifests as UTF-8 text. `paths` shows each byte that is not UTF-8 as `\\xNN` (`caf\\xe9.yaml`), and each "
+                       "backslash as `\\\\`. A name with U+FFFD, which a Git host's API gives for such a byte, is refused too. "
+                       "`git ls-tree` shows the same name quoted, with each byte in octal (`caf\\351.yaml`).",
     "idempotency-replay": "Send a new `Idempotency-Key` for a new request. A key belongs to one request body.",
     "precondition-failed": "For a read, send it again without `If-Match` or `If-Unmodified-Since`. For a change, read the object again, and send the change with the new `ETag` in `If-Match`.",
     "validation-failed": "Correct the fields that `errors` names, and send the request again.",

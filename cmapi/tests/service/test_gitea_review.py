@@ -48,9 +48,11 @@ class Host:
             return httpx.Response(200, json={"sha": HEAD, "commit": {"message": self.message}, "parents": [{"sha": MAIN}]})
         if method == "GET" and path == "/pulls":
             return httpx.Response(200, json=[{"number": 1, "head": {"ref": BRANCH, "sha": HEAD}}] if self.open_pr else [])
+        if method == "GET" and path == f"/git/trees/{MAIN}":
+            return httpx.Response(200, json={"tree": [], "truncated": False})   # main's commit: the folder is not there yet
         if method == "GET" and path.startswith("/git/trees/"):
             parts = FOLDER.strip("/").split("/")
-            trees = [self.branch, *(str(i) * 40 for i in range(len(parts)))]
+            trees = [self.branch, *(str(i) * 40 for i in range(2, 2 + len(parts)))]   # never MAIN's "1" * 40
             depth = trees.index(path.rsplit("/", 1)[1])
             if depth < len(parts):
                 entries = [{"type": "tree", "path": parts[depth], "sha": trees[depth + 1]}]

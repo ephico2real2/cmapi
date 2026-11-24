@@ -10251,6 +10251,9 @@
                     "value": {
                       "code": "folder-not-utf8",
                       "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"
+                      ],
                       "status": 409,
                       "title": "folder not utf8",
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
@@ -10904,6 +10907,9 @@
                     "value": {
                       "code": "folder-holds-submodule",
                       "detail": "The folder of payments-dev holds the submodule clusters/CRC/namespaces/payments-dev/vendor",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/vendor"
+                      ],
                       "status": 409,
                       "title": "folder holds submodule",
                       "type": "https://cmapi.ephico2real.com/problems/folder-holds-submodule"
@@ -10913,6 +10919,9 @@
                     "value": {
                       "code": "folder-not-utf8",
                       "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"
+                      ],
                       "status": 409,
                       "title": "folder not utf8",
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
@@ -11383,6 +11392,9 @@
                     "value": {
                       "code": "folder-not-utf8",
                       "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"
+                      ],
                       "status": 409,
                       "title": "folder not utf8",
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
@@ -11890,6 +11902,9 @@
                     "value": {
                       "code": "folder-not-utf8",
                       "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"
+                      ],
                       "status": 409,
                       "title": "folder not utf8",
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
@@ -12553,6 +12568,9 @@
                     "value": {
                       "code": "folder-not-utf8",
                       "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"
+                      ],
                       "status": 409,
                       "title": "folder not utf8",
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
@@ -13215,6 +13233,9 @@
                     "value": {
                       "code": "folder-not-utf8",
                       "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"
+                      ],
                       "status": 409,
                       "title": "folder not utf8",
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
@@ -13836,6 +13857,9 @@
                     "value": {
                       "code": "folder-not-utf8",
                       "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"
+                      ],
                       "status": 409,
                       "title": "folder not utf8",
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"

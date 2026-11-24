@@ -65,28 +65,35 @@ REPLACEMENT = "\ufffd"
 class NotUtf8(Exception):
     """Paths under a folder whose name, or a manifest whose text (part), is not UTF-8, so cmapi cannot carry them (#626).
 
-    Git keeps a name as bytes, and a plan, the API's JSON and the database hold text. Each path is shown with each byte that is
-    not UTF-8 escaped as \\xNN, or with the U+FFFD a REST host gave. Not GitUnavailable: Git answered, and a retry reads the
-    same folder."""
+    Git keeps a name as bytes, and a plan, the API's JSON and the database hold text. Each path is as shown() shows it. Not
+    GitUnavailable: Git answered, and a retry reads the same folder."""
 
     def __init__(self, paths: Iterable[str], part: Literal["name", "text"]):
         self.paths, self.part = sorted(paths), part
-        super().__init__(f"the {part} of {', '.join(self.paths[:3])}{' and more' if len(self.paths) > 3 else ''} is not UTF-8")
+        # U+FFFD is valid UTF-8: a REST host's stand-in for a lost byte, or typed on purpose. Either way no plan can carry it.
+        self.rule = "is not UTF-8 or holds U+FFFD" if any(REPLACEMENT in p for p in self.paths) else "is not UTF-8"
+        super().__init__(f"the {part} of {', '.join(self.paths[:3])}{' and more' if len(self.paths) > 3 else ''} {self.rule}")
+
+
+def shown(raw: bytes) -> str:
+    """A path of NotUtf8, to show: each backslash doubled, as Git's own quoting always escapes one (core.quotePath), and each
+    byte that is not UTF-8 as \\xNN (codecs, 'backslashreplace'). So each shown path stands for one name only (#626)."""
+    return raw.replace(b"\\", b"\\\\").decode(errors="backslashreplace")
 
 
 def git_name(raw: bytes) -> tuple[str, bool]:
     """A name as `git ls-tree -z` gives it ("the filename is output verbatim", git-ls-tree(1)), as text, and whether cmapi can
-    carry it: valid UTF-8 with no U+FFFD. A name it cannot carry comes back with each byte that is not UTF-8 as \\xNN, to show."""
+    carry it: valid UTF-8 with no U+FFFD. A name it cannot carry comes back as shown() shows it."""
     try:
         name = raw.decode()
     except UnicodeDecodeError:
-        return raw.decode(errors="backslashreplace"), False
-    return name, REPLACEMENT not in name
+        return shown(raw), False
+    return (name, True) if REPLACEMENT not in name else (shown(raw), False)
 
 
 def refuse_lost_names(paths: Iterable[str]) -> None:
     """NotUtf8 for each name a REST host gave with U+FFFD: the byte it stands for is lost, so no plan can name the path."""
-    lost = [p for p in paths if REPLACEMENT in p]
+    lost = [shown(p.encode()) for p in paths if REPLACEMENT in p]
     if lost:
         raise NotUtf8(lost, "name")
 
@@ -98,7 +105,7 @@ def manifest_text(texts: Mapping[str, bytes]) -> dict[str, str]:
         try:
             files[path] = data.decode()
         except UnicodeDecodeError:
-            bad.append(path)
+            bad.append(shown(path.encode()))
     if bad:
         raise NotUtf8(bad, "text")
     return files

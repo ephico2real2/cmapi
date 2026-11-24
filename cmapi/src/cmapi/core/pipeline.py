@@ -554,7 +554,7 @@ def folder_not_utf8(ns: str, exc: NotUtf8) -> Problem:
     resolve in Git and then send again (RFC 9110, section 15.5.10), as folder-holds-submodule is. Nothing is planned."""
     shown = ", ".join(exc.paths[:3]) + (f" and {len(exc.paths) - 3} more" if len(exc.paths) > 3 else "")
     action = "Rename it" if exc.part == "name" else "Write it again as UTF-8"
-    return Problem.conflict("folder-not-utf8", f"The folder of {ns} holds {shown}, whose {exc.part} is not UTF-8: cmapi carries a "
+    return Problem.conflict("folder-not-utf8", f"The folder of {ns} holds {shown}, whose {exc.part} {exc.rule}: cmapi carries a "
                                                f"folder's names and manifests as UTF-8 text. {action} in Git, then send the request "
                                                "again", paths=exc.paths)
 
