@@ -1,10 +1,115 @@
 # cmapi: handover and resume
 
-**Resume here.** This top section is the current state, written by the coordinator on 2026-11-22. It supersedes
+**Resume here.** This top section is the current state, written by the coordinator on 2026-11-23. It supersedes
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-22, after 07:50Z
+## Resume here: 2026-11-23, 23:59Z (the owner is switching accounts)
+
+Written by the coordinator (Opus 5.5) from `gh`, `git`, the run records and the review folders. Supersedes the
+2026-11-22 07:50Z section below. Every path under `workbench/` is `/Users/olasumbo/gitRepos/workbench/cmapi/`.
+
+### 1. Where it stands
+
+| Item | State |
+|---|---|
+| `main` | `78ec33e` (PR #618) |
+| CRC | Runs `365b4b9` (OB1 run 37, `workbench/ob1-run37/resume.md`). api and worker `cmapi@sha256:885dac5838dc…`, portal `cmapi-portal@sha256:9795fd146d2d…`, both from CI by digest. alembic `0008`. keycloak-0 0 restarts during the run. Import token expires 2026-11-30T22:51:48Z. `main` is ahead only by #618, which changes `examples/` and is not in the image, so CRC needs no deploy for it |
+| Open PRs | #617, #621, #622 (each has reviewer 1's report; all three are "request changes"). Branch `fix/605-head` is pushed, its PR is not open yet |
+| Local jobs left running at the switch | #605's full service suite (writes `workbench/wt-605-outputs/full-suite.txt` when done), then `workbench/review-617/r2-outputs/queue-coordinator.sh` (the rest of reviewer 2's #617 runs; it prints `QUEUE-DONE`). If either is gone (`pgrep -fl "[p]ytest.*tests/service"` empty and the file empty or no `QUEUE-DONE` in the outputs), run it again |
+| Owner items | Say yes or no to the diagram-kit `/agile` update with this week's Sonnet lessons. Run `~/.claude/tools/sweep-stale.py --sweep` yourself: Claude Code refused it for the agent; it ends stale Codex brokers (about 860 MB) |
+
+### 2. Merged on 2026-11-22 and 23 (18 PRs)
+
+| PR | Closes | What |
+|---|---|---|
+| #557 | | Records of 2026-11-22 |
+| #559 | #556, #558, #561 | Swagger UI fits 390 px |
+| #562, #564, #566, #572, #576, #577 | #560, #563, #565, #567-#570, #574, #575 | Docs: docs/14 routes without a token; the namespace ETag; `docs/GLOSSARY.md` (new); docs drift; docs/08 database KPIs |
+| #579 | #571, #578, #580 | If-Match: a list passes, `*` is 428 (the owner's decision), a weak tag never matches |
+| #588 | #583, #584, #585 | If-None-Match lists; unambiguous folder ETags (v2 hash); complete caData blocks |
+| #589 | #581, #582, #586, #587 | The If-Match surface says and does what the code does |
+| #599 | #591, #594, #595, #597 | caData with a non-ASCII line loads |
+| #598 | #590, #593, #596 | Conditional reads: If-Match first (412 before 304); CORS reads every Vary line |
+| #601 | #592, #611, #612 | An Idempotency-Key belongs to its caller: migration 0008, expand then contract (the owner's decisions) |
+| #607 | #602, #606 | DELETE `?dryRun=true` is a dry run; a write with no dry run refuses `dryRun` (400); a repeated `dryRun` is 422 |
+| #608 | #600 | Portal check 20 waits for the filtered rows |
+| #610 | #609 | Every CI and image download retries |
+| #618 | #613 | `examples/local` refuses `dryRun` on writes with no dry run, after sign-in |
+
+Deployed: run 35 (`9876fee`), run 36 (`8d74f1a`, migration 0008 applied), run 37 (`365b4b9`). Run 37 proved #602 and
+#606 live with no real write: requests 19 → 19, the `change_requests` md5 unchanged.
+
+Live docs (edit them first, then the exports): Technical Design v2 rev 393, Design and Architecture rev 196.
+
+### 3. Next, in order
+
+Each PR follows the delivery loop in `CLAUDE.md`. Reviewer 1 is Codex `gpt-6.2-astra` xhigh. Reviewer 2 is a separate
+Opus 5.5 high agent: it checks reviewer 1's snippets on the real database and returns one patch. The coordinator applies
+it with `patch -p1 -F0`, runs the tests, commits the review record under `docs/reviews/2026-11-23-issue-N/review/`, posts
+the rulings and merges on green.
+
+1. **PR #617** (#614 the migrator's `migrated` event, #615 the lock test). Worktree `workbench/wt-614`.
+   - Reviewer 1: `workbench/review-617/codex-result.txt`. It found three things:
+     - the event depends on `CMAPI_LOG_LEVEL` (with `WARNING`, a successful run is silent);
+     - docs/12 overstates what the times measure;
+     - the #615 test has a scheduling margin and accepts exit 0.
+   - Reviewer 2: `workbench/review-617/r2-report.md` and `r2-outputs/fix.diff`. Its rulings:
+     - the migrator always logs at INFO, and a `migrate_failed` event carries only the error class and SQLSTATE;
+     - the docs/12 text is replaced with a shorter one;
+     - a real-database timing test replaces reviewer 1's mock test;
+     - the #615 test is narrowed.
+   - **Not finished:** the report still has `__NAME__` blanks (`__NOFAIL__`, `__LEAK__`, `__EXIT0HEAD__`, `__MARGIN__`, `__HEADRUNS__`, `__R1RUNS__`, `__EXIT0R1__`, `__R2RUNS__`, `__EXIT0R2__`, `__N__`). They are filled from the outputs of `queue-coordinator.sh`: `mutants.txt`, `after-r2-614-secondpass.txt`, `repeat615.txt` and `after-r2-migrate-related.txt`.
+   - Then the coordinator applies `fix.diff`.
+2. **PR #621** (#604 static files and If-Match, #619 If-Unmodified-Since, #620 If-Modified-Since). Worktree `workbench/wt-604`.
+   - Reviewer 1: `workbench/review-621/codex-result.txt`, "request changes". There are two defects in `http_date`: it accepts invalid dates, which can turn a 200 into a 304 or a 412, and its RFC 850 two-digit-year cutoff is wrong.
+   - Next: reviewer 2.
+3. **#605** (HEAD on every GET). Branch `fix/605-head` is stacked on #621; worktree `workbench/wt-605`.
+   - Reviewer 1 has reviewed it before the PR exists: `workbench/review-605/codex-result.txt`, "request changes". Two findings matter:
+     - an authenticated HEAD on the quota export writes the same audit row as a GET;
+     - HEAD on POST-only paths that share a GET's path (`:approve`, `:reject`, `:cancel`, `:retry`, `:revert`) answers 401 from the GET route, not 405.
+   - Next: reviewer 2, then open the PR with `workbench/wt-605-outputs/pr-body.md`. Fill its blanks:
+     - BEFORE and BEFORE_FULL: `before.txt`, 9 of 9 failed;
+     - AFTER and FULLSUITE: `full-suite.txt`;
+     - MUTANTS: `mutants.txt`, M1 to M5 killed;
+     - CONTRACT: `openapi.json` unchanged, 0 diff lines;
+     - CITATIONS: 0 problems.
+   - Retarget the PR to `main` when #621 merges.
+4. **PR #622** (#616 a delete removes the whole folder, #623 the contract README). Worktree `workbench/wt-616`.
+   - Reviewer 1: `workbench/review-622/codex-result.txt`, "request changes", 7 findings. The blocker: the pre-merge checks (`jobs/pr_checks.py`, `workspace.py` merge check) still read the direct-manifest `tree_files`. A file added to `main` before the merge survives, and it is found only after the merge (`jobs/merge.py`).
+   - Next: reviewer 2.
+5. **#603** (#592 release 2: migration 0009, refuse while pairs are live, invert the window test). Start it after #617 merges: both touch the migration code.
+6. **Deploy run 38** after 1 to 4 merge. Use run 37 as the template (`workbench/ob1-run37/resume.md` and its tools). Gate on load and on no running suite.
+   - Prove #605 and #621 on the wire with curl HEAD and conditionals on `/openapi.json` and `/static/swagger/...`.
+   - Prove #617: the `migrated` line in `oc logs <api pod> -c migrate`.
+   - Prove #622 with a dry run only. Never a real delete.
+
+### 4. How to run things here (lessons of 2026-11-23)
+
+- **The idle gate.** Gate a test run on two things: no other suite running (`pgrep -f "[p]ytest.*tests/service"` and
+  `pgrep -f "[n]pm test"` find nothing), and the 1-minute load under **16**. The old limit of 8 sat below the CRC VM's
+  own floor (9 to 12 with no suite running), so three agents waited 50 to 108 minutes. Check each agent at its due time;
+  a gate wait longer than one suite (about 35 minutes) is a stall.
+- **The Bash tool is zsh:** `for x in $LIST` and `set -- $b` do not word-split. Use arrays, or a script file run with bash.
+- **Codex jobs.** Look up a job from the folder it started in. The companion script is
+  `~/.claude/plugins/cache/*/codex/*/scripts/codex-companion.mjs`, used as `status <job>` and `result <job>`.
+  `workbench/codex-wait-3.sh` is a working waiter.
+- **One scratch folder per agent**, named in the brief. Never the shared scratchpad.
+- **Codex cannot reach PostgreSQL**, open sockets or write to git. Reviewer 2 (Opus) or the coordinator runs those parts.
+
+### 5. For Sonnet 5.5, resuming its work
+
+Sonnet drafts the records and the agile updates from what is built. The coordinator checks every line before it posts or merges. Its jobs:
+
+1. **After each merge:**
+   - add the PR to the tracker's "Current" table, with its proof (CI run, suite counts, CRC run);
+   - label the issues it closes `Done`, and `Local-Deploy` once a CRC run proves them;
+   - regenerate `issue-register.md` with `scripts/issue-register.sh`. Never edit it by hand.
+2. **After a CRC run:** copy the version, digests, alembic revision and each live table from `workbench/ob1-runN/resume.md` into this section and the tracker. Copy them; do not round or summarize.
+3. **Stories (#13 to #29) and epic #481:** an issue closes only after the owner approves. The closing comment cites the proof for each acceptance criterion and the cluster it ran on.
+4. **Sources:** read the code, `gh` and the run records, never memory. Say what was measured, what was inferred and what was not tested. Commits carry no `Co-Authored-By` or "Generated with" lines.
+
+## Resume here: 2026-11-22, after 07:50Z (superseded by the section above)
 
 Drafted by Sonnet 5.5 from `origin/main`, `gh` and the live `/api/v1/version` answer; checked by the coordinator. Supersedes the 05:05Z section below.
 
