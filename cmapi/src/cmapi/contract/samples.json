@@ -304,6 +304,28 @@
         },
         "status": 401
       }
+    },
+    "quotas_export:invalid-sort": {
+      "operationId": "quotas_export",
+      "request": {
+        "headers": {
+          "Authorization": "Bearer $TOKEN"
+        },
+        "method": "GET",
+        "path": "/api/v1/quotas:export?sort=nope"
+      },
+      "response": {
+        "body": {
+          "code": "invalid-sort",
+          "detail": "Unknown sort nope",
+          "status": 400,
+          "title": "invalid sort",
+          "type": "https://cmapi.ephico2real.com/problems/invalid-sort"
+        },
+        "contentType": "application/problem+json",
+        "headers": {},
+        "status": 400
+      }
     }
   },
   "operations": {

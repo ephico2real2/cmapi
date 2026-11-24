@@ -346,6 +346,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
     rec.call("namespaces_update_namespace", "PATCH", f"{base}/payments-dev", ola, json_body={"tier": "small"}, headers={"If-Match": '"stale"'}, key=True)  # 412
     rec.call("namespaces_create_namespace", "POST", base, ola, json_body={**NS, "namespace": "kube-tools"}, key=True)      # 422 reserved
     rec.call("quotas_quotas", "GET", "/api/v1/quotas?sort=nope", ola)                                         # 400 invalid-sort
+    rec.call("quotas_export", "GET", "/api/v1/quotas:export?sort=nope", ola)                                  # 400 invalid-sort
 
     # ---- expiry (#318): the dry run of each write, a date for a permanent namespace, a date made permanent, then the list
     def etag_of(ns: str) -> str:

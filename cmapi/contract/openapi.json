@@ -17539,6 +17539,27 @@
             },
             "description": "Every row of the quota list with the same filters, in the same order, as CSV: at most 10,000 rows."
           },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "invalid-sort": {
+                    "value": {
+                      "code": "invalid-sort",
+                      "detail": "Unknown sort nope",
+                      "status": 400,
+                      "title": "invalid sort",
+                      "type": "https://cmapi.ephico2real.com/problems/invalid-sort"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `invalid-sort`."
+          },
           "401": {
             "content": {
               "application/problem+json": {
