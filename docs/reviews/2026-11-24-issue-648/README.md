@@ -161,3 +161,29 @@ All runs are on the Mac, against PostgreSQL 16 on `127.0.0.1:55432`. No cluster 
   dependency-raised and Git-raised cases prove the path.
 - The whole service suite was not run, by the brief.
 - Nothing ran on kind or CRC.
+
+## Review
+
+Codex reached its usage limit, so two separate Opus 5.5 agents reviewed this change. Neither wrote it.
+
+- **Reviewer 1** (Opus 5.5 high, `review/reviewer-1-opus.md`)
+  - The PR introduces no regression. 59 hostile inputs got the same answers on base and head.
+  - It found F1 to F4 inside the PR. F1 is a quantity out of range: `decimal.InvalidOperation` answered 500.
+  - It found O1 and O2 outside the PR, filed as #653: a NUL in a request answered 500, and so did `:extend` with too many days.
+- **Reviewer 2** (Opus 5.5 high, `review/reviewer-2-opus.md`)
+  - **F1:** the code is replaced. Reviewer 1's version still answered 500, and used 935 MB on `1e2147483647`. Quantities are now refused below `1e1000000`, before they take memory.
+  - **O1:** reviewer 1's psycopg `DataError` text-match handler is rejected, because four jsonb entry points still answered 500 with it. In its place, a NUL is refused where it enters: `RefuseNulMiddleware` for the path and query, and a `RequestBody` model base for every body string.
+  - **O2:** the change keeps the old answer for every value that worked before. A last-date guard covers the remaining overflows.
+  - **Missed by reviewer 1:**
+    - N1: a NUL in a static path regressed to 500.
+    - N3: an expiry on 9999-12-31 made `GET /expirations` answer 500 to every caller.
+    Both are fixed.
+  - 14 of 14 mutants killed.
+- **Coordinator's rulings (Opus 5.5).** Reviewer 2's rulings are accepted. #653 closes with this PR.
+  - Reviewer 2's patch was applied with `patch -p1 -F0`.
+  - `main` was merged after #645. In `docs/02`, the `validation-failed` and `internal-error` rows keep both changes. 11 citations were relocated.
+
+## The coordinator's run
+
+- **Full service suite:** run in database `cmapi_603`, from 2026-11-24T17:10:25Z to 17:54:32Z, on the patched branch merged with `main` `5962830` (#645). **2725 passed in 2643.41 s**, with no failures (`coord-suite.txt`).
+- **`doc-citations.py --check`:** 0 problems.
