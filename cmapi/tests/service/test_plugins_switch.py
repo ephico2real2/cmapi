@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 import yaml
-from fastapi.routing import APIRoute
 from prometheus_client import REGISTRY
 
 from cmapi.core.config import ConfigError, load_instance
+from cmapi.core.docs import api_routes
 from conftest import EXAMPLES, build_world
 from test_flow import NS, OLA, auth
 
@@ -217,8 +217,7 @@ def test_the_plugins_that_the_switch_knows_are_the_routers_and_their_writes(worl
     client, *_ = world
     routers = {r.plugin: r for r in PluginSwitch(None, "nonprod", {"dev"}).routers()}
     assert sorted(routers) == sorted(BUILT_IN)
-    mounted = {route.openapi_extra["x-cmapi-plugin"] for route in client.app.routes
-               if isinstance(route, APIRoute) and route.path.startswith("/api/")}
+    mounted = {route.openapi_extra["x-cmapi-plugin"] for route in api_routes(client.app) if route.path.startswith("/api/")}
     assert mounted == set(BUILT_IN) | set(CORE)
     with_a_write = {name for name, r in routers.items() if any(route.methods - {"GET", "HEAD"} for route in r.routes)}
     assert with_a_write == set(WRITERS)

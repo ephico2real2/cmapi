@@ -13,8 +13,8 @@ from __future__ import annotations
 import re
 
 import pytest
-from fastapi.routing import APIRoute
 
+from cmapi.core.docs import api_routes
 from conftest import build_world
 from test_cors import PORTAL, preflight, with_instance
 from test_flow import OLA, auth
@@ -66,7 +66,7 @@ def test_every_get_route_answers_head_as_its_get(world):
     """Every GET route of the app, with no token, a placeholder for each path parameter: HEAD has GET's status and headers.
     A route that HEAD answers with 405 fails here, whoever added it."""
     client, *_ = world
-    paths = sorted({r.path for r in client.app.routes if isinstance(r, APIRoute) and "GET" in r.methods})
+    paths = sorted({r.path for r in api_routes(client.app) if "GET" in r.methods})
     assert len(paths) > 30, paths
     for path in paths:
         url = re.sub(r"\{[^}]+\}", "x", path)
@@ -80,7 +80,8 @@ def test_head_is_not_an_operation_of_the_document(world):
     client, *_ = world
     spec = client.get("/openapi.json").json()
     assert not [path for path, methods in spec["paths"].items() if "head" in methods]
-    assert all("HEAD" in r.methods for r in client.app.routes if isinstance(r, APIRoute) and "GET" in r.methods)
+    gets = [r for r in api_routes(client.app) if "GET" in r.methods]
+    assert len(gets) > 30 and all("HEAD" in r.methods and "HEAD" in r.original_route.methods for r in gets)
 
 
 def test_a_head_from_the_listed_portal_passes_its_preflight(test_config, tmp_path, fresh_db, keys, monkeypatch):
@@ -111,8 +112,7 @@ def test_head_enforces_each_documented_read_permission(world):
     anonymous HEAD stops at the sign-in (test_every_get_route_answers_head_as_its_get), before most permission checks."""
     client, *_, keys = world
     headers = auth(keys, "nobody", roles=[], groups=[])
-    routes = [r for r in client.app.routes if isinstance(r, APIRoute) and "GET" in r.methods
-              and (r.openapi_extra or {}).get("x-cmapi-permission")]
+    routes = [r for r in api_routes(client.app) if "GET" in r.methods and (r.openapi_extra or {}).get("x-cmapi-permission")]
     assert len(routes) > 20, [r.path for r in routes]
     for route in routes:
         path = re.sub(r"\{[^}]+\}", "x", route.path)

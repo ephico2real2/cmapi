@@ -15,8 +15,8 @@ import typing
 from datetime import date, timedelta
 
 import pytest
-from fastapi.routing import APIRoute
 
+from cmapi.core.docs import api_routes
 from conftest import build_world
 from test_api_docs import bundles  # noqa: F401  (the fixture of the static files)
 from test_custom_tier_change import SIZES, URL, approve_and_sync, custom, synced
@@ -105,8 +105,8 @@ def test_every_request_body_is_a_request_body(world):
 
     client, *_ = world
     bodies = {}
-    for route in client.app.routes:
-        if isinstance(route, APIRoute) and route.body_field is not None:
+    for route in api_routes(client.app):
+        if route.body_field is not None:
             annotation = route.body_field.field_info.annotation
             bodies[route.path] = [t for t in (typing.get_args(annotation) or (annotation,)) if t is not type(None)]
     assert len(bodies) >= 10, bodies

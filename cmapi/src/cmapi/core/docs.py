@@ -15,17 +15,16 @@ that a run of the service suite recorded (contract/samples.json).
 """
 from __future__ import annotations
 
-import copy
 import inspect
 import json
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from importlib import resources
 from typing import Any, Callable, Sequence
 
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.openapi.utils import get_openapi
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, RouteContext, iter_route_contexts
 from pydantic import BaseModel
 
 from cmapi import __version__
@@ -329,7 +328,10 @@ class DocumentedRouter(APIRouter):
                 kwargs["response_class"] = Response
             if dry_run_model is not None:
                 responses[200] = {"model": dry_run_model, "description": DRY_RUN_RETURNS}
-            return self.api_route(path, methods=[method], **kwargs)(fn)
+            # A GET answers HEAD on its own route (#605), declared here where the route is made. Since FastAPI 0.137.0 each
+            # app that includes this router serves this route object, so HEAD added per app reached the other apps of the
+            # process (main.py, _serve_head_with_get; #654 review).
+            return self.api_route(path, methods=[method, "HEAD"] if method == "GET" else [method], **kwargs)(fn)
 
         return deco
 
@@ -385,12 +387,24 @@ def _models_in(annotation: Any) -> list[type[BaseModel]]:
     return found
 
 
+def api_routes(app: FastAPI) -> list[RouteContext]:
+    """Every APIRoute that the app serves, as FastAPI's RouteContext: the path, methods, dependencies and handler that it
+    is served with, including the prefix and dependencies of the router that includes it.
+
+    FastAPI 0.137.0 stopped copying an included router's routes into app.routes: "Now `router.routes` is no longer a plain
+    list of `APIRoute` objects, it can contain these intermediate objects that can contain additional routers, forming a
+    tree" (https://fastapi.tiangolo.com/release-notes/, 0.137.0, read 2026-11-24). A walk of app.routes for APIRoute saw
+    the app's own routes only. iter_route_contexts (0.137.2) is the walk that FastAPI's author gave for it
+    (https://github.com/fastapi/fastapi/discussions/15782, 2026-06-17), and the one that FastAPI's get_openapi uses."""
+    return [r for r in iter_route_contexts(app.routes) if isinstance(r.original_route, APIRoute)]
+
+
 def check_documented(app: FastAPI) -> None:
     """Refuse to start when any /api route or its models is not fully described."""
     problems: list[str] = []
     seen: set[type] = set()
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or not route.path.startswith("/api/"):
+    for route in api_routes(app):
+        if not route.path.startswith("/api/"):
             continue
         if not route.summary:
             problems.append(f"{route.path}: no summary")
@@ -402,7 +416,7 @@ def check_documented(app: FastAPI) -> None:
             for m in _models_in(route.response_model):
                 problems.extend(_undocumented_fields(m, seen))
         if route.body_field is not None:
-            for m in _models_in(route.body_field.type_):
+            for m in _models_in(route.body_field.field_info.annotation):
                 problems.extend(_undocumented_fields(m, seen))
         for response in route.responses.values():            # the 200 of a dry run
             for m in _models_in(response.get("model")):
@@ -412,7 +426,7 @@ def check_documented(app: FastAPI) -> None:
         raise RuntimeError("undocumented API:\n  " + "\n  ".join(sorted(set(problems))))
 
 
-def _undocumented_parameters(route: APIRoute) -> list[str]:
+def _undocumented_parameters(route: RouteContext) -> list[str]:
     """Each path, query and header parameter of the route, its sub-dependencies included, without a description or an example."""
     out: list[str] = []
     stack, seen = [route.dependant], set()
@@ -543,16 +557,23 @@ class InstanceFacts:
     expiration: Any                 # plugins/expiration/rules.py ExpirationRules
 
 
-def _without_head(route: Any) -> Any:
+class _WithoutHead(RouteContext):
     """The route as the document shows it: a GET's HEAD (main.py, _serve_head_with_get, #605) is not an operation of its own.
     RFC 9110 section 9.3.2 defines HEAD as GET without content, and FastAPI's author on the same question: "it should
     handle HEAD requests automatically for GET requests, without adding them to the OpenAPI schema"
     (https://github.com/fastapi/fastapi/issues/1773, 2020-08-11). FastAPI's get_openapi writes one operation per method
-    of a route, so the document gets a copy of the route without HEAD; the served route keeps it."""
-    if isinstance(route, APIRoute) and {"GET", "HEAD"} <= route.methods:
-        route = copy.copy(route)
-        route.methods = route.methods - {"HEAD"}
-    return route
+    of a route (openapi/utils.py, get_openapi_path), so the document gets a view of the route without HEAD; the served
+    route keeps it. get_openapi takes a RouteContext as it is (routing.py, iter_route_contexts), and this one differs from
+    the served one in its methods only."""
+
+    @property
+    def methods(self) -> set[str] | None:
+        methods = super().methods
+        return methods - {"HEAD"} if methods and {"GET", "HEAD"} <= methods else methods
+
+
+def _without_head(route: RouteContext) -> RouteContext:
+    return _WithoutHead(*(getattr(route, f.name) for f in fields(route)))
 
 
 def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: str, problem_base: str = BASE,
@@ -566,7 +587,8 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
     tags = [{"name": name, "description": r.plugin_description, "x-plugin-version": r.version}
             for name, r in sorted(plugins.items())]
     spec = get_openapi(title=app.title, version=app.version, openapi_version=app.openapi_version, description=app.description,
-                       routes=[_without_head(r) for r in app.routes], tags=tags, servers=app.servers)
+                       routes=[_without_head(r) for r in iter_route_contexts(app.routes)], tags=tags,
+                       servers=app.servers)
     spec["x-tagGroups"] = [{"name": g, "tags": names} for g in TAG_GROUPS
                            if (names := [n for n, r in sorted(plugins.items()) if r.group == g])]
     if metadata is not None:
