@@ -58,7 +58,7 @@ The group tree is `/cmapi` with ten groups under it, `app-cmapi-rbac-<role>`, ea
 
 ## The LDAP federation
 
-The sync creates one LDAP provider in realm `cmapi` (`realm_sync.py:233-305`).
+The sync creates one LDAP provider in realm `cmapi` (`realm_sync.py:234-306`).
 
 | Setting | Value on CRC | Effect |
 |---|---|---|
