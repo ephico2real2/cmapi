@@ -27,6 +27,9 @@ ACTIONS: dict[str, str] = {
     "already-approved": "Do nothing. Your approval is recorded, and another person must give the next one.",
     "self-approval": "Ask another person of the approving group. A requester cannot approve their own request in this environment.",
     "nothing-to-prune": "Do nothing. No delete of this namespace waits for a prune.",
+    "folder-holds-submodule": "Remove each submodule that `paths` lists from the namespace's folder in Git, then send the delete again. "
+                              "A delete removes every file of the folder, and a submodule's removal also changes `.gitmodules`, "
+                              "outside the folder.",
     "idempotency-replay": "Send a new `Idempotency-Key` for a new request. A key belongs to one request body.",
     "precondition-failed": "For a read, send it again without `If-Match` or `If-Unmodified-Since`. For a change, read the object again, and send the change with the new `ETag` in `If-Match`.",
     "validation-failed": "Correct the fields that `errors` names, and send the request again.",

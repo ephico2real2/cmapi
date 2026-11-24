@@ -48,6 +48,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "already-approved": (409, "This person already approved the request"),
     "self-approval": (409, "Requesters cannot approve their own request here"),
     "nothing-to-prune": (409, "No delete of payments-dev is awaiting a prune"),
+    "folder-holds-submodule": (409, "The folder of payments-dev holds the submodule clusters/CRC/namespaces/payments-dev/vendor"),
     "idempotency-replay": (409, "Idempotency-Key was used for a different request"),
     "precondition-failed": (412, "The namespace changed in Git since you read it"),
     "validation-failed": (422, "Request body is not valid"),

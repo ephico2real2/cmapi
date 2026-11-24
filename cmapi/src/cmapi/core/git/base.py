@@ -205,6 +205,13 @@ class HostGitProvider:
         files, _ = self.read_folder(folder, ref)
         return files
 
+    def list_folder(self, path: str, ref: str | None = None) -> tuple[dict[str, str], str]:
+        """Every entry under path at ref, at any depth, that is not a folder, and the commit sha: {repository path: Git object
+        type}, "blob" for a file, an executable or a symlink and "commit" for a submodule. read_folder reads cmapi's manifests
+        (the .yaml files directly in the folder); this lists what a delete removes, whatever made it (#616). IncompleteList
+        when the host cannot give each entry."""
+        raise NotImplementedError
+
     def branch_head(self, branch: str) -> str | None:
         raise NotImplementedError
 
@@ -228,15 +235,24 @@ class HostGitProvider:
         """The branch again from its recorded base, the same sha (the reproducible commit)."""
         raise NotImplementedError
 
-    def merge_check(self, head: str, folder: str, prev: Mapping[str, str], files: Mapping[str, str | None]) -> MergeCheck:
+    def merge_check(self, head: str, folder: str, prev: Mapping[str, str], files: Mapping[str, str | None], *,
+                    whole_folder: bool = False) -> MergeCheck:
         """Before an apply and a merge. With no Git layer (the Gitea stand-in): the folder on the default branch compared with the
-        plan's base; the host's own merge refuses a conflict. A provider with the Git layer runs git merge-tree."""
+        plan's base; the host's own merge refuses a conflict. A provider with the Git layer runs git merge-tree.
+
+        whole_folder, a delete (#616): the folder must leave Git whole, so main's full listing is the plan's removals, each a
+        file, and the head's folder is empty. A path main gained after the push is refused here, before the merge, not found
+        after it (_merged)."""
         from cmapi.core.git.oplog import Op
 
         with Op("merge_check", head_sha=head) as op:
             on_main, main = self.read_folder(folder)
-            check = MergeCheck(main, head, (), on_main == dict(prev), True)
-            op.set(main_sha=main, base_matches=check.base_matches)
+            base_ok, result_ok = on_main == dict(prev), True
+            if whole_folder:
+                base_ok = base_ok and self.list_folder(folder, main)[0] == dict.fromkeys(files, "blob")
+                result_ok = not self.list_folder(folder, head)[0]
+            check = MergeCheck(main, head, (), base_ok, result_ok)
+            op.set(main_sha=main, base_matches=check.base_matches, result_matches=check.result_matches)
             if not check.ok:
                 op.outcome = "refused"
             return check

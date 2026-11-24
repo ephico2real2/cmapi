@@ -99,10 +99,12 @@ def ssh_key_fingerprint(key: Path, public: Path) -> str:
     return shown.stdout.split()[1]
 
 
-def check_path(path: str) -> None:
-    """A repository path the renderer made: relative, no empty, '.', '..' or '.git' part, one line."""
+def check_path(path: str, *, removal: bool = False) -> None:
+    """A repository path the renderer made: relative, no empty, '.', '..' or '.git' part, one line. A removal is a name Git
+    listed (#616), which may hold a newline: git rm reads it NUL-separated and literally, so only the line rule is waived."""
     parts = path.split("/")
-    if not path or path.startswith("/") or any(p in ("", ".", "..") or p.lower() == ".git" for p in parts) or "\n" in path or "\0" in path:
+    if not path or path.startswith("/") or any(p in ("", ".", "..") or p.lower() == ".git" for p in parts) or \
+            ("\n" in path and not removal) or "\0" in path:
         raise ValueError(f"{path!r} is not a repository path cmapi writes")
 
 

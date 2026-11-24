@@ -866,7 +866,7 @@ The chart and the plain manifests also write `mode`, `snapshotInterval` and `tar
 | `CMAPI_IMPORTS_DIR` | None | Reads import Secrets from YAML files in this folder, for tests |
 | `CMAPI_KUBE_TOKEN_FILE`, `CMAPI_KUBE_CA_FILE`, `CMAPI_KUBE_API_URL` | The service account files, and `https://kubernetes.default.svc` | How cmapi reads the import Secrets of the hub. Neither this token nor the token of an import Secret appears in an error, a cluster finding or a log line: each is replaced with `***` before the text is cut (`core/clients/redact.py`, #420) |
 | `CMAPI_COMPONENT` | `api` | `api`, `worker` or `capacity`. The label `component` of the metrics |
-| `CMAPI_LOG_LEVEL` | `INFO` | The log level |
+| `CMAPI_LOG_LEVEL` | `INFO` | The log level of the api and the worker. `cmapi-migrate` does not read it: it logs at `INFO`, so its result event is always written (docs/12, section 4) |
 | `CMAPI_BIND_PORT`, `CMAPI_METRICS_PORT` | `8080`, `9090` | The ports of the API and of the metrics |
 | `CMAPI_WORKER_POLL_SECONDS` | `2.0` | How often the worker looks for a due job |
 | `CMAPI_WORKER_ID` | The host name | The name of the worker in a lease |
