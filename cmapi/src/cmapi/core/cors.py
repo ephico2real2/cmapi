@@ -28,9 +28,10 @@ from starlette.types import Message, Receive, Scope, Send
 METHODS = ["GET", "HEAD", "POST", "PATCH", "DELETE"]
 # Each makes the request one that needs a preflight, so no page of an origin that is not listed can send it at all.
 REQUEST_HEADERS = ["Authorization", "Content-Type", "Idempotency-Key", "If-Match", "If-None-Match", "X-Request-Id"]
-# ETag is the value of If-Match on a change; Retry-After and WWW-Authenticate say what to do after a 429, a 503 or a 401;
-# X-Request-Id is the line to look for in the logs.
-EXPOSED_HEADERS = ["ETag", "Location", "Retry-After", "WWW-Authenticate", "X-Request-Id"]
+# ETag is the value of If-Match on a change; Allow, Retry-After and WWW-Authenticate say what to do after a 405, a 429, a
+# 503 or a 401; X-Request-Id is the line to look for in the logs. None of them is CORS-safelisted
+# (https://fetch.spec.whatwg.org/#cors-safelisted-response-header-name), so another origin reads only those listed here.
+EXPOSED_HEADERS = ["Allow", "ETag", "Location", "Retry-After", "WWW-Authenticate", "X-Request-Id"]
 MAX_AGE = 600           # seconds a browser keeps a preflight answer; WebKit's ceiling is 600, Chromium's is 7200
 
 # An origin as a browser writes it: lower-case ASCII host (punycode for another script), no default port, nothing after it.

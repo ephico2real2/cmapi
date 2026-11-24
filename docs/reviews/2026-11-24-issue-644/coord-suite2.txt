@@ -1,0 +1,40 @@
+start 2026-11-24T15:47:01Z load { 10.20 49.18 242.96 }
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+                logger.debug("connection failed: %s: %s", descr, str(tex))
+                logger.debug("connection failed: %s: %s", descr, str(ex))
+E               psycopg.OperationalError: connection failed: connection to server at "127.0.0.1", port 55432 failed: FATAL:  sorry, too many clients already
+                logger.debug("connection failed: %s: %s", descr, str(tex))
+                logger.debug("connection failed: %s: %s", descr, str(ex))
+E               sqlalchemy.exc.OperationalError: (psycopg.OperationalError) connection failed: connection to server at "127.0.0.1", port 55432 failed: FATAL:  sorry, too many clients already
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+FAILED tests/service/test_custom_tier_change.py::test_a_label_change_keeps_approved_overrides_and_asks_for_no_approval_again
+FAILED tests/service/test_custom_tier_change.py::test_a_new_value_on_an_approved_namespace_is_beyond_the_tier_again
+FAILED tests/service/test_custom_tier_change.py::test_an_approved_change_of_limits_opens_a_pull_request_with_the_planned_files
+FAILED tests/service/test_custom_tier_change.py::test_more_node_ports_than_git_holds_is_network_exposure_also_at_the_tiers_value[first0-1-change0]
+FAILED tests/service/test_custom_tier_change.py::test_more_node_ports_than_git_holds_is_network_exposure_also_at_the_tiers_value[first1-0-change1]
+FAILED tests/service/test_delete_dry_run_602.py::test_a_delete_dry_run_answers_the_plan_and_writes_nothing
+FAILED tests/service/test_delete_dry_run_602.py::test_a_delete_dry_run_fails_where_the_delete_would
+FAILED tests/service/test_delete_dry_run_602.py::test_a_delete_dry_run_of_a_protected_namespace_is_refused
+FAILED tests/service/test_delete_dry_run_602.py::test_a_delete_dry_run_counts_a_recorded_refusal_and_stores_none
+FAILED tests/service/test_delete_whole_folder_616.py::test_a_file_added_to_the_folder_after_the_plan_supersedes_the_delete
+FAILED tests/service/test_delete_whole_folder_616.py::test_a_folder_that_holds_a_submodule_is_refused_with_its_paths
+FAILED tests/service/test_delete_whole_folder_616.py::test_the_merge_check_holds_a_delete_whose_folder_is_not_empty_at_the_merge
+FAILED tests/service/test_delete_whole_folder_616.py::test_the_git_layer_removes_every_file_symlink_and_subfolder_of_the_folder
+FAILED tests/service/test_delete_whole_folder_616.py::test_a_branch_built_on_a_main_that_gained_a_file_fails_the_cmapi_check
+FAILED tests/service/test_delete_whole_folder_616.py::test_a_file_replaced_by_a_submodule_after_the_plan_supersedes_the_delete
+FAILED tests/service/test_protected_366.py::test_the_delete_after_expiry_of_a_protected_namespace_is_refused
+FAILED tests/service/test_third_pass_fixes.py::test_the_application_cmapi_reads_has_a_name_kubernetes_accepts
+FAILED tests/service/test_unprotect_approval_378.py::test_removing_a_protection_label_needs_approver_platform_when_an_annotation_shares_its_key[cmapi.net/protected]
+FAILED tests/service/test_unprotect_approval_378.py::test_a_requesters_sensitive_team_label_change_is_not_hidden_by_an_annotation_of_the_same_key
+19 failed, 2663 passed in 2289.13s (0:38:09)
+end 2026-11-24T16:25:14Z

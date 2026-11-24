@@ -19,6 +19,10 @@ ACTIONS: dict[str, str] = {
     "environment-forbidden": "Use an environment that your roles permit, or ask for a role that permits this one.",
     "cluster-not-found": "Use a cluster ID from `GET /api/v1/clusters`.",
     "object-not-found": "Check the identifier. The object does not exist, or this instance does not serve it.",
+    "not-found": "Check the path. The API reference (`/docs`, `/openapi.json`) lists each operation of the API, and `/problems` "
+                 "each problem type. No route and no file answers this path, so the answer says nothing of an object.",
+    "method-not-allowed": "Send the request with one of the methods that the `Allow` header of the answer lists. "
+                          "The API reference lists each operation of the path.",
     "change-pending": "Wait for the open request in `detail` to finish, or cancel it. One object has one open change.",
     "namespace-exists": "Use another name, or change the namespace that exists.",
     "namespace-exists-unmanaged": "Use another name. cmapi does not manage the namespace that exists on the cluster.",
@@ -63,6 +67,8 @@ ACTIONS: dict[str, str] = {
     "invalid-limit": "Use a limit that the operation lists in the API reference.",
     "dry-run-not-supported": "Nothing was done: this call has no dry run. A preview stops here. Send the call without `dryRun` "
                              "only to do the action. Only the writes that open a change request have a dry run.",
+    "bad-request": "Fix what `detail` names, and send the request again. FastAPI or Starlette refused the request "
+                   "before any route of cmapi read it.",
     "rate-limited": "Wait for the number of seconds in `Retry-After`, then send the request again.",
     "idp-unavailable": "Try again after the seconds in `retryAfter`. cmapi cannot read Keycloak's signing keys.",
     "cluster-unreachable": "Try again later. The cluster did not answer.",
