@@ -15,6 +15,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import Headers
 from starlette.requests import ClientDisconnect
@@ -227,7 +228,23 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     _add_problem_pages(app, ctx, problem_base)
     if docs_enabled:
         _add_docs(app, ctx, docs_cfg, authed, problem_response)
+    _serve_head_with_get(app)
     return app
+
+
+def _serve_head_with_get(app: FastAPI) -> None:
+    """HEAD on every GET route of the app (#605). Called last in create_app, when every route is added.
+
+    RFC 9110 section 9.1: "All general-purpose servers MUST support the methods GET and HEAD", and 9.3.2: "The HEAD method
+    is identical to GET except that the server MUST NOT send content in the response". Starlette's Route adds HEAD to a GET
+    (starlette/routing.py:244-246); FastAPI's APIRoute takes only the methods it is given (fastapi/routing.py:494), so each
+    GET answered HEAD with 405. HEAD joins the methods of the GET's own route, as in Starlette: one route answers both, with
+    the same dependencies (the sign-in, the permission), the same preconditions and headers, and no side effect that the
+    GET does not have, and a 405 lists HEAD in Allow. uvicorn sends no content for a HEAD (h11_impl.py and httptools_impl.py
+    drop the body). build_openapi documents each GET only (core/docs.py, _without_head)."""
+    for route in app.routes:
+        if isinstance(route, APIRoute) and "GET" in route.methods:
+            route.methods.add("HEAD")
 
 
 def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None:

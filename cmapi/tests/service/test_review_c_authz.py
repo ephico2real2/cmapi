@@ -45,7 +45,7 @@ def table(app):
 def test_declared_permission_is_the_enforced_one_and_every_route_answers(world, capsys):
     client, ctx, git, kube, validator, keys = world
     c = TestClient(client.app, raise_server_exceptions=False)
-    rows, bad = [], []
+    rows, bad, answers = [], [], {}
     viewer = dict(roles=["cmapi-viewer"], groups=[])
     onb = dict(roles=["cmapi-onboarding"], groups=[])
     for m, path, declared, enforced, r in sorted(table(client.app), key=lambda x: x[1]):
@@ -55,7 +55,10 @@ def test_declared_permission_is_the_enforced_one_and_every_route_answers(world, 
         vi = c.request(m, url, headers=auth(keys, "vi", **viewer), **kw).status_code
         ob = c.request(m, url, headers=auth(keys, "ob", **onb), **kw).status_code
         rows.append(f"{m:6} {path:58} decl={declared} enforced={enforced} none={no} viewer={vi} onboarding={ob}")
-        if (m, path) in PUBLIC:
+        answers[(m, path)] = (no, vi, ob)
+        # A HEAD is answered by its GET's route (main.py, _serve_head_with_get, #605): RFC 9110, section 9.3.2, "identical to
+        # GET except that the server MUST NOT send content", so it is public where the GET is.
+        if (m, path) in PUBLIC or (m == "HEAD" and ("GET", path) in PUBLIC):
             continue
         if declared != enforced and declared is not None:
             bad.append(("mismatch", m, path, declared, enforced))
@@ -67,6 +70,9 @@ def test_declared_permission_is_the_enforced_one_and_every_route_answers(world, 
             bad.append(("viewer", m, path, vi))
         if not allowed_o and ob != 403:
             bad.append(("onboarding", m, path, ob))
+    # And each caller gets from HEAD what it gets from GET, on the public routes too.
+    bad += [("head is not its get", path, answers[("GET", path)], got) for (m, path), got in answers.items()
+            if m == "HEAD" and got != answers[("GET", path)]]
     with capsys.disabled():
         print("\n" + "\n".join(rows))
     assert not bad, bad
