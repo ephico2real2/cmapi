@@ -206,6 +206,21 @@ class Pipeline:
         except GitUnavailable as exc:
             raise Problem(502, "git-unavailable", str(exc)[:300]) from exc
 
+    def removable_folder(self, cluster_id: str, ns: str, ref: str) -> dict[str, str]:
+        """Every path a delete of the namespace removes: each file of its folder at ref, at any depth, whatever made it (#616).
+        A submodule is refused: its removal also changes .gitmodules at the repository's root, outside the folder, which the
+        request branch never touches."""
+        try:
+            listed, _ = self.git.list_folder(folder(cluster_id, ns), ref)
+        except GitUnavailable as exc:
+            raise Problem(502, "git-unavailable", str(exc)[:300]) from exc
+        submodules = sorted(p for p, kind in listed.items() if kind == "commit")
+        if submodules:
+            raise Problem.conflict("folder-holds-submodule",
+                                   f"The folder of {ns} holds the submodule {submodules[0]}: cmapi removes files, not submodules. "
+                                   "Remove it in Git, then delete the namespace", paths=submodules)
+        return listed
+
     def workload_counts(self, cluster_id: str, ns: str) -> tuple[int, int]:
         """Pods and PVCs in a namespace, for the delete thresholds. A live read: unknown is 503, never 0."""
         client = self.registry.cache(cluster_id).client
@@ -465,6 +480,7 @@ class Pipeline:
         etag = folder_etag(prev)
         if reason != "expired":
             check_if_match(if_match, etag, "delete")
+        removed = self.removable_folder(cluster_id, ns, base_sha)
         labels = ns_doc["metadata"].get("labels", {})
         live = None
         try:
@@ -483,7 +499,7 @@ class Pipeline:
                  "pods": pods, "pvcs": pvcs, "reason": reason, "clusterLabels": dict(st.policy.labels),
                  **(extra_facts or {})}
         requirement = self._decide(facts)
-        files = self.renderer.delete(cluster_id, ns, prev)
+        files = self.renderer.delete(cluster_id, ns, removed)
         cap = CapacityResult("fits", True, None, {"source": "delete"})
         return Plan(cluster_id, ns, env, "delete", "namespaces", None, files, prev, {p: "removed" for p in files},
                     requirement, cap, facts, requester, [], base_sha, reason=reason, etag=etag)

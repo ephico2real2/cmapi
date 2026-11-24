@@ -22,7 +22,12 @@ This folder holds the contract of the cmapi API and the tools that guard it. The
 3. Write the document again: `CMAPI_WRITE_CONTRACT=1 PYTHONPATH=src:tests/service python -m pytest tests/service/test_api_docs.py -q -W ignore -k committed_contract`.
 4. Lint the document: `(cd contract/spectral && npm ci --ignore-scripts)` one time, then `contract/lint.sh`. A new rule gets a case in `lint-test.py`.
 5. Write `docs/04-api-examples.md` again: `python ../scripts/api-examples-doc.py --write`.
-6. Commit `src/cmapi/contract/samples.json`, `contract/openapi.json` and `docs/04-api-examples.md` with the code.
+6. Write the portal's API types again: `(cd ../cmapi-portal-ui/tools/openapi-types && npm ci --ignore-scripts)` one time, then
+   `(cd ../cmapi-portal-ui && npm run api:types)`. The portal-ui CI job fails when `src/api/schema.generated.ts` is not current
+   (#623).
+7. Commit `src/cmapi/contract/samples.json`, `contract/openapi.json`, `docs/04-api-examples.md` and the API types that step 6
+   changed in `../cmapi-portal-ui/src/api/` (`schema.generated.ts`, and `permissions.generated.ts` when a permission changed)
+   with the code.
 
 The CI job `api-contract` (`.github/workflows/ci.yml`) runs, in this order: `lint-test.py`, `lint.sh`, `gate-test.sh`, `changelog.py --check`, `scripts/api-examples-doc.py --check`, then the gate twice. The first gate compares `openapi.json` with the newest file in `released/`, and says so when `released/` is empty (it is). The second runs on a pull request only: it compares with `openapi.json` on the base branch. A breaking change fails the job. An added endpoint or an added optional field passes. The service job fails when `openapi.json` is not what the code serves.
 

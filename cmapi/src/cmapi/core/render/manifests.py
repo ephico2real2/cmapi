@@ -224,7 +224,8 @@ class ManifestRenderer:
                 "subjects": [{"kind": "ServiceAccount", "name": sa, "namespace": spec.namespace}]}
 
     def delete(self, cluster_id: str, namespace: str, previous: Mapping[str, str]) -> dict[str, None]:
-        """A delete removes the whole folder: every file maps to None."""
+        """A delete removes the whole folder: every path of previous inside it maps to None. previous is the folder's full
+        listing (GitProvider.list_folder), every file at any depth, not only the manifests read_folder reads (#616)."""
         base = folder(cluster_id, namespace)
         return {p: None for p in previous if p.startswith(base)}
 
