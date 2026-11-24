@@ -1,0 +1,31 @@
+start 2026-11-24T02:38:52Z load { 12.07 9.87 9.48 }
+...........................................F............................ [ 73%]
+....
+[measure] two cmapi-migrate at once, 5 rounds: [[(0, '{"direction": "upgrade", "target": "head", "from_revision": null, "revision": "0009", "app'), (0, '{"direction": "upgrade", "target": "head", "from_revision": "0009", "revision": "0009", "a')], [(0, '{"direction": "upgrade", "target": "head", "from_revision": null, "revision": "0009", "app'), (0, '{"direction": "upgrade", "target": "head", "from_revision": "0009", "revision": "0009", "a')], [(0, '{"direction": "upgrade", "target": "head", "from_revision": null, "revision": "0009", "app'), (0, '{"direction": "upgrade", "target": "head", "from_revision": "0009", "revision": "0009", "a')], [(0, '{"direction": "upgrade", "target": "head", "from_revision": "0009", "revision": "0009", "a'), (0, '{"direction": "upgrade", "target": "head", "from_revision": null, "revision": "0009", "app')], [(0, '{"direction": "upgrade", "target": "head", "from_revision": "0009", "revision": "0009", "a'), (0, '{"direction": "upgrade", "target": "head", "from_revision": null, "revision": "0009", "app')]]
+......................                                               [100%]
+=================================== FAILURES ===================================
+_ test_each_time_holds_its_own_work_and_the_transaction_ends_after_its_commit __
+
+empty_schema = 'postgresql://cmapi:***@127.0.0.1:55432/cmapi_603?options=-csearch_path%3Dmig'
+
+    def test_each_time_holds_its_own_work_and_the_transaction_ends_after_its_commit(empty_schema):
+        """A step's seconds are its own revision's (not zero, not its neighbour's), and the transaction's include its commit:
+        the table locks are held until then, which is what docs/12 reads the number for."""
+        first, second, commit = 0.5, 1.0, 0.4
+        _migrated("0007", url=empty_schema)
+        env = {**os.environ, "CMAPI_DATABASE_URL": empty_schema, "PYTHONPATH": str(ROOT / "cmapi/src"), "PYTHONDONTWRITEBYTECODE": "1"}
+        p = subprocess.run([sys.executable, "-c", SLOW, str(first), str(second), str(commit), "head"], env=env,
+                           capture_output=True, text=True, timeout=120)
+        assert p.returncode == 0, (p.stdout + p.stderr)[-800:]
+        e = json.loads(p.stdout)
+        steps = {s["revision"]: s["seconds"] for s in e["applied"]}
+        assert list(steps) == ["0008", "0009"], e
+>       assert first <= steps["0008"] < second <= steps["0009"] < second + first, e
+E       AssertionError: {'applied': [{'revision': '0008', 'seconds': 0.549}, {'revision': '0009', 'seconds': 0.021}], 'direction': 'upgrade', 'event': 'migrated', 'from_revision': '0007', ...}
+E       assert 1.0 <= 0.021
+
+tests/service/test_migrate_log_614.py:134: AssertionError
+=========================== short test summary info ============================
+FAILED tests/service/test_migrate_log_614.py::test_each_time_holds_its_own_work_and_the_transaction_ends_after_its_commit
+1 failed, 97 passed in 204.40s (0:03:24)
+end 2026-11-24T02:42:21Z rc=1
