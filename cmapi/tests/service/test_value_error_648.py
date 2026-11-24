@@ -12,11 +12,13 @@ from __future__ import annotations
 import json
 
 import pytest
+from starlette.testclient import TestClient
 
+import cmapi.core.listquery as listquery
 from cmapi.core.docs import PROBLEMS
 from cmapi.core.errors import type_base
 from cmapi.core.pipeline import Plan
-from test_custom_tier_change import SIZES, URL, custom, patch, synced
+from test_custom_tier_change import SIZES, URL, catalog_with, custom, patch, synced
 from test_flow import NS, OLA, auth
 
 ONE = f"{URL}/{NS['namespace']}"
@@ -113,3 +115,60 @@ def test_a_change_of_a_value_that_git_holds_to_one_that_is_not_a_quantity_is_sti
     r = patch(world, etag, {"quota": {"requests.cpu": "lots"}})
     assert r.status_code == 422, r.text
     assert r.json() == problem(ctx, 422, "validation-failed", "not a Kubernetes quantity: 'lots'"), r.text
+
+
+@pytest.mark.parametrize("body,value", [
+    (custom(quota={**SIZES, "requests.cpu": "1e1000000"}), "1e1000000"),
+    (custom(quota={**SIZES, "requests.cpu": "1e9999999"}), "1e9999999"),
+    (custom(quota={**SIZES, "requests.cpu": "1e999999999999999999"}), "1e999999999999999999"),
+    (custom(quota={**SIZES, "requests.cpu": "1e9000000000000000"}), "1e9000000000000000"),
+    (custom(limitRange={"container": {"max": {"cpu": "1e9999999"}}}), "1e9999999"),
+], ids=["quota-at-the-bound", "quota-past-emax", "quota-past-max-prec", "quota-memory-error", "limit-past-emax"])
+def test_a_requested_quantity_too_large_to_hold_is_validation_failed(world, body, value):
+    """apimachinery reads the exponent as an int64 (suffix.go, interpret), so "1e9999999" is a quantity for Kubernetes, but
+    qty cannot hold it. Before: quantize raised decimal.InvalidOperation (500), a precision past MAX_PREC raised decimal's
+    "valid range for prec is [1, MAX_PREC]" (422 with that text), and "1e9000000000000000" raised MemoryError (500). Each
+    is the caller's value: 422 with a text that says what to correct."""
+    client, ctx, git, kube, validator, keys = world
+    r = client.post(URL + "?dryRun=true", json=body, headers=auth(keys, "ola", **OLA))
+    assert r.status_code == 422, r.text
+    detail = f"quantity out of range (cmapi takes one below 1e1000000): {value!r}"
+    assert r.json() == problem(ctx, 422, "validation-failed", detail), r.text
+
+
+def test_a_requested_value_of_more_digits_than_decimal_keeps_is_checked_against_the_step(world):
+    """The step check ran `v % st` in Decimal's 28-digit context: DivisionImpossible, 500, for a value of more digits on a
+    key with a step and no max. pods is sizable, and the catalog needs a max for an overridable key only."""
+    client, ctx, git, kube, validator, keys = world
+
+    def no_pods_max(raw):
+        raw["custom"]["max"].pop("pods")
+        for env in raw["environments"].values():
+            ((env or {}).get("custom") or {}).get("max", {}).pop("pods", None)
+
+    catalog_with(world, no_pods_max)
+    many = "1" + "0" * 39 + "1"                       # 41 digits, not a multiple of the step 10
+    r = client.post(URL + "?dryRun=true", json=custom(quota={**SIZES, "pods": many}), headers=auth(keys, "ola", **OLA))
+    assert r.status_code == 422, r.text
+    error = r.json()["errors"][0]
+    assert error["code"] == "custom-out-of-bounds", r.text
+    assert error["items"] == [{"key": "pods", "value": many, "min": "10", "max": None, "step": "10"}], r.text
+    r = client.post(URL + "?dryRun=true", json=custom(quota={**SIZES, "pods": many[:-1] + "0"}), headers=auth(keys, "ola", **OLA))
+    assert r.status_code == 200, r.text                # a whole number of steps passes
+
+
+def test_a_value_error_after_the_csv_stream_started_is_logged_by_its_class_and_leaks_nothing(world, capsys, monkeypatch):
+    """The 200 has gone, so the stream ends early and no problem replaces it. The log names the ValueError, not the
+    ExceptionGroup of the response's task group."""
+    client, ctx, git, kube, validator, keys = world
+
+    def lines(rows, columns):
+        yield "name\n"
+        raise ValueError(SECRET)
+
+    monkeypatch.setattr(listquery, "_csv_lines", lines)
+    r = TestClient(client.app, raise_server_exceptions=False).get("/api/v1/quotas:export", headers=auth(keys, "ola", **OLA))
+    assert r.status_code == 200 and SECRET not in r.text, (r.status_code, r.text)
+    logged = unhandled(capsys)
+    assert [(e["route"], e["error_type"]) for e in logged] == [("/api/v1/quotas:export", "ValueError")], logged
+    assert SECRET in logged[0]["exception"]

@@ -127,6 +127,12 @@ class ExpirationRules:
         return {"environments": out}
 
     # ---- requests
+    @staticmethod
+    def _last_date(r: EnvRules) -> date:
+        """The latest expiry date: its grace period must end by 9999-12-31, the last day a date holds, or GET /expirations
+        cannot show graceEnds and answers 500 to everyone (#653)."""
+        return date.max - timedelta(days=r.grace_days)
+
     def _lifetime(self, r: EnvRules, created: date, new_date: date, reasons: list[str]) -> tuple[str, ...]:
         if new_date > created + timedelta(days=r.max_lifetime_days):
             reasons.append(f"past {r.max_lifetime_days} days from creation")
@@ -141,6 +147,8 @@ class ExpirationRules:
             raise Problem.unprocessable("expiration-not-allowed", f"{env} does not take an expiry at create")
         if expires_at <= today:
             raise Problem.unprocessable("expiration-in-past", "The expiry must be after today")
+        if expires_at > self._last_date(r):
+            raise Problem.unprocessable("validation-failed", f"The expiry must be on or before {self._last_date(r)}")
         reasons: list[str] = []
         extra = self._lifetime(r, today, expires_at, reasons)
         return ExpiryPlan("create", expires_at, extra, tuple(reasons))
@@ -153,14 +161,18 @@ class ExpirationRules:
         if (days is None) == (until is None):
             raise Problem.bad_request("validation-failed", "Send days or until, not both")
         base = max(ns.expires_at, today)
-        new = base + timedelta(days=days) if days is not None else until
-        step = (new - base).days
+        # The step is checked before the date is moved: a count of days past date's range (timedelta holds 999999999 days,
+        # date ends in 9999) is an OverflowError there, a 500 for the caller's number (#653).
+        step = days if days is not None else (until - base).days
         if step <= 0:
             raise Problem.unprocessable("expiration-in-past", "The new date must be later than the current one")
         if step > r.max_extension_days:
             raise Problem.unprocessable("expiration-limit",
                                         f"One extension adds at most {r.max_extension_days} days",
                                         maxExtensionDays=r.max_extension_days)
+        if step > (self._last_date(r) - base).days:
+            raise Problem.unprocessable("validation-failed", f"The new date must be on or before {self._last_date(r)}")
+        new = base + timedelta(days=step)
         reasons = [f"+{step} days"]
         return ExpiryPlan("extend", new, self._lifetime(r, ns.created, new, reasons), tuple(reasons))
 
@@ -173,6 +185,8 @@ class ExpirationRules:
         if (until - today).days > r.max_extension_days:
             raise Problem.unprocessable("expiration-limit",
                                         f"A new date is at most {r.max_extension_days} days out")
+        if until > self._last_date(r):
+            raise Problem.unprocessable("validation-failed", f"The expiry must be on or before {self._last_date(r)}")
         reasons: list[str] = []
         return ExpiryPlan("set", until, self._lifetime(r, ns.created, until, reasons), tuple(reasons))
 

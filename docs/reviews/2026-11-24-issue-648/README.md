@@ -13,9 +13,9 @@ Part of #481. Implementer: Opus 5.5 at high, from `main` `a2a55f3`. Every file o
 - **RFC 9457, section 3.1.4** (<https://www.rfc-editor.org/rfc/rfc9457.txt>): "The "detail" string, if present, ought to
   focus on helping the client correct the problem, rather than giving debugging information."
 - **RFC 9457, section 5**: "Risks include leaking information that can be exploited to compromise the system, access to the
-  system, or the privacy of users of the system." It adds that generators "are encouraged to avoid making implementation
-  details such as a stack dump available through the HTTP interface, since this can expose sensitive details of the server
-  implementation, its data, and so on."
+  system, or the privacy of users of the system." It adds that "Generators providing links to occurrence information are
+  encouraged to avoid making implementation details such as a stack dump available through the HTTP interface, since this
+  can expose sensitive details of the server implementation, its data, and so on."
 - **RFC 9110, section 15.5.21** (<https://www.rfc-editor.org/rfc/rfc9110.txt>): "The 422 (Unprocessable Content) status
   code indicates that the server understands the content type of the request content ..., and the syntax of the request
   content is correct, but it was unable to process the contained instructions."
@@ -33,7 +33,7 @@ Part of #481. Implementer: Opus 5.5 at high, from `main` `a2a55f3`. Every file o
   model's validator never reached `value_error_handler`. Only a ValueError raised in a route, a dependency or the code they
   call did.
 - **Starlette 0.41.3** (installed): `starlette/_exception_handler.py:16-20` looks the handler up along `type(exc).__mro__`,
-  and `:49-50` re-raises when none matches. Without a ValueError handler, a ValueError reaches cmapi's
+  and `:52-53` re-raises when none matches. Without a ValueError handler, a ValueError reaches cmapi's
   `UnhandledToProblemMiddleware`, which logs `unhandled` and answers 500 `internal-error` with no text of the exception
   (#216). `TierError(ValueError)` keeps its own handler, which comes first in its MRO.
 
@@ -85,7 +85,40 @@ A probe in `value_error_handler` logged every ValueError that reached it while t
   request's value with `requested_qty` when its text differs from Git's, so a bad value is refused at the same key and in
   the same order as before.
 - **`core/pipeline.py:259`.** Wraps `label_value_of` in the same Problem.
-- **`main.py`.** Removes `value_error_handler`. The `unhandled` log line also gets `error_type`, the exception's class.
+- **`main.py`.** Removes `value_error_handler`. The `unhandled` log line also gets `error_type`, the exception's class: the
+  cause's class when a StreamingResponse wraps it in a one-member ExceptionGroup (reviewer 1, F3).
+- **`qty`.** A quantity of 1e1000000 or more, or one whose exponent Decimal cannot hold, is the ValueError "quantity out of
+  range (cmapi takes one below 1e1000000): '1e9999999'" (reviewers 1 and 2, F1). Kubernetes takes such a value: suffix.go
+  reads the exponent with `strconv.ParseInt(..., 10, 64)`, and release-1.37 narrows it to an int32. But qty quantizes to the
+  nano-unit, one digit for each power of ten. Before, "1e9999999" raised decimal.InvalidOperation (500), an exponent past
+  MAX_PREC gave the caller decimal's "valid range for prec is [1, MAX_PREC]", "1e9000000000000000" raised MemoryError
+  (500), and "1e2147483647" took 904 MB (tracemalloc's peak) and 2.4 s before it failed. The bound is checked before
+  quantize, and it is one past Decimal's default Emax, so every quantity that qty could hold before still parses.
+- **`_off_step`.** The step check runs in a precision that holds the value, so a requested value of more than 28 digits on a
+  key with a step and no max is checked, not a DivisionImpossible 500 (reviewer 1, F2).
+
+**#653, from the review (reviewer 2).** A value of the request reached a 500 on `a2a55f3` and on this head:
+- **U+0000.** PostgreSQL stores none: "the character with code zero (sometimes called NUL) cannot be stored" in text, and
+  "The jsonb type also rejects \u0000" (PostgreSQL 16 docs, sections 8.3 and 8.14). psycopg refuses one in a text parameter
+  before the query (`psycopg/types/string.py:51-52`), and the server refuses one in jsonb (`UntranslatableCharacter`). A NUL
+  in a request ID, a filter, a justification, a comment, a switch reason or an annotation answered 500. It is now refused
+  where it enters, as 422 validation-failed. `RefuseNulMiddleware` (`main.py`) refuses a path or a query. `RequestBody`
+  (`core/models.py`) is the base of every request body, and refuses a NUL in any string or key, at any depth. A test checks
+  that each route's body is a `RequestBody`. A header cannot carry one: uvicorn 0.32.1 answers 400 with h11 and with
+  httptools (measured).
+- **Why not a `DataError` handler (reviewer 1's O1).** It matched psycopg's text "cannot contain NUL (0x00)". It missed the
+  four jsonb paths: an annotation, a PATCH annotation, a rejection's comment and the pause reason still answered 500
+  (`UntranslatableCharacter: unsupported Unicode escape sequence`, measured). A dry run planned a body that the submit then
+  refused, and a static path never reaches the database.
+- **A static path.** `os.stat` raises `ValueError("embedded null byte")` for a NUL in `/static/swagger/...`. That was 422 with
+  lstat's text on `a2a55f3`, and 500 on this head before the middleware. Starlette fixed it upstream after 0.41.3
+  (commit 51057d574, #3139, which answers 404).
+- **`:extend`.** The date was moved before the step was checked, so a count of days past what a date holds was an
+  OverflowError (reviewer 1, O2). The step is now checked first, and the date is moved after.
+- **The last expiry date.** A namespace could be created to expire on 9999-12-31, with approver-platform's approval. GET
+  /expirations then computed `graceEnds` past 9999-12-31 and answered 500 to everyone, and `:extend` from such a date
+  overflowed. A new date at create, `:set` and `:extend` is now at most `date.max` less the grace period (9999-12-24 with 7
+  days): 422 validation-failed.
 
 **Behaviour that changes, and why.**
 - Rows 3 to 8 now answer 500 internal-error with no exception text. Their text and traceback go to the log line `unhandled`.

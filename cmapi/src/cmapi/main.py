@@ -9,6 +9,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import unquote_to_bytes
 
 import yaml
 from fastapi import Depends, FastAPI, Request
@@ -34,6 +35,7 @@ from cmapi.core.docs import PROBLEMS, URL_VARIABLE, InstanceFacts, build_openapi
 from cmapi.core.errors import Problem, type_base
 from cmapi.core.etag import etag_of, not_modified
 from cmapi.core.kpi import register_collectors
+from cmapi.core.models import NUL_REFUSED
 from cmapi.core.problem_docs import problem_html, problems_index_html
 from cmapi.core.observability import configure_logging, instrument, log, start_metrics
 from cmapi.core.tiers import TierError
@@ -106,13 +108,37 @@ class UnhandledToProblemMiddleware:
             if disconnected:
                 return
             request = Request(scope)
-            # error_type: the exception's class as a field to filter on; `exception` holds the traceback (#648).
+            # error_type: the exception's class as a field to filter on; `exception` holds the traceback (#648). A failure
+            # inside a StreamingResponse comes wrapped in a one-member ExceptionGroup (starlette/responses.py:252, an anyio
+            # task group), so the class is its cause's, as Starlette's own collapse_excgroups unwraps it (_utils.py:79-80).
+            cause: BaseException = exc
+            while isinstance(cause, BaseExceptionGroup) and len(cause.exceptions) == 1:
+                cause = cause.exceptions[0]
             log.exception("unhandled", method=request.method, route=getattr(scope.get("route"), "path_format", "unmatched"),
-                          error_type=type(exc).__name__)
+                          error_type=type(cause).__name__)
             if started:
                 raise  # A stream/background failure cannot replace a status already sent.
             response = self.problem_response(Problem(500, "internal-error", PROBLEMS["internal-error"][1]))
             await response(scope, receive, send)
+
+
+class RefuseNulMiddleware:
+    """A path or a query that holds U+0000 (%00) is 422 validation-failed, before routing (#653).
+
+    PostgreSQL stores no NUL, and os.stat refuses one in the path of a static file, so before this a NUL in a request ID, a
+    filter or a static path answered 500. A header cannot hold one: uvicorn's parsers, h11 and httptools, answer 400. A JSON
+    body is checked by its model, core/models.py RequestBody."""
+
+    def __init__(self, app: ASGIApp, problem_response: Any):
+        self.app = app
+        self.problem_response = problem_response
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and ("\x00" in scope["path"] or b"\x00" in unquote_to_bytes(scope["query_string"])):
+            response = self.problem_response(Problem.unprocessable("validation-failed", NUL_REFUSED))
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
 
 
 def instance_facts(cfg: InstanceConfig, cluster_environments: Mapping[str, str] | None = None) -> InstanceFacts:
@@ -198,6 +224,7 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         return JSONResponse(p.body(problem_base), status_code=p.status, media_type="application/problem+json", headers=headers)
 
     app.add_middleware(UnhandledToProblemMiddleware, problem_response=problem_response)
+    app.add_middleware(RefuseNulMiddleware, problem_response=problem_response)
 
     instrument(app)
     # CORS is added after the request middleware, so it is the outer one: each answer that the application makes has the

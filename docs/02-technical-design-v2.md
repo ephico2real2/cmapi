@@ -149,7 +149,7 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 
 | Problem type | Status | When |
 | --- | --- | --- |
-| validation-failed | 422 | Schema, name or label rules fail |
+| validation-failed | 422 | Schema, name or label rules fail. Also a request with U+0000 in its path, query or body, which PostgreSQL cannot store (#653); a quantity of 1e1000000 or more (#648); and an expiry later than 9999-12-31 less the grace period (#653) |
 | policy-violation | 422 | Allowlist, subject rule, reserved prefix, limits below requests |
 | capacity-exceeded | 422 | Requested quota does not fit the cluster's headroom (capacity check in the plan) |
 | unauthenticated | 401 | No or invalid token |

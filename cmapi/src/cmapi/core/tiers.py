@@ -24,7 +24,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from decimal import ROUND_CEILING, Decimal, localcontext
+from decimal import ROUND_CEILING, Decimal, DecimalException, localcontext
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping
 
@@ -44,6 +44,10 @@ _SUFFIX = {
 }
 _QTY = re.compile(r"^\+?([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|E|[eE][+-]?[0-9]+)?$")
 _NANO = Decimal("1e-9")
+# The smallest quantity that qty refuses: 10**1000000, one past Decimal's default Emax, so every quantity that qty could
+# hold before still parses. Kubernetes takes larger ones (suffix.go reads the exponent with strconv.ParseInt(..., 10, 64)),
+# but qty holds a quantity to the nano-unit, one digit for each power of ten: "1e2147483647" took 904 MB before it failed.
+_TOO_LARGE = Decimal("1e1000000")
 
 
 def qty(value: str | int | float) -> Decimal:
@@ -52,21 +56,39 @@ def qty(value: str | int | float) -> Decimal:
     Two values that this function gives as equal are one amount for Kubernetes, and no others are: the approval of a value
     beyond the tier depends on it. So no digit is lost in the multiplication (Decimal's default is 28 digits), and a fraction
     below one nano-unit is rounded up, as apimachinery's ParseQuantity does ("2.0000000000000000000000000001" is 2000000001n).
+
+    A quantity of _TOO_LARGE or more, or one whose exponent Decimal cannot hold, is a ValueError with a text for the caller,
+    not decimal's own error (#648, review of PR #652).
     """
     m = _QTY.fullmatch(str(value).strip())
     if not m:
         raise ValueError(f"not a Kubernetes quantity: {value!r}")
+    out_of_range = f"quantity out of range (cmapi takes one below 1e1000000): {value!r}"
     suffix = m.group(2) or ""
-    if len(suffix) > 1 and suffix[0] in "eE" and suffix[1] != "i":          # a decimal exponent, not the suffix E or Ei
-        amount = Decimal(m.group(1) + suffix)
-    else:
-        number, factor = Decimal(m.group(1)), _SUFFIX[suffix]
+    try:
+        if len(suffix) > 1 and suffix[0] in "eE" and suffix[1] != "i":          # a decimal exponent, not the suffix E or Ei
+            amount = Decimal(m.group(1) + suffix)
+        else:
+            number, factor = Decimal(m.group(1)), _SUFFIX[suffix]
+            with localcontext() as exact:
+                exact.prec = max(28, len(number.as_tuple().digits) + len(factor.as_tuple().digits))
+                amount = number * factor
+        if amount >= _TOO_LARGE:                # checked before quantize, which writes one digit per power of ten
+            raise ValueError(out_of_range)
         with localcontext() as exact:
-            exact.prec = max(28, len(number.as_tuple().digits) + len(factor.as_tuple().digits))
-            amount = number * factor
+            exact.prec = max(28, len(amount.as_tuple().digits), amount.adjusted() + 10)
+            return amount.quantize(_NANO, rounding=ROUND_CEILING)
+    except DecimalException:                    # an exponent Decimal cannot hold, or a product or rounding past Emax
+        raise ValueError(out_of_range) from None
+
+
+def _off_step(value: Decimal, step: Decimal) -> bool:
+    """Whether value is not a whole number of steps. Decimal's % stops with DivisionImpossible when the integer quotient has
+    more digits than the context's precision, 28 by default, and a requested value can have more. Both come from qty, so
+    both are whole nano-units, and the quotient has at most as many digits as value."""
     with localcontext() as exact:
-        exact.prec = max(28, len(amount.as_tuple().digits), amount.adjusted() + 10)
-        return amount.quantize(_NANO, rounding=ROUND_CEILING)
+        exact.prec = max(28, len(value.as_tuple().digits) + 1)
+        return value % step != 0
 
 
 # --------------------------------------------------------------------------- limit keys
@@ -377,7 +399,7 @@ class TierCatalog:
                     p.append(f"{env}: custom.min.{k} above custom.max.{k}")
                 if k in b.step and qty(b.step[k]) > 0:
                     for part in ("min", "max"):
-                        if k in getattr(b, part) and qty(getattr(b, part)[k]) % qty(b.step[k]) != 0:
+                        if k in getattr(b, part) and _off_step(qty(getattr(b, part)[k]), qty(b.step[k])):
                             p.append(f"{env}: custom.{part}.{k} is not a multiple of custom.step.{k}")
 
             # each tier, resolved
@@ -524,7 +546,7 @@ class TierCatalog:
                 continue
             v = requested_qty(values[k])
             lo, hi, st = (qty(x) if x is not None else None for x in (b.min.get(k), b.max.get(k), b.step.get(k)))
-            if (lo is not None and v < lo) or (hi is not None and v > hi) or (st and v % st != 0):
+            if (lo is not None and v < lo) or (hi is not None and v > hi) or (st and _off_step(v, st)):
                 bad.append({"key": k, "value": values[k], "min": b.min.get(k), "max": b.max.get(k), "step": b.step.get(k)})
         return bad
 
