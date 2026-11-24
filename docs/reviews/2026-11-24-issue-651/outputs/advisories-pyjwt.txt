@@ -1,0 +1,24 @@
+GHSA-pxh4-856f-4h89 | high | pyjwt | <= 2.13.0 | patched 2.14.0 | PyJWT: HS256/384/512 verify accepts empty HMAC key via oct JWK (PyJWK/PyJWKClient) enabling token forgery
+GHSA-x33g-cr3x-6449 | medium | PyJWT | >= 2.1.0, <= 2.14.0 | patched 2.15.0 | PyJWT accepts inconsistent OKP x/d JWKs, causing public/private key identity confusion
+GHSA-gvp8-978c-rx2q | medium | PyJWT | >= 2.11.0, <= 2.13.0 | patched none | PyJWT.decode() reintroduces options-dict mutation, enabling silent claim-verification bypass on dict reuse
+GHSA-42vr-xj54-vc7v | medium | PyJWT | >= 2.0.0a1, <= 2.14.0 | patched 2.15.0 | PyJWT: Unauthenticated RecursionError DoS in pre-verification payload parse (PyJWKClient.get_signing_key_from_jwt / verify_signature=False)
+GHSA-jwrc-g2q2-pq5p | medium | pyjwt | <= 2.13.0 | patched 2.14.0 | PyJWT: ReDoS vulnerability when calling the `is_pem_format` function.
+GHSA-9j54-fg26-wv3r | high | PyJWT | >= 2.13.0, < 2.14.0 | patched 2.14.0 | PyJWT: PyJWK accepts empty HMAC keys, bypassing PyJWT's empty-key validation
+GHSA-8wjv-2p76-3863 | medium | pyJWT | >= 2.13.0, < 2.14.0 | patched 2.14.0 | PyJWT: Uncaught RecursionError in jwt.decode() on deeply nested token header
+GHSA-hxm8-2xgr-2p9m | medium | PyJWT | <= 2.13.0 | patched 2.14.0 | PyJWT: Non-canonical signature segments enable raw-token revocation bypass
+GHSA-ffc3-869f-jxw9 | critical | PyJWT | <= 2.13.0 | patched 2.14.0 | PyJWT: Asymmetric-PEM detection bypass: whitespace/line-ending-mutated public keys skip the HS/asymmetric confusion guard
+GHSA-w2cx-738m-mc7w | high | PyJWT | = 2.13.0 | patched 2.14.0 | PyJWT accepts public JWK containers as HMAC secrets
+GHSA-9v7f-9g4p-ffgj | high | PyJWT | <= 2.13.0 | patched 2.14.0 | PyJWT: PyJWKClient follows redirects when fetching JWKS
+GHSA-p4g4-x82p-q773 | high | pyjwt | >= 2.4.0, < 2.14.0 | patched 2.14.0 | PyJWT: Public keys in DER form are accepted as HMAC secrets, bypassing the CVE-2022-29217 guard
+GHSA-r6x4-923q-g947 | high | PyJWT | = 2.13.0 | patched 2.14.0 | PyJWT BOM Bypass
+GHSA-2gx3-rcp4-g85q | medium | pyjwt | <= 2.13.0 | patched 2.14.0 | PyJWT: PyJWKClient still amplifies unauthenticated JWKS fetches on unknown kid values (incomplete fix of CVE-2026-48524)
+GHSA-w6j9-cwv2-h6wq | medium | PyJWT | >= 2.9.0, <= 2.13.0 | patched 2.14.0 | PyJWT: Malformed RSA JWK aborts parsing of an entire JWK Set
+GHSA-w7vc-732c-9m39 | medium | pyjwt | >= 2.8.0, <= 2.12.1 | patched 2.13.0 | PyJWT: Unauthenticated DoS via unbounded Base64URL decoding of unused payload segment in b64=false detached JWS
+GHSA-993g-76c3-p5m4 | medium | PyJWT | >= 2.0.0, <= 2.12.1 | patched 2.13.0 | PyJWKClient: missing scheme allowlist enables CVE-2024-21643-class SSRF + token forgery via file://, ftp://, data: schemes
+GHSA-xgmm-8j9v-c9wx | high | pyjwt | < 2.13.0 | patched 2.13.0 | PyJWT: Public-key JWK accepted as HMAC secret enables forged HS256 tokens when mixed families are allowed
+GHSA-jq35-7prp-9v3f | medium | pyjwt | >= 2.9.0, < 2.13.0 | patched 2.13.0 | PyJWT: Algorithm allow-list bypass when decoding with `PyJWK` / `PyJWKClient` keys
+GHSA-fhv5-28vv-h8m8 | low | pyjwt | >= 2.0.0, <= 2.12.1 | patched 2.13.0 | PyJWKClient unbounded JWKS endpoint requests via attacker-controlled kid values (DoS)
+GHSA-752w-5fwx-jx9f | high | PyJWT | <= 2.11.0 | patched 2.12.0 | PyJWT accepts unknown `crit` header extensions
+GHSA-75c5-xw7c-p5pm | low | PyJWT | = 2.10.0 | patched 2.10.1 | PyJWT Issuer field partial matches allowed
+GHSA-ffqj-6fqr-9h24 | high | pyjwt | >= 1.5.0, < 2.4.0 | patched 2.4.0 | Key confusion through non-blocklisted public key formats
+GHSA-r9jw-mwhq-wp62 | high | pyjwt | < 1.5.1 | patched 1.5.1 | PyJWT vulnerable to key confusion attacks

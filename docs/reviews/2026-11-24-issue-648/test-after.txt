@@ -1,0 +1,20 @@
+$ git stash pop  # the fix
+$ CMAPI_TEST_DATABASE_URL=postgresql://cmapi:cmapi@127.0.0.1:55432/cmapi_603 PYTHONPATH=src:tests/service python -m pytest tests/service/test_value_error_648.py -q -W ignore -p no:cacheprovider -rA --tb=line --show-capture=no
+.......                                                                  [100%]
+==================================== PASSES ====================================
+____________ test_a_codec_error_of_the_git_layer_is_internal_error _____________
+_____________ test_a_value_error_of_a_dependency_is_internal_error _____________
+__________ test_a_response_that_fails_its_own_model_is_internal_error __________
+___ test_a_username_that_cannot_be_a_label_value_is_still_validation_failed ____
+_ test_a_requested_value_that_is_not_a_quantity_is_still_validation_failed[quota] _
+_ test_a_requested_value_that_is_not_a_quantity_is_still_validation_failed[limit] _
+_ test_a_change_of_a_value_that_git_holds_to_one_that_is_not_a_quantity_is_still_validation_failed _
+=========================== short test summary info ============================
+PASSED tests/service/test_value_error_648.py::test_a_codec_error_of_the_git_layer_is_internal_error
+PASSED tests/service/test_value_error_648.py::test_a_value_error_of_a_dependency_is_internal_error
+PASSED tests/service/test_value_error_648.py::test_a_response_that_fails_its_own_model_is_internal_error
+PASSED tests/service/test_value_error_648.py::test_a_username_that_cannot_be_a_label_value_is_still_validation_failed
+PASSED tests/service/test_value_error_648.py::test_a_requested_value_that_is_not_a_quantity_is_still_validation_failed[quota]
+PASSED tests/service/test_value_error_648.py::test_a_requested_value_that_is_not_a_quantity_is_still_validation_failed[limit]
+PASSED tests/service/test_value_error_648.py::test_a_change_of_a_value_that_git_holds_to_one_that_is_not_a_quantity_is_still_validation_failed
+7 passed in 10.74s

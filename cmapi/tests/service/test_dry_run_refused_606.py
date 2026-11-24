@@ -7,9 +7,9 @@ cannot honour one (apiserver, endpoints/handlers/rest.go, ConnectResource: "dryR
 """
 from __future__ import annotations
 
-from fastapi.routing import APIRoute
 from sqlalchemy import text
 
+from cmapi.core.docs import api_routes
 from test_flow import AMY, NS, OLA, OPAL, auth
 
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
@@ -71,8 +71,8 @@ def test_every_write_without_a_dry_run_refuses_one(world):
     client, ctx, *_ = world
     spec = client.get("/openapi.json").json()
     guarded, planned = [], []
-    for route in client.app.routes:
-        if not isinstance(route, APIRoute) or not route.methods & WRITES:
+    for route in api_routes(client.app):
+        if not route.methods & WRITES:
             continue
         query = {p.alias for p in route.dependant.query_params}
         calls = {d.call.__name__ for d in route.dependant.dependencies if d.call is not None}

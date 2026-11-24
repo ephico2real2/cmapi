@@ -15,7 +15,7 @@ from cmapi.core.git.base import GitUnavailable
 from cmapi.core.identity.claims import Identity
 from cmapi.core.kpi import kpi_report
 from cmapi.core.lifecycle import Event as E, State as S
-from cmapi.core.models import Api, ChangeRequest, Policy, PruneConfirm
+from cmapi.core.models import Api, ChangeRequest, Policy, PruneConfirm, RequestBody
 from cmapi.core.observability import AUTO_PAUSED
 from cmapi.core.plugins import BUILT_IN
 from cmapi.core.views import request_view
@@ -26,7 +26,7 @@ router = DocumentedRouter("admin", prefix="/api/v1/admin", version=__version__, 
                                       "the integration modes, the plugins, the Git log and the system KPIs.")
 
 
-class SwitchBody(Api):
+class SwitchBody(RequestBody):
     reason: str = Field(description="Why the switch is being changed", examples=["incident 1234"])
 
 

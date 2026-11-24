@@ -1,0 +1,13 @@
+$ git stash push -- core/tiers.py core/pipeline.py  # mutant: the handler removed, the explicit refusals not added
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+tests/service/test_value_error_648.py:94: AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+tests/service/test_value_error_648.py:105: AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+tests/service/test_value_error_648.py:105: AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+tests/service/test_value_error_648.py:114: AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+=========================== short test summary info ============================
+FAILED tests/service/test_value_error_648.py::test_a_username_that_cannot_be_a_label_value_is_still_validation_failed
+FAILED tests/service/test_value_error_648.py::test_a_requested_value_that_is_not_a_quantity_is_still_validation_failed[quota]
+FAILED tests/service/test_value_error_648.py::test_a_requested_value_that_is_not_a_quantity_is_still_validation_failed[limit]
+FAILED tests/service/test_value_error_648.py::test_a_change_of_a_value_that_git_holds_to_one_that_is_not_a_quantity_is_still_validation_failed
+4 failed, 3 deselected in 6.40s

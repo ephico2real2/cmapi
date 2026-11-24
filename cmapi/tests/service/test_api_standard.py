@@ -388,6 +388,8 @@ def test_the_document_keeps_what_each_route_declares(declared, spec):
     parameter's rules and required flag, the body's required flag and each field's rules, each status and each code."""
     out = []
     for method, path, route in operations(declared):
+        if method == "head":            # a GET's HEAD, which the document leaves out (core/docs.py, _without_head; #605)
+            continue
         op, label = spec["paths"][path][method], f"{method.upper()} {path}"
         for key in ("security", "x-cmapi-permission"):
             if op.get(key) != route.get(key):
@@ -443,13 +445,14 @@ def test_the_namespace_fields_carry_the_rules_of_metadata_keys(cfg, spec):
 # The answers of the create operation, as the design's section 5.4 lists them, with two changes that the code decides: the
 # token check's 503 idp-unavailable (#504), and no top-level invalid-team-dl or no-change. A bad team-dl is an item of a
 # policy-violation (core/metadata.py), and a create always changes Git: namespace-exists refuses a folder that holds one.
+# folder-not-utf8 (#626): the create reads the folder too, and a name or a manifest in it that is not UTF-8 is refused there.
 CREATE_ANSWERS = {
     "200": [], "202": [],
     "400": ["idempotency-key-required"],
     "401": ["unauthenticated"],
     "403": ["forbidden", "environment-forbidden"],
     "404": ["cluster-not-found"],
-    "409": ["change-pending", "idempotency-replay", "namespace-exists", "namespace-exists-unmanaged"],
+    "409": ["change-pending", "idempotency-replay", "namespace-exists", "namespace-exists-unmanaged", "folder-not-utf8"],
     "422": ["cluster-not-writable", "environment-not-served", "plugin-disabled", "validation-failed", "policy-violation",
             "capacity-exceeded", "identity-incomplete", "unknown-user", "unknown-serviceaccount", "reserved-namespace",
             "invalid-namespace-name", "expiration-not-allowed", "expiration-in-past", "on-behalf-of-not-allowed",

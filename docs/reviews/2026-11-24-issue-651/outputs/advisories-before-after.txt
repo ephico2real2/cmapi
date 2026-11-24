@@ -1,0 +1,23 @@
+$ gh api /advisories -X GET -f ecosystem=pip -f affects=starlette@0.41.3 -f per_page=100   (2026-11-24)
+  GHSA-82w8-qh3p-5jfq CVE-2026-54283 high [('starlette', '>= 0.4.1, < 1.3.1', '1.3.1')] Starlette: request.form() limits silently ignored for application/x-www-form-urlencoded enable DoS
+  GHSA-wqp7-x3pw-xc5r CVE-2026-48818 high [('starlette', '< 1.1.0', '1.1.0')] Starlette: SSRF and NTLM credential theft via UNC paths in StaticFiles on Windows
+  GHSA-x746-7m8f-x49c CVE-2026-48817 medium [('starlette', '< 1.1.0', '1.1.0')] Starlette: Arbitrary HTTP method dispatched to `HTTPEndpoint` attributes via `getattr`
+  GHSA-86qp-5c8j-p5mr CVE-2026-48710 medium [('starlette', '<= 1.0.0', '1.0.1')] Starlette has missing Host header validation that poisons request.url.path, bypassing path-based security checks
+  GHSA-7f5h-v6xp-fcq8 CVE-2025-62727 high [('starlette', '>= 0.39.0, <= 0.49.0', '0.49.1')] Starlette vulnerable to O(n^2) DoS via Range header merging in ``starlette.responses.FileResponse``
+  GHSA-2c2j-9gv5-cj73 CVE-2025-54121 medium [('starlette', '< 0.47.2', '0.47.2')] Starlette has possible denial-of-service vector when parsing large files in multipart forms
+$ gh api /advisories -X GET -f ecosystem=pip -f affects=fastapi@0.115.6 -f per_page=100   (2026-11-24)
+  (none)
+$ gh api /advisories -X GET -f ecosystem=pip -f affects=uvicorn@0.32.1 -f per_page=100   (2026-11-24)
+  (none)
+$ gh api /advisories -X GET -f ecosystem=pip -f affects=starlette@1.10.0 -f per_page=100   (2026-11-24)
+  (none)
+$ gh api /advisories -X GET -f ecosystem=pip -f affects=fastapi@0.162.2 -f per_page=100   (2026-11-24)
+  (none)
+$ gh api /advisories -X GET -f ecosystem=pip -f affects=uvicorn@0.54.0 -f per_page=100   (2026-11-24)
+  (none)
+$ gh api /advisories -X GET -f ecosystem=pip -f affects=starlette@1.9.0 -f per_page=100   (2026-11-24)
+  (none)
+$ gh api /advisories -X GET -f ecosystem=pip -f affects=fastapi@0.162.4 -f per_page=100   (2026-11-24)
+  (none)
+$ gh api /advisories -X GET -f ecosystem=pip -f affects=fastapi@0.165.0 -f per_page=100   (2026-11-24)
+  (none)

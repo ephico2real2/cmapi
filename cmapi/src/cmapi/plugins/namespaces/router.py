@@ -14,8 +14,8 @@ from cmapi.core.docs import DocumentedRouter
 from cmapi.core.errors import Problem
 from cmapi.core.identity.claims import Identity
 from cmapi.core.listquery import ListQuery
-from cmapi.core.models import (Api, ChangeRequest, NamespaceCreate, NamespaceList, NamespacePatch, NamespaceView,
-                               PlanView)
+from cmapi.core.models import (ChangeRequest, NamespaceCreate, NamespaceList, NamespacePatch, NamespaceView, PlanView,
+                               RequestBody)
 from cmapi.core.pipeline import folder_etag, metadata_of, namespace_doc, require_if_match
 from cmapi.core.rejections import record_warned, refusals
 from cmapi.core.render.manifests import folder
@@ -34,7 +34,7 @@ router = DocumentedRouter("namespaces", prefix="/api/v1/clusters/{cluster_id}", 
 # Every write: the cluster, the caller, the Idempotency-Key, Git and the cluster's watch.
 WRITE_PROBLEMS = ["cluster-not-found", "cluster-not-writable", "environment-not-served", "environment-forbidden", "plugin-disabled",
                   "validation-failed", "change-pending", "identity-incomplete", "on-behalf-of-required",
-                  "idempotency-key-required", "idempotency-replay", "git-unavailable", "cluster-unreachable"]
+                  "idempotency-key-required", "idempotency-replay", "git-unavailable", "folder-not-utf8", "cluster-unreachable"]
 # A body with onBehalfOf: create and change (resolve_requester). A metadata refusal, team-dl too, is a policy-violation item.
 ON_BEHALF_PROBLEMS = ["unknown-user", "on-behalf-of-not-allowed"]
 # Rendering and checking the new files: every write but a delete, which renders no namespace (plan_delete).
@@ -57,19 +57,19 @@ SearchLimit = Annotated[int | None, Query(ge=1, le=SEARCH_LIMIT_MAX, examples=[S
                                                       "three, every namespace is returned, by name.")]
 
 
-class ExtendBody(Api):
+class ExtendBody(RequestBody):
     days: int | None = Field(default=None, description="Days to extend by, up to the environment's limit", examples=[30])
     until: str | None = Field(default=None, description="A date to extend to", examples=["2026-12-15"])
     justification: str | None = Field(default=None, description="Why", examples=["Another sprint"])
 
 
-class SetBody(Api):
+class SetBody(RequestBody):
     until: date = Field(description="The expiry date: after today, and at most the environment's maxExtensionDays away",
                         examples=["2026-12-15"])
     justification: str | None = Field(default=None, description="Why", examples=["A test namespace for one sprint"])
 
 
-class PermanentBody(Api):
+class PermanentBody(RequestBody):
     justification: str | None = Field(default=None, description="Why", examples=["The service went to production use"])
 
 
@@ -212,7 +212,7 @@ NAMESPACE_ETAG_HEADER = {"ETag": {
              returns="The namespace's labels, annotations, tier and sync state as Git and the cluster hold them, with "
                      "the ETag that a change sends in If-Match.",
              permission="objects:read", response_model=NamespaceView,
-             problems=["cluster-not-found", "object-not-found", "git-unavailable", "environment-forbidden"],
+             problems=["cluster-not-found", "object-not-found", "git-unavailable", "folder-not-utf8", "environment-forbidden"],
              responses={"200": {"headers": NAMESPACE_ETAG_HEADER}})
 def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> dict:

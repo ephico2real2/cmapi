@@ -1,0 +1,477 @@
+........................................................................ [ 11%]
+........................................................................ [ 23%]
+........................................................................ [ 35%]
+.................................................................
+HEAD   /api/v1/admin/auto-approval                                decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+GET    /api/v1/admin/auto-approval                                decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+POST   /api/v1/admin/auto-approval:pause                          decl=approvals:pause enforced=approvals:pause none=401 viewer=403 onboarding=403
+POST   /api/v1/admin/auto-approval:resume                         decl=approvals:pause enforced=approvals:pause none=401 viewer=403 onboarding=403
+HEAD   /api/v1/admin/git-log                                      decl=reports:read enforced=reports:read none=401 viewer=403 onboarding=403
+GET    /api/v1/admin/git-log                                      decl=reports:read enforced=reports:read none=401 viewer=403 onboarding=403
+HEAD   /api/v1/admin/integrations                                 decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+GET    /api/v1/admin/integrations                                 decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/admin/kpi                                          decl=reports:read enforced=reports:read none=401 viewer=403 onboarding=403
+GET    /api/v1/admin/kpi                                          decl=reports:read enforced=reports:read none=401 viewer=403 onboarding=403
+HEAD   /api/v1/admin/plugins                                      decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+GET    /api/v1/admin/plugins                                      decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+POST   /api/v1/admin/prune:confirm                                decl=operations:run enforced=operations:run none=401 viewer=403 onboarding=403
+HEAD   /api/v1/capacity                                           decl=capacity:read enforced=capacity:read none=401 viewer=200 onboarding=200
+GET    /api/v1/capacity                                           decl=capacity:read enforced=capacity:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/clusters                                           decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+GET    /api/v1/clusters                                           decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/clusters/{cluster_id}/namespaces                   decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/clusters/{cluster_id}/namespaces                   decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+POST   /api/v1/clusters/{cluster_id}/namespaces                   decl=namespaces:create enforced=namespaces:create none=401 viewer=403 onboarding=422
+HEAD   /api/v1/clusters/{cluster_id}/namespaces/{ns}              decl=objects:read enforced=objects:read none=401 viewer=404 onboarding=404
+GET    /api/v1/clusters/{cluster_id}/namespaces/{ns}              decl=objects:read enforced=objects:read none=401 viewer=404 onboarding=404
+PATCH  /api/v1/clusters/{cluster_id}/namespaces/{ns}              decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns}              decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+POST   /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+POST   /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+POST   /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+POST   /api/v1/clusters/{id}:probe                                decl=operations:run enforced=operations:run none=401 viewer=403 onboarding=403
+HEAD   /api/v1/directory/users                                    decl=objects:read enforced=objects:read none=401 viewer=422 onboarding=422
+GET    /api/v1/directory/users                                    decl=objects:read enforced=objects:read none=401 viewer=422 onboarding=422
+HEAD   /api/v1/directory/users/{username}                         decl=objects:read enforced=objects:read none=401 viewer=503 onboarding=503
+GET    /api/v1/directory/users/{username}                         decl=objects:read enforced=objects:read none=401 viewer=503 onboarding=503
+HEAD   /api/v1/expirations                                        decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/expirations                                        decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/me                                                 decl=None enforced=None none=401 viewer=200 onboarding=200
+GET    /api/v1/me                                                 decl=None enforced=None none=401 viewer=200 onboarding=200
+HEAD   /api/v1/metadata-keys                                      decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/metadata-keys                                      decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/policies/rejections                                decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+GET    /api/v1/policies/rejections                                decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/policies/results                                   decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/policies/results                                   decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/quotas                                             decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/quotas                                             decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/quotas:export                                      decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/quotas:export                                      decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/quotas:suggest                                     decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/quotas:suggest                                     decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/requests                                           decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+GET    /api/v1/requests                                           decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/requests/{request_id}                              decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+GET    /api/v1/requests/{request_id}                              decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+HEAD   /api/v1/requests/{request_id}/approval-status              decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+GET    /api/v1/requests/{request_id}/approval-status              decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+HEAD   /api/v1/requests/{request_id}/events                       decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+GET    /api/v1/requests/{request_id}/events                       decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+POST   /api/v1/requests/{request_id}:approve                      decl=requests:approve enforced=requests:approve none=401 viewer=403 onboarding=403
+POST   /api/v1/requests/{request_id}:cancel                       decl=requests:cancel enforced=requests:cancel none=401 viewer=403 onboarding=404
+POST   /api/v1/requests/{request_id}:reject                       decl=requests:reject enforced=requests:reject none=401 viewer=403 onboarding=403
+POST   /api/v1/requests/{request_id}:retry                        decl=requests:retry enforced=requests:retry none=401 viewer=403 onboarding=403
+POST   /api/v1/requests/{request_id}:revert                       decl=requests:retry enforced=requests:retry none=401 viewer=403 onboarding=403
+HEAD   /api/v1/tiers                                              decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/tiers                                              decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/version                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /api/v1/version                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs                                                      decl=None enforced=None none=503 viewer=503 onboarding=503
+GET    /docs                                                      decl=None enforced=None none=503 viewer=503 onboarding=503
+HEAD   /docs/changelog                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/changelog                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/oauth2-redirect                                      decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/oauth2-redirect                                      decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/redoc-start.js                                       decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/redoc-start.js                                       decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/swagger.css                                          decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/swagger.css                                          decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /healthz                                                   decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /healthz                                                   decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /openapi.json                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /openapi.json                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /openapi.yaml                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /openapi.yaml                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /problems                                                  decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /problems                                                  decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /problems/{code}                                           decl=None enforced=None none=404 viewer=404 onboarding=404
+GET    /problems/{code}                                           decl=None enforced=None none=404 viewer=404 onboarding=404
+HEAD   /readyz                                                    decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /readyz                                                    decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /redoc                                                     decl=None enforced=None none=503 viewer=503 onboarding=503
+GET    /redoc                                                     decl=None enforced=None none=503 viewer=503 onboarding=503
+....... [ 47%]
+........................................................................ [ 59%]
+........................................................................ [ 71%]
+........................................................................ [ 83%]
+....F............................................F...................... [ 95%]
+..........FF.FF.............                                             [100%]
+=================================== FAILURES ===================================
+_ test_7_6_a_d_one_git_op_per_operation_with_the_fields_and_counters_moving_by_one _
+
+layer = namespace(client=<starlette.testclient.TestClient object at 0x1264513a0>, ctx=AppContext(settings=Settings(config_dir=...c0>, create=<function layer.<locals>.<lambda> at 0x1265d0180>, retry=<function layer.<locals>.<lambda> at 0x1265d0220>)
+capsys = <_pytest.capture.CaptureFixture object at 0x1265c8170>
+
+    def test_7_6_a_d_one_git_op_per_operation_with_the_fields_and_counters_moving_by_one(layer, capsys):
+        w = layer
+        capsys.readouterr()
+        before = ops("push", "ok")
+>       rid = w.create()
+
+tests/service/test_git_layer.py:828: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+ns = {'annotations': {'cmapi.net/team-dl': 'payments-team@ephico2real.com'}, 'justification': 'Payments service dev namespace', 'labels': {'cmapi.net/cost-center': 'cc-4410', 'cmapi.net/team': 'payments'}, 'namespace': 'payments-dev', ...}
+
+>   w.create = lambda ns=NS: client.post("/api/v1/clusters/CRC/namespaces", json=ns, headers=auth(keys, "ola", **OLA)).json()["requestId"]
+E   KeyError: 'requestId'
+
+tests/service/test_git_layer.py:115: KeyError
+---------------------------- Captured stdout setup -----------------------------
+{"url": "file:///private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-2060/test_7_6_a_d_one_git_op_per_op0/cluster-configs.git", "transport": "file", "workdir": "/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-2060/test_7_6_a_d_one_git_op_per_op0/workdir", "ssh_key_fingerprint": null, "author": "cmapi-git-bot <cmapi-git-bot@noreply.invalid>", "event": "git_layer", "level": "info", "timestamp": "2026-11-24T15:52:46.132860Z"}
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T15:52:46.149332Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T15:52:46.296602Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "event": "unhandled", "request_id": "aa8acbff73f34f56", "level": "error", "timestamp": "2026-11-24T15:52:46.375355Z", "exception": "Traceback (most recent call last):\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 154, in __init__\n    self._dbapi_connection = engine.raw_connection()\n                             ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 3303, in raw_connection\n    return self.pool.connect()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 445, in connect\n    return _ConnectionFairy._checkout(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 1340, in _checkout\n    fairy = _ConnectionRecord.checkout(pool)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 713, in checkout\n    rec = pool._do_get()\n          ^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 176, in _do_get\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 174, in _do_get\n    return self._create_connection()\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 386, in _create_connection\n    return _ConnectionRecord(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 675, in __init__\n    self.__connect()\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 932, in __connect\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/poo ...[cut]
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 500, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 44.0, "event": "http", "request_id": "aa8acbff73f34f56", "level": "info", "timestamp": "2026-11-24T15:52:46.399666Z"}
+_ test_an_override_of_another_environment_or_another_instance_changes_nothing_here _
+
+test_config = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-2060/config0')
+tmp_path = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-2060/test_an_override_of_another_en0')
+fresh_db = <cmapi.core.db.Database object at 0x10c0021e0>
+keys = <conftest.Keys object at 0x10b8051f0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x127d551c0>
+
+    def test_an_override_of_another_environment_or_another_instance_changes_nothing_here(test_config, tmp_path, fresh_db, keys, monkeypatch):
+        plugins = {"enabled": ALL, "overrides": {"nonprod": {"rnd": {"disabled": ["namespaces"]}},
+                                                  "prod": {"prod": {"disabled": ["namespaces"]}}}}
+        with build_world(config_with(test_config, tmp_path, plugins), keys, monkeypatch) as (client, *_):
+            r = client.post("/api/v1/clusters/CRC/namespaces?dryRun=true", json=NS, headers=auth(keys, "ola", **OLA))
+>           assert r.status_code == 200, r.text
+E           AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E           assert 500 == 200
+E            +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests/service/test_plugins_switch.py:136: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T15:53:14.532772Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": true, "event": "startup", "level": "info", "timestamp": "2026-11-24T15:53:14.669282Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "event": "unhandled", "request_id": "3608376fb2784bbd", "level": "error", "timestamp": "2026-11-24T15:53:14.746401Z", "exception": "Traceback (most recent call last):\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 154, in __init__\n    self._dbapi_connection = engine.raw_connection()\n                             ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 3303, in raw_connection\n    return self.pool.connect()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 445, in connect\n    return _ConnectionFairy._checkout(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 1340, in _checkout\n    fairy = _ConnectionRecord.checkout(pool)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 713, in checkout\n    rec = pool._do_get()\n          ^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 176, in _do_get\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 174, in _do_get\n    return self._create_connection()\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 386, in _create_connection\n    return _ConnectionRecord(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 675, in __init__\n    self.__connect()\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 932, in __connect\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/poo ...[cut]
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 500, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 33.7, "event": "http", "request_id": "3608376fb2784bbd", "level": "info", "timestamp": "2026-11-24T15:53:14.759027Z"}
+___ test_an_approve_or_a_cancel_with_dry_run_is_refused_and_changes_nothing ____
+
+world = (<starlette.testclient.TestClient object at 0x1285a79e0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x1283af860>, <conftest.FakeValidator object at 0x1283af890>, <conftest.Keys object at 0x10b8051f0>)
+
+    def test_an_approve_or_a_cancel_with_dry_run_is_refused_and_changes_nothing(world):
+        client, ctx, git, kube, validator, keys = world
+>       rid = pending(client, keys)
+
+tests/service/test_dry_run_refused_606.py:40: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+client = <starlette.testclient.TestClient object at 0x1285a79e0>
+keys = <conftest.Keys object at 0x10b8051f0>, name = 'payments-dev'
+
+    def pending(client, keys, name="payments-dev") -> str:
+        """A large create, which waits for an approver."""
+        r = client.post("/api/v1/clusters/CRC/namespaces", json={**NS, "namespace": name, "tier": "large"}, headers=auth(keys, "ola", **OLA))
+>       assert r.status_code == 202 and r.json()["status"] == "pending_approval", r.text
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       assert (500 == 202)
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests/service/test_dry_run_refused_606.py:28: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T15:53:20.186030Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T15:53:20.321055Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "event": "unhandled", "request_id": "26550c54c3ef4344", "level": "error", "timestamp": "2026-11-24T15:53:20.387210Z", "exception": "Traceback (most recent call last):\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 154, in __init__\n    self._dbapi_connection = engine.raw_connection()\n                             ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 3303, in raw_connection\n    return self.pool.connect()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 445, in connect\n    return _ConnectionFairy._checkout(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 1340, in _checkout\n    fairy = _ConnectionRecord.checkout(pool)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 713, in checkout\n    rec = pool._do_get()\n          ^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 176, in _do_get\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 174, in _do_get\n    return self._create_connection()\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 386, in _create_connection\n    return _ConnectionRecord(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 675, in __init__\n    self.__connect()\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 932, in __connect\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/poo ...[cut]
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 500, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 19.5, "event": "http", "request_id": "26550c54c3ef4344", "level": "info", "timestamp": "2026-11-24T15:53:20.394355Z"}
+______ test_the_admin_writes_with_dry_run_are_refused_and_change_nothing _______
+
+self = <sqlalchemy.engine.base.Connection object at 0x128765490>
+engine = Engine(postgresql+psycopg://cmapi:***@127.0.0.1:55432/cmapi_wt605)
+connection = None, _has_events = None, _allow_revalidate = True
+_allow_autobegin = True
+
+    def __init__(
+        self,
+        engine: Engine,
+        connection: Optional[PoolProxiedConnection] = None,
+        _has_events: Optional[bool] = None,
+        _allow_revalidate: bool = True,
+        _allow_autobegin: bool = True,
+    ):
+        """Construct a new Connection."""
+        self.engine = engine
+        self.dialect = dialect = engine.dialect
+    
+        if connection is None:
+            try:
+>               self._dbapi_connection = engine.raw_connection()
+
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:154: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3303: in raw_connection
+    return self.pool.connect()
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:445: in connect
+    return _ConnectionFairy._checkout(self)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:1340: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:713: in checkout
+    rec = pool._do_get()
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:176: in _do_get
+    with util.safe_reraise():
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:166: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:174: in _do_get
+    return self._create_connection()
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:386: in _create_connection
+    return _ConnectionRecord(self)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:675: in __init__
+    self.__connect()
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:932: in __connect
+    with util.safe_reraise():
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:166: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:928: in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/engine/create.py:645: in connect
+    return dialect.connect(*cargs_tup, **cparams)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:869: in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = <class 'psycopg.Connection'>
+conninfo = 'host=127.0.0.1 dbname=cmapi_wt605 user=cmapi password=cmapi port=55432 hostaddr=127.0.0.1'
+autocommit = False, prepare_threshold = 5
+context = <psycopg.adapt.AdaptersMap object at 0x1286f84a0>, row_factory = None
+cursor_factory = None
+kwargs = {'dbname': 'cmapi_wt605', 'host': '127.0.0.1', 'password': 'cmapi', 'port': 55432, ...}
+params = {'dbname': 'cmapi_wt605', 'host': '127.0.0.1', 'password': 'cmapi', 'port': 55432, ...}
+timeout = 130
+
+    @classmethod
+    def connect(
+        cls,
+        conninfo: str = "",
+        *,
+        autocommit: bool = False,
+        prepare_threshold: int | None = 5,
+        context: AdaptContext | None = None,
+        row_factory: RowFactory[Row] | None = None,
+        cursor_factory: type[Cursor[Row]] | None = None,
+        **kwargs: ConnParam,
+    ) -> Self:
+        """
+        Connect to a database server and return a new `Connection` instance.
+        """
+    
+        params = cls._get_connection_params(conninfo, **kwargs)
+        timeout = timeout_from_conninfo(params)
+        rv = None
+        attempts = conninfo_attempts(params)
+        conn_errors: list[tuple[e.Error, str]] = []
+        for attempt in attempts:
+            tdescr = (attempt.get("host"), attempt.get("port"), attempt.get("hostaddr"))
+            descr = "host: %r, port: %r, hostaddr: %r" % tdescr
+            logger.debug("connection attempt: %s", descr)
+            try:
+                conninfo = make_conninfo("", **attempt)
+                gen = cls._connect_gen(conninfo)
+                rv = waiting.wait_conn(gen, interval=_WAIT_INTERVAL, timeout=timeout)
+            except e._WaitTimeout:
+                tex = e.ConnectionTimeout("connection timeout expired")
+                logger.debug("connection failed: %s: %s", descr, str(tex))
+                conn_errors.append((tex, descr))
+            except e.Error as ex:
+                logger.debug("connection failed: %s: %s", descr, str(ex))
+                conn_errors.append((ex, descr))
+            except e._NO_TRACEBACK as ex:
+                raise ex.with_traceback(None)
+            else:
+                logger.debug("connection succeeded: %s", descr)
+                break
+    
+        if not rv:
+            last_ex = conn_errors[-1][0]
+            if len(conn_errors) == 1:
+>               raise last_ex.with_traceback(None)
+E               psycopg.OperationalError: connection failed: connection to server at "127.0.0.1", port 55432 failed: FATAL:  sorry, too many clients already
+
+../../wt-651-outputs/venv/lib/python3.12/site-packages/psycopg/connection.py:126: OperationalError
+
+The above exception was the direct cause of the following exception:
+
+world = (<starlette.testclient.TestClient object at 0x1286f6b10>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x1286af5c0>, <conftest.FakeValidator object at 0x1286af650>, <conftest.Keys object at 0x10b8051f0>)
+
+    def test_the_admin_writes_with_dry_run_are_refused_and_change_nothing(world):
+        client, ctx, git, kube, validator, keys = world
+>       before = rows(ctx)
+
+tests/service/test_dry_run_refused_606.py:58: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/service/test_dry_run_refused_606.py:21: in rows
+    return {t: s.execute(text(f"SELECT count(*) FROM {t}")).scalar_one()
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2555: in execute
+    return self._execute_internal(
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2432: in _execute_internal
+    conn = self._connection_for_bind(bind)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:2255: in _connection_for_bind
+    return trans._connection_for_bind(engine, execution_options)
+<sqlalchemy generated _go() wrapper for sqlalchemy.orm.session.SessionTransaction._connection_for_bind>:2: in _connection_for_bind
+    return target(fn, self, bind, execution_options)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/orm/session.py:1282: in _connection_for_bind
+    conn = bind.connect()
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3279: in connect
+    return self._connection_cls(self)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:156: in __init__
+    Connection._handle_dbapi_exception_noconnection(
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:2436: in _handle_dbapi_exception_noconnection
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:154: in __init__
+    self._dbapi_connection = engine.raw_connection()
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3303: in raw_connection
+    return self.pool.connect()
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:445: in connect
+    return _ConnectionFairy._checkout(self)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:1340: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:713: in checkout
+    rec = pool._do_get()
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:176: in _do_get
+    with util.safe_reraise():
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:166: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:174: in _do_get
+    return self._create_connection()
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:386: in _create_connection
+    return _ConnectionRecord(self)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:675: in __init__
+    self.__connect()
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:932: in __connect
+    with util.safe_reraise():
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:166: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:928: in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/engine/create.py:645: in connect
+    return dialect.connect(*cargs_tup, **cparams)
+../../wt-651-outputs/venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:869: in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = <class 'psycopg.Connection'>
+conninfo = 'host=127.0.0.1 dbname=cmapi_wt605 user=cmapi password=cmapi port=55432 hostaddr=127.0.0.1'
+autocommit = False, prepare_threshold = 5
+context = <psycopg.adapt.AdaptersMap object at 0x1286f84a0>, row_factory = None
+cursor_factory = None
+kwargs = {'dbname': 'cmapi_wt605', 'host': '127.0.0.1', 'password': 'cmapi', 'port': 55432, ...}
+params = {'dbname': 'cmapi_wt605', 'host': '127.0.0.1', 'password': 'cmapi', 'port': 55432, ...}
+timeout = 130
+
+    @classmethod
+    def connect(
+        cls,
+        conninfo: str = "",
+        *,
+        autocommit: bool = False,
+        prepare_threshold: int | None = 5,
+        context: AdaptContext | None = None,
+        row_factory: RowFactory[Row] | None = None,
+        cursor_factory: type[Cursor[Row]] | None = None,
+        **kwargs: ConnParam,
+    ) -> Self:
+        """
+        Connect to a database server and return a new `Connection` instance.
+        """
+    
+        params = cls._get_connection_params(conninfo, **kwargs)
+        timeout = timeout_from_conninfo(params)
+        rv = None
+        attempts = conninfo_attempts(params)
+        conn_errors: list[tuple[e.Error, str]] = []
+        for attempt in attempts:
+            tdescr = (attempt.get("host"), attempt.get("port"), attempt.get("hostaddr"))
+            descr = "host: %r, port: %r, hostaddr: %r" % tdescr
+            logger.debug("connection attempt: %s", descr)
+            try:
+                conninfo = make_conninfo("", **attempt)
+                gen = cls._connect_gen(conninfo)
+                rv = waiting.wait_conn(gen, interval=_WAIT_INTERVAL, timeout=timeout)
+            except e._WaitTimeout:
+                tex = e.ConnectionTimeout("connection timeout expired")
+                logger.debug("connection failed: %s: %s", descr, str(tex))
+                conn_errors.append((tex, descr))
+            except e.Error as ex:
+                logger.debug("connection failed: %s: %s", descr, str(ex))
+                conn_errors.append((ex, descr))
+            except e._NO_TRACEBACK as ex:
+                raise ex.with_traceback(None)
+            else:
+                logger.debug("connection succeeded: %s", descr)
+                break
+    
+        if not rv:
+            last_ex = conn_errors[-1][0]
+            if len(conn_errors) == 1:
+>               raise last_ex.with_traceback(None)
+E               sqlalchemy.exc.OperationalError: (psycopg.OperationalError) connection failed: connection to server at "127.0.0.1", port 55432 failed: FATAL:  sorry, too many clients already
+E               (Background on this error at: https://sqlalche.me/e/21/e3q8)
+
+../../wt-651-outputs/venv/lib/python3.12/site-packages/psycopg/connection.py:126: OperationalError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T15:53:21.210476Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T15:53:21.348214Z"}
+_____________ test_the_writes_that_have_a_dry_run_still_answer_it ______________
+
+world = (<starlette.testclient.TestClient object at 0x128900920>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x12882fef0>, <conftest.FakeValidator object at 0x12882f920>, <conftest.Keys object at 0x10b8051f0>)
+
+    def test_the_writes_that_have_a_dry_run_still_answer_it(world):
+        client, ctx, git, kube, validator, keys = world
+        r = client.post("/api/v1/clusters/CRC/namespaces?dryRun=true", json=NS, headers=auth(keys, "ola", **OLA))
+>       assert r.status_code == 200 and "planHash" in r.json(), r.text
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       assert (500 == 200)
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests/service/test_dry_run_refused_606.py:95: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T15:53:24.302544Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T15:53:24.440105Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "event": "unhandled", "request_id": "16d92cc188754753", "level": "error", "timestamp": "2026-11-24T15:53:24.517612Z", "exception": "Traceback (most recent call last):\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 154, in __init__\n    self._dbapi_connection = engine.raw_connection()\n                             ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 3303, in raw_connection\n    return self.pool.connect()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 445, in connect\n    return _ConnectionFairy._checkout(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 1340, in _checkout\n    fairy = _ConnectionRecord.checkout(pool)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 713, in checkout\n    rec = pool._do_get()\n          ^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 176, in _do_get\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 174, in _do_get\n    return self._create_connection()\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 386, in _create_connection\n    return _ConnectionRecord(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 675, in __init__\n    self.__connect()\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 932, in __connect\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/poo ...[cut]
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 500, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 30.0, "event": "http", "request_id": "16d92cc188754753", "level": "info", "timestamp": "2026-11-24T15:53:24.525277Z"}
+_________ test_sign_in_comes_first_then_the_guard_then_the_permission __________
+
+world = (<starlette.testclient.TestClient object at 0x1289fa450>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x12981a240>, <conftest.FakeValidator object at 0x12981ab10>, <conftest.Keys object at 0x10b8051f0>)
+
+    def test_sign_in_comes_first_then_the_guard_then_the_permission(world):
+        """The router's sign-in runs before a route's own dependencies (main.py, include_router), so a call without a token is
+        401 with or without dryRun. A signed-in caller meets the guard before the route's permission check (#607 review)."""
+        client, ctx, git, kube, validator, keys = world
+>       rid = pending(client, keys)
+
+tests/service/test_dry_run_refused_606.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+client = <starlette.testclient.TestClient object at 0x1289fa450>
+keys = <conftest.Keys object at 0x10b8051f0>, name = 'payments-dev'
+
+    def pending(client, keys, name="payments-dev") -> str:
+        """A large create, which waits for an approver."""
+        r = client.post("/api/v1/clusters/CRC/namespaces", json={**NS, "namespace": name, "tier": "large"}, headers=auth(keys, "ola", **OLA))
+>       assert r.status_code == 202 and r.json()["status"] == "pending_approval", r.text
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E       assert (500 == 202)
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests/service/test_dry_run_refused_606.py:28: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T15:53:25.352565Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T15:53:25.484846Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "event": "unhandled", "request_id": "b703927982824e72", "level": "error", "timestamp": "2026-11-24T15:53:25.554228Z", "exception": "Traceback (most recent call last):\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 154, in __init__\n    self._dbapi_connection = engine.raw_connection()\n                             ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/engine/base.py\", line 3303, in raw_connection\n    return self.pool.connect()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 445, in connect\n    return _ConnectionFairy._checkout(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 1340, in _checkout\n    fairy = _ConnectionRecord.checkout(pool)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 713, in checkout\n    rec = pool._do_get()\n          ^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 176, in _do_get\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/pool/impl.py\", line 174, in _do_get\n    return self._create_connection()\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 386, in _create_connection\n    return _ConnectionRecord(self)\n           ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 675, in __init__\n    self.__connect()\n  File \"<site-packages>/sqlalchemy/pool/base.py\", line 932, in __connect\n    with util.safe_reraise():\n         ^^^^^^^^^^^^^^^^^^^\n  File \"<site-packages>/sqlalchemy/util/langhelpers.py\", line 166, in __exit__\n    raise exc_value.with_traceback(exc_tb)\n  File \"<site-packages>/sqlalchemy/poo ...[cut]
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 500, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 21.7, "event": "http", "request_id": "b703927982824e72", "level": "info", "timestamp": "2026-11-24T15:53:25.561217Z"}
+=========================== short test summary info ============================
+FAILED tests/service/test_git_layer.py::test_7_6_a_d_one_git_op_per_operation_with_the_fields_and_counters_moving_by_one
+FAILED tests/service/test_plugins_switch.py::test_an_override_of_another_environment_or_another_instance_changes_nothing_here
+FAILED tests/service/test_dry_run_refused_606.py::test_an_approve_or_a_cancel_with_dry_run_is_refused_and_changes_nothing
+FAILED tests/service/test_dry_run_refused_606.py::test_the_admin_writes_with_dry_run_are_refused_and_change_nothing
+FAILED tests/service/test_dry_run_refused_606.py::test_the_writes_that_have_a_dry_run_still_answer_it
+FAILED tests/service/test_dry_run_refused_606.py::test_sign_in_comes_first_then_the_guard_then_the_permission
+6 failed, 598 passed in 661.10s (0:11:01)
+exit=1

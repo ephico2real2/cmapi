@@ -48,7 +48,7 @@ flowchart LR
 | Kyverno CLI | 1.16.2 | The policy check CI runs on every bot PR |
 | kubeconform | 0.6.7 | The schema check CI runs on every bot PR |
 | Git | any 2.x | The cluster-configs repository: one bot branch per request, merged `--no-ff` |
-| Python | 3.11 or newer (3.13 tested) | The cmapi reference modules and the API (FastAPI 0.115, uvicorn, PyJWT, httpx) |
+| Python | 3.11 or newer (3.13 tested) | The cmapi reference modules and the API (FastAPI, Starlette, uvicorn, PyJWT, httpx; `requirements.txt` pins each) |
 | Java | 21 (only for Keycloak from the tarball) | Keycloak runtime; not needed if Keycloak runs in Docker |
 | Docker or Podman | any current (only for kind, or Keycloak in a container) | kind nodes are containers |
 
@@ -141,8 +141,8 @@ python3 -m venv $CMAPI_STACK/venv
 $CMAPI_STACK/venv/bin/pip install -r requirements.txt
 ```
 
-`requirements.txt` pins fastapi 0.115.6, uvicorn 0.32.1, pyjwt[crypto] 2.15.1, httpx 0.28.1,
-pyyaml 6.0.2 and pytest 9.2.0. The cmapi modules themselves are not installed. They are imported
+`requirements.txt` pins each package to one version, FastAPI and Starlette among them (#651); the file is the
+list, so this page names no version. The cmapi modules themselves are not installed. They are imported
 from `../src` with `PYTHONPATH=../src:.`
 
 ### 4.2 Keycloak

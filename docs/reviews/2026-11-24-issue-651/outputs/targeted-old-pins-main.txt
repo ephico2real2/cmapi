@@ -1,0 +1,334 @@
+........................................................................ [ 11%]
+........................................................................ [ 23%]
+........................................................................ [ 35%]
+.................................................................
+GET    /api/v1/admin/auto-approval                                decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/admin/auto-approval                                decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+POST   /api/v1/admin/auto-approval:pause                          decl=approvals:pause enforced=approvals:pause none=401 viewer=403 onboarding=403
+POST   /api/v1/admin/auto-approval:resume                         decl=approvals:pause enforced=approvals:pause none=401 viewer=403 onboarding=403
+GET    /api/v1/admin/git-log                                      decl=reports:read enforced=reports:read none=401 viewer=403 onboarding=403
+HEAD   /api/v1/admin/git-log                                      decl=reports:read enforced=reports:read none=401 viewer=403 onboarding=403
+GET    /api/v1/admin/integrations                                 decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/admin/integrations                                 decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+GET    /api/v1/admin/kpi                                          decl=reports:read enforced=reports:read none=401 viewer=403 onboarding=403
+HEAD   /api/v1/admin/kpi                                          decl=reports:read enforced=reports:read none=401 viewer=403 onboarding=403
+GET    /api/v1/admin/plugins                                      decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/admin/plugins                                      decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+POST   /api/v1/admin/prune:confirm                                decl=operations:run enforced=operations:run none=401 viewer=403 onboarding=403
+GET    /api/v1/capacity                                           decl=capacity:read enforced=capacity:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/capacity                                           decl=capacity:read enforced=capacity:read none=401 viewer=200 onboarding=200
+GET    /api/v1/clusters                                           decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/clusters                                           decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+GET    /api/v1/clusters/{cluster_id}/namespaces                   decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/clusters/{cluster_id}/namespaces                   decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+POST   /api/v1/clusters/{cluster_id}/namespaces                   decl=namespaces:create enforced=namespaces:create none=401 viewer=403 onboarding=422
+GET    /api/v1/clusters/{cluster_id}/namespaces/{ns}              decl=objects:read enforced=objects:read none=401 viewer=404 onboarding=404
+HEAD   /api/v1/clusters/{cluster_id}/namespaces/{ns}              decl=objects:read enforced=objects:read none=401 viewer=404 onboarding=404
+PATCH  /api/v1/clusters/{cluster_id}/namespaces/{ns}              decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns}              decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+POST   /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+POST   /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+POST   /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+POST   /api/v1/clusters/{id}:probe                                decl=operations:run enforced=operations:run none=401 viewer=403 onboarding=403
+GET    /api/v1/directory/users                                    decl=objects:read enforced=objects:read none=401 viewer=422 onboarding=422
+HEAD   /api/v1/directory/users                                    decl=objects:read enforced=objects:read none=401 viewer=422 onboarding=422
+GET    /api/v1/directory/users/{username}                         decl=objects:read enforced=objects:read none=401 viewer=503 onboarding=503
+HEAD   /api/v1/directory/users/{username}                         decl=objects:read enforced=objects:read none=401 viewer=503 onboarding=503
+GET    /api/v1/expirations                                        decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/expirations                                        decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/me                                                 decl=None enforced=None none=401 viewer=200 onboarding=200
+HEAD   /api/v1/me                                                 decl=None enforced=None none=401 viewer=200 onboarding=200
+GET    /api/v1/metadata-keys                                      decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/metadata-keys                                      decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/policies/rejections                                decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/policies/rejections                                decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+GET    /api/v1/policies/results                                   decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/policies/results                                   decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/quotas                                             decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/quotas                                             decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/quotas:export                                      decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/quotas:export                                      decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/quotas:suggest                                     decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/quotas:suggest                                     decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/requests                                           decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/requests                                           decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+GET    /api/v1/requests/{request_id}                              decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+HEAD   /api/v1/requests/{request_id}                              decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+GET    /api/v1/requests/{request_id}/approval-status              decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+HEAD   /api/v1/requests/{request_id}/approval-status              decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+GET    /api/v1/requests/{request_id}/events                       decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+HEAD   /api/v1/requests/{request_id}/events                       decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+POST   /api/v1/requests/{request_id}:approve                      decl=requests:approve enforced=requests:approve none=401 viewer=403 onboarding=403
+POST   /api/v1/requests/{request_id}:cancel                       decl=requests:cancel enforced=requests:cancel none=401 viewer=403 onboarding=404
+POST   /api/v1/requests/{request_id}:reject                       decl=requests:reject enforced=requests:reject none=401 viewer=403 onboarding=403
+POST   /api/v1/requests/{request_id}:retry                        decl=requests:retry enforced=requests:retry none=401 viewer=403 onboarding=403
+POST   /api/v1/requests/{request_id}:revert                       decl=requests:retry enforced=requests:retry none=401 viewer=403 onboarding=403
+GET    /api/v1/tiers                                              decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/tiers                                              decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/version                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /api/v1/version                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs                                                      decl=None enforced=None none=503 viewer=503 onboarding=503
+HEAD   /docs                                                      decl=None enforced=None none=503 viewer=503 onboarding=503
+GET    /docs/changelog                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/changelog                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/oauth2-redirect                                      decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/oauth2-redirect                                      decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/redoc-start.js                                       decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/redoc-start.js                                       decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/swagger.css                                          decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/swagger.css                                          decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /healthz                                                   decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /healthz                                                   decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /openapi.json                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /openapi.json                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /openapi.yaml                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /openapi.yaml                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /problems                                                  decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /problems                                                  decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /problems/{code}                                           decl=None enforced=None none=404 viewer=404 onboarding=404
+HEAD   /problems/{code}                                           decl=None enforced=None none=404 viewer=404 onboarding=404
+GET    /readyz                                                    decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /readyz                                                    decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /redoc                                                     decl=None enforced=None none=503 viewer=503 onboarding=503
+HEAD   /redoc                                                     decl=None enforced=None none=503 viewer=503 onboarding=503
+....... [ 47%]
+........................................................................ [ 59%]
+........................................................................ [ 71%]
+........................................................................ [ 83%]
+........................................................................ [ 95%]
+...............FFFFFFFFFFFFF                                             [100%]
+=================================== FAILURES ===================================
+__________ test_the_installed_package_is_patched[GHSA-7f5h-v6xp-fcq8] __________
+
+advisory = 'GHSA-7f5h-v6xp-fcq8', cve = 'CVE-2025-62727', package = 'starlette'
+patched = '0.49.1'
+
+    @pytest.mark.parametrize("advisory, cve, package, patched", ADVISORIES, ids=[a[0] for a in ADVISORIES])
+    def test_the_installed_package_is_patched(advisory, cve, package, patched):
+        installed = Version(metadata.version(package))
+>       assert installed >= Version(patched), f"{package} {installed} is in {advisory} ({cve}), patched in {patched}"
+E       AssertionError: starlette 0.41.3 is in GHSA-7f5h-v6xp-fcq8 (CVE-2025-62727), patched in 0.49.1
+E       assert <Version('0.41.3')> >= <Version('0.49.1')>
+E        +  where <Version('0.49.1')> = Version('0.49.1')
+
+tests/service/test_framework_upgrade_651.py:55: AssertionError
+__________ test_the_installed_package_is_patched[GHSA-82w8-qh3p-5jfq] __________
+
+advisory = 'GHSA-82w8-qh3p-5jfq', cve = 'CVE-2026-54283', package = 'starlette'
+patched = '1.3.1'
+
+    @pytest.mark.parametrize("advisory, cve, package, patched", ADVISORIES, ids=[a[0] for a in ADVISORIES])
+    def test_the_installed_package_is_patched(advisory, cve, package, patched):
+        installed = Version(metadata.version(package))
+>       assert installed >= Version(patched), f"{package} {installed} is in {advisory} ({cve}), patched in {patched}"
+E       AssertionError: starlette 0.41.3 is in GHSA-82w8-qh3p-5jfq (CVE-2026-54283), patched in 1.3.1
+E       assert <Version('0.41.3')> >= <Version('1.3.1')>
+E        +  where <Version('1.3.1')> = Version('1.3.1')
+
+tests/service/test_framework_upgrade_651.py:55: AssertionError
+__________ test_the_installed_package_is_patched[GHSA-wqp7-x3pw-xc5r] __________
+
+advisory = 'GHSA-wqp7-x3pw-xc5r', cve = 'CVE-2026-48818', package = 'starlette'
+patched = '1.1.0'
+
+    @pytest.mark.parametrize("advisory, cve, package, patched", ADVISORIES, ids=[a[0] for a in ADVISORIES])
+    def test_the_installed_package_is_patched(advisory, cve, package, patched):
+        installed = Version(metadata.version(package))
+>       assert installed >= Version(patched), f"{package} {installed} is in {advisory} ({cve}), patched in {patched}"
+E       AssertionError: starlette 0.41.3 is in GHSA-wqp7-x3pw-xc5r (CVE-2026-48818), patched in 1.1.0
+E       assert <Version('0.41.3')> >= <Version('1.1.0')>
+E        +  where <Version('1.1.0')> = Version('1.1.0')
+
+tests/service/test_framework_upgrade_651.py:55: AssertionError
+__________ test_the_installed_package_is_patched[GHSA-86qp-5c8j-p5mr] __________
+
+advisory = 'GHSA-86qp-5c8j-p5mr', cve = 'CVE-2026-48710', package = 'starlette'
+patched = '1.0.1'
+
+    @pytest.mark.parametrize("advisory, cve, package, patched", ADVISORIES, ids=[a[0] for a in ADVISORIES])
+    def test_the_installed_package_is_patched(advisory, cve, package, patched):
+        installed = Version(metadata.version(package))
+>       assert installed >= Version(patched), f"{package} {installed} is in {advisory} ({cve}), patched in {patched}"
+E       AssertionError: starlette 0.41.3 is in GHSA-86qp-5c8j-p5mr (CVE-2026-48710), patched in 1.0.1
+E       assert <Version('0.41.3')> >= <Version('1.0.1')>
+E        +  where <Version('1.0.1')> = Version('1.0.1')
+
+tests/service/test_framework_upgrade_651.py:55: AssertionError
+__________ test_the_installed_package_is_patched[GHSA-x746-7m8f-x49c] __________
+
+advisory = 'GHSA-x746-7m8f-x49c', cve = 'CVE-2026-48817', package = 'starlette'
+patched = '1.1.0'
+
+    @pytest.mark.parametrize("advisory, cve, package, patched", ADVISORIES, ids=[a[0] for a in ADVISORIES])
+    def test_the_installed_package_is_patched(advisory, cve, package, patched):
+        installed = Version(metadata.version(package))
+>       assert installed >= Version(patched), f"{package} {installed} is in {advisory} ({cve}), patched in {patched}"
+E       AssertionError: starlette 0.41.3 is in GHSA-x746-7m8f-x49c (CVE-2026-48817), patched in 1.1.0
+E       assert <Version('0.41.3')> >= <Version('1.1.0')>
+E        +  where <Version('1.1.0')> = Version('1.1.0')
+
+tests/service/test_framework_upgrade_651.py:55: AssertionError
+__________ test_the_installed_package_is_patched[GHSA-2c2j-9gv5-cj73] __________
+
+advisory = 'GHSA-2c2j-9gv5-cj73', cve = 'CVE-2025-54121', package = 'starlette'
+patched = '0.47.2'
+
+    @pytest.mark.parametrize("advisory, cve, package, patched", ADVISORIES, ids=[a[0] for a in ADVISORIES])
+    def test_the_installed_package_is_patched(advisory, cve, package, patched):
+        installed = Version(metadata.version(package))
+>       assert installed >= Version(patched), f"{package} {installed} is in {advisory} ({cve}), patched in {patched}"
+E       AssertionError: starlette 0.41.3 is in GHSA-2c2j-9gv5-cj73 (CVE-2025-54121), patched in 0.47.2
+E       assert <Version('0.41.3')> >= <Version('0.47.2')>
+E        +  where <Version('0.47.2')> = Version('0.47.2')
+
+tests/service/test_framework_upgrade_651.py:55: AssertionError
+__________ test_the_installed_package_is_patched[GHSA-jp82-jpqv-5vv3] __________
+
+advisory = 'GHSA-jp82-jpqv-5vv3', cve = 'CVE-2026-54282', package = 'starlette'
+patched = '1.3.0'
+
+    @pytest.mark.parametrize("advisory, cve, package, patched", ADVISORIES, ids=[a[0] for a in ADVISORIES])
+    def test_the_installed_package_is_patched(advisory, cve, package, patched):
+        installed = Version(metadata.version(package))
+>       assert installed >= Version(patched), f"{package} {installed} is in {advisory} ({cve}), patched in {patched}"
+E       AssertionError: starlette 0.41.3 is in GHSA-jp82-jpqv-5vv3 (CVE-2026-54282), patched in 1.3.0
+E       assert <Version('0.41.3')> >= <Version('1.3.0')>
+E        +  where <Version('1.3.0')> = Version('1.3.0')
+
+tests/service/test_framework_upgrade_651.py:55: AssertionError
+___________________ test_pyproject_pins_a_patched_starlette ____________________
+
+    def test_pyproject_pins_a_patched_starlette():
+        """The image resolves the dependencies of pyproject.toml when it is built, so FastAPI's own `starlette>=...` could
+        pick any version; the pin decides it."""
+        dependencies = [Requirement(d) for d in tomllib.loads(PYPROJECT.read_text())["project"]["dependencies"]]
+        pins = {r.name: r for r in dependencies}
+>       assert "starlette" in pins, "pyproject.toml does not pin starlette"
+E       AssertionError: pyproject.toml does not pin starlette
+E       assert 'starlette' in {'alembic': <Requirement('alembic==1.20.1')>, 'fastapi': <Requirement('fastapi==0.115.6')>, 'google-re2': <Requirement('google-re2==1.1.20251105')>, 'httpx': <Requirement('httpx==0.28.1')>, ...}
+
+tests/service/test_framework_upgrade_651.py:63: AssertionError
+_______________ test_the_range_parse_of_the_cve_is_not_quadratic _______________
+
+    def test_the_range_parse_of_the_cve_is_not_quadratic():
+        elapsed = []
+        for _ in range(3):
+            start = time.perf_counter()
+            with pytest.raises(MalformedRangeHeader):
+                FileResponse._parse_range_header(CVE_RANGE, 1_000_000)
+            elapsed.append(time.perf_counter() - start)
+>       assert min(elapsed) < PARSE_BOUND_S, f"{min(elapsed):.3f} s to parse a 16 kB Range header"
+E       AssertionError: 3.250 s to parse a 16 kB Range header
+E       assert 3.250056935939938 < 0.25
+E        +  where 3.250056935939938 = min([3.272460930980742, 3.6215925738215446, 3.250056935939938])
+
+tests/service/test_framework_upgrade_651.py:77: AssertionError
+_______________ test_a_static_file_answers_the_cve_range_at_once _______________
+
+bundles = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-2009/test_a_static_file_answers_the0/static')
+world = (<starlette.testclient.TestClient object at 0x110c0e330>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x111350740>, <conftest.FakeValidator object at 0x1113535c0>, <conftest.Keys object at 0x1102ada00>)
+
+    def test_a_static_file_answers_the_cve_range_at_once(bundles, world):
+        """Through the app, with no token: the request that the advisory describes."""
+        client, *_ = world
+        elapsed = []
+        for _ in range(3):
+            start = time.perf_counter()
+            response = client.get(STATIC_FILE, headers={"Range": CVE_RANGE})
+            elapsed.append(time.perf_counter() - start)
+            assert response.status_code != 500, response.text
+>       assert min(elapsed) < PARSE_BOUND_S, f"{min(elapsed):.3f} s for GET {STATIC_FILE} with a 16 kB Range header"
+E       AssertionError: 3.391 s for GET /static/swagger/swagger-ui-bundle.js with a 16 kB Range header
+E       assert 3.3911566236056387 < 0.25
+E        +  where 3.3911566236056387 = min([3.5634915810078382, 3.3911566236056387, 3.8114165663719177])
+
+tests/service/test_framework_upgrade_651.py:89: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:26:14.781485Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:26:14.953638Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "unmatched", "status": 400, "caller_sub": null, "client": null, "ms": 3551.0, "event": "http", "request_id": "d61fb8aaf2c34f84", "level": "info", "timestamp": "2026-11-24T14:26:18.507022Z"}
+{"method": "GET", "route": "unmatched", "status": 400, "caller_sub": null, "client": null, "ms": 3389.2, "event": "http", "request_id": "090a135782884d60", "level": "info", "timestamp": "2026-11-24T14:26:21.908989Z"}
+{"method": "GET", "route": "unmatched", "status": 400, "caller_sub": null, "client": null, "ms": 3809.2, "event": "http", "request_id": "06be17049cf34622", "level": "info", "timestamp": "2026-11-24T14:26:25.720034Z"}
+________________ test_the_range_answers_that_starlette_1_fixed _________________
+
+bundles = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-2009/test_the_range_answers_that_st0/static')
+world = (<starlette.testclient.TestClient object at 0x111e58710>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x1111cb650>, <conftest.FakeValidator object at 0x1111c9190>, <conftest.Keys object at 0x1102ada00>)
+
+    def test_the_range_answers_that_starlette_1_fixed(bundles, world):
+        """RFC 9110 (https://www.rfc-editor.org/rfc/rfc9110.txt): a 416 sends `Content-Range: bytes */<length>` (section 14.4,
+        `unsatisfied-range = "*/" complete-length` after `range-unit SP`); a multipart 206 sends Content-Type
+        multipart/byteranges and "MUST NOT generate a Content-Range header field in the HTTP header section of a multiple part
+        response" (section 15.3.7.2); its parts are framed with CRLF (section 15.3.7.2, RFC 2046 section 5.1.1)."""
+        client, *_ = world
+        length = len(client.get(STATIC_FILE).content)
+        unsatisfiable = client.get(STATIC_FILE, headers={"Range": f"bytes={length + 10}-"})
+>       assert (unsatisfiable.status_code, unsatisfiable.headers.get("content-range")) == (416, f"bytes */{length}")
+E       AssertionError: assert (416, '*/17') == (416, 'bytes */17')
+E         
+E         At index 1 diff: '*/17' != 'bytes */17'
+E         Use -v to get more diff
+
+tests/service/test_framework_upgrade_651.py:100: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T14:26:26.865615Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T14:26:27.032555Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "unmatched", "status": 200, "caller_sub": null, "client": null, "ms": 4.7, "event": "http", "request_id": "e5d5bdc3a81c4833", "level": "info", "timestamp": "2026-11-24T14:26:27.040353Z"}
+{"method": "GET", "route": "unmatched", "status": 416, "caller_sub": null, "client": null, "ms": 1.6, "event": "http", "request_id": "eafe3d67c5d24c82", "level": "info", "timestamp": "2026-11-24T14:26:27.043852Z"}
+___________ test_a_route_of_an_included_router_is_one_of_api_routes ____________
+
+    def test_a_route_of_an_included_router_is_one_of_api_routes():
+        """FastAPI 0.137.0: an included router is one entry of app.routes, no longer its copied routes (release notes,
+        "Specific Breaking Changes"). api_routes lists each route as it is served, with the including router's prefix."""
+>       from cmapi.core.docs import api_routes
+E       ImportError: cannot import name 'api_routes' from 'cmapi.core.docs' (<outputs>/main-export/cmapi/src/cmapi/core/docs.py)
+
+tests/service/test_framework_upgrade_651.py:112: ImportError
+______________ test_head_stays_on_a_route_when_its_router_changes ______________
+
+    def test_head_stays_on_a_route_when_its_router_changes():
+        """main.py, _serve_head_with_get: HEAD goes on the served context and on the route it is built from, so the context
+        that FastAPI builds again after a router's routes change answers HEAD too."""
+        from cmapi.main import _serve_head_with_get
+    
+        inner = APIRouter()
+    
+        @inner.get("/thing")
+        def thing() -> dict[str, str]:
+            return {"ok": "yes"}
+    
+        app = FastAPI()
+        app.include_router(inner)
+        _serve_head_with_get(app)
+        client = TestClient(app)
+        assert client.head("/thing").status_code == 200
+    
+        @inner.get("/later")                   # a new route of the router: FastAPI rebuilds the router's contexts
+        def later() -> dict[str, str]:
+            return {}
+    
+        assert client.head("/thing").status_code == 200
+>       assert client.get("/later").status_code == 200
+E       AssertionError: assert 404 == 200
+E        +  where 404 = <Response [404 Not Found]>.status_code
+E        +    where <Response [404 Not Found]> = get('/later')
+E        +      where get = <starlette.testclient.TestClient object at 0x111c1d1c0>.get
+
+tests/service/test_framework_upgrade_651.py:148: AssertionError
+=========================== short test summary info ============================
+FAILED tests/service/test_framework_upgrade_651.py::test_the_installed_package_is_patched[GHSA-7f5h-v6xp-fcq8]
+FAILED tests/service/test_framework_upgrade_651.py::test_the_installed_package_is_patched[GHSA-82w8-qh3p-5jfq]
+FAILED tests/service/test_framework_upgrade_651.py::test_the_installed_package_is_patched[GHSA-wqp7-x3pw-xc5r]
+FAILED tests/service/test_framework_upgrade_651.py::test_the_installed_package_is_patched[GHSA-86qp-5c8j-p5mr]
+FAILED tests/service/test_framework_upgrade_651.py::test_the_installed_package_is_patched[GHSA-x746-7m8f-x49c]
+FAILED tests/service/test_framework_upgrade_651.py::test_the_installed_package_is_patched[GHSA-2c2j-9gv5-cj73]
+FAILED tests/service/test_framework_upgrade_651.py::test_the_installed_package_is_patched[GHSA-jp82-jpqv-5vv3]
+FAILED tests/service/test_framework_upgrade_651.py::test_pyproject_pins_a_patched_starlette
+FAILED tests/service/test_framework_upgrade_651.py::test_the_range_parse_of_the_cve_is_not_quadratic
+FAILED tests/service/test_framework_upgrade_651.py::test_a_static_file_answers_the_cve_range_at_once
+FAILED tests/service/test_framework_upgrade_651.py::test_the_range_answers_that_starlette_1_fixed
+FAILED tests/service/test_framework_upgrade_651.py::test_a_route_of_an_included_router_is_one_of_api_routes
+FAILED tests/service/test_framework_upgrade_651.py::test_head_stays_on_a_route_when_its_router_changes
+13 failed, 591 passed in 758.63s (0:12:38)
+exit=1

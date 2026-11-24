@@ -1,0 +1,21 @@
+$ git stash push -- cmapi/src docs  # main a2a55f3 + the new test only
+$ CMAPI_TEST_DATABASE_URL=postgresql://cmapi:cmapi@127.0.0.1:55432/cmapi_603 PYTHONPATH=src:tests/service python -m pytest tests/service/test_value_error_648.py -q -W ignore -p no:cacheprovider -rA --tb=line --show-capture=no
+FFF....                                                                  [100%]
+=================================== FAILURES ===================================
+tests/service/test_value_error_648.py:38: AssertionError: {"type":"https://cmapi.ephico2real.com/problems/validation-failed","title":"validation failed","status":422,"detail":"'utf-8' codec can't decode byte 0xe9 in position 3: invalid continuation byte","code":"validation-failed"}
+tests/service/test_value_error_648.py:38: AssertionError: {"type":"https://cmapi.ephico2real.com/problems/validation-failed","title":"validation failed","status":422,"detail":"an implementation detail that must not reach the caller","code":"validation-failed"}
+tests/service/test_value_error_648.py:38: AssertionError: {"type":"https://cmapi.ephico2real.com/problems/validation-failed","title":"validation failed","status":422,"detail":"6 validation errors for PlanView\nchanges\n  Field required [type=missing, input_value={'planHash': 'an implemen...t not reach the caller'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing\netag\n  Field required [type=missing, input_value={'planHash': 'an i","code":"validation-failed"}
+==================================== PASSES ====================================
+___ test_a_username_that_cannot_be_a_label_value_is_still_validation_failed ____
+_ test_a_requested_value_that_is_not_a_quantity_is_still_validation_failed[quota] _
+_ test_a_requested_value_that_is_not_a_quantity_is_still_validation_failed[limit] _
+_ test_a_change_of_a_value_that_git_holds_to_one_that_is_not_a_quantity_is_still_validation_failed _
+=========================== short test summary info ============================
+PASSED tests/service/test_value_error_648.py::test_a_username_that_cannot_be_a_label_value_is_still_validation_failed
+PASSED tests/service/test_value_error_648.py::test_a_requested_value_that_is_not_a_quantity_is_still_validation_failed[quota]
+PASSED tests/service/test_value_error_648.py::test_a_requested_value_that_is_not_a_quantity_is_still_validation_failed[limit]
+PASSED tests/service/test_value_error_648.py::test_a_change_of_a_value_that_git_holds_to_one_that_is_not_a_quantity_is_still_validation_failed
+FAILED tests/service/test_value_error_648.py::test_a_codec_error_of_the_git_layer_is_internal_error
+FAILED tests/service/test_value_error_648.py::test_a_value_error_of_a_dependency_is_internal_error
+FAILED tests/service/test_value_error_648.py::test_a_response_that_fails_its_own_model_is_internal_error
+3 failed, 4 passed in 10.99s

@@ -109,6 +109,25 @@ def test_set_and_make_permanent(exp):
     assert exp.plan_make_permanent(ns()).extra_approvals == ("approver-platform",)
 
 
+def test_a_new_date_leaves_room_for_its_grace_period_before_the_last_day_a_date_holds():
+    """#653: 9999-12-31 + the grace period overflows date, so GET /expirations failed for everyone, and :extend from a date
+    near it raised OverflowError (500). With a grace of 7 days the last expiry is 9999-12-24, at create, :set and :extend."""
+    far = ExpirationRules({"defaults": {"maxExtensionDays": 10_000_000, "graceDays": 7}, "environments": {"rnd": {}}})
+    last = date(9999, 12, 24)
+    assert far.plan_create("rnd", last, TODAY).new_date == last
+    assert far.plan_set(ns(expires_at=None), last, TODAY).new_date == last
+    assert far.plan_extend(ns(expires_at=last - timedelta(days=1)), TODAY, days=1).new_date == last
+    refusals = [lambda: far.plan_create("rnd", last + timedelta(days=1), TODAY),
+                lambda: far.plan_set(ns(expires_at=None), last + timedelta(days=1), TODAY),
+                lambda: far.plan_extend(ns(expires_at=last), TODAY, days=1),
+                lambda: far.plan_extend(ns(expires_at=date(9999, 12, 20)), TODAY, days=15),         # past date.max
+                lambda: far.plan_extend(ns(), TODAY, days=3_000_000)]                               # within the limit
+    for refuse in refusals:
+        with pytest.raises(Problem) as e:
+            refuse()
+        assert (e.value.code, e.value.detail.endswith("on or before 9999-12-24")) == ("validation-failed", True)
+
+
 @pytest.mark.parametrize("days,state", [(None, "permanent"), (40, "active"), (14, "expiring"), (1, "expiring"),
                                         (0, "grace"), (-6, "grace"), (-7, "pending_delete")])
 def test_states(exp, days, state):

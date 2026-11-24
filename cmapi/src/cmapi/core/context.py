@@ -65,6 +65,12 @@ class AppContext:
         dispose = getattr(self.git, "dispose", None)
         if dispose:                                     # the Git layer's workdir lock, and a temporary workdir
             dispose()
+        # The pool's connections close here, not when this context is collected. Since FastAPI 0.140.0 a process-wide
+        # lru_cache keeps each dependency's callable (fastapi/dependencies/models.py, _CallIdentity), and through them an
+        # app's context outlives its lifespan: the service suite, one app per test in one process, kept a pool open for
+        # each until PostgreSQL refused new clients (#654 review). SQLAlchemy, "Engine Disposal": "It's generally not a
+        # good idea to rely on Python garbage collection for this to occur".
+        self.db.engine.dispose()
 
 
 def _yaml(path: Path) -> dict[str, Any]:

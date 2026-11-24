@@ -13,6 +13,8 @@ from cmapi.core.models import Api, Health
 from cmapi.routers import ctx
 from pydantic import Field
 
+# Its GETs declare HEAD, as DocumentedRouter's do (core/docs.py, _register): each app that includes a router serves
+# its route objects (FastAPI 0.137.0), and main.py's _serve_head_with_get adds HEAD to the app's own routes only (#654).
 router = APIRouter(tags=["health"])
 version_router = DocumentedRouter("core", prefix="/api/v1", **CORE)
 
@@ -23,13 +25,13 @@ class Version(Api):
     component: str = Field(description="api, worker or capacity", examples=["api"])
 
 
-@router.get("/healthz", summary="Liveness", response_model=Health, include_in_schema=False)
+@router.api_route("/healthz", methods=["GET", "HEAD"], summary="Liveness", response_model=Health, include_in_schema=False)
 def healthz(c: AppContext = Depends(ctx)) -> dict:
     """Which issuer, audience, repository and clusters this instance is wired to."""
     return _health(c)
 
 
-@router.get("/readyz", summary="Readiness", include_in_schema=False)
+@router.api_route("/readyz", methods=["GET", "HEAD"], summary="Readiness", include_in_schema=False)
 def readyz(response: Response, c: AppContext = Depends(ctx)) -> dict:
     """Ready when the database answers and its schema is at or past the revision this code needs; a cluster
     being down does not make the API unready. During a rolling upgrade an older pod stays ready on a newer schema."""
