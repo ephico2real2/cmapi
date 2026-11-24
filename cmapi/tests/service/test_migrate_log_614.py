@@ -41,11 +41,11 @@ def _seconds(value):
 
 
 def test_a_run_that_applies_two_revisions_names_them_in_order_with_their_times(empty_schema):
-    _migrated("0006", url=empty_schema)
+    _migrated("0007", url=empty_schema)
     e = _migrated("head", url=empty_schema)
     assert e["level"] == "info" and e["timestamp"]
-    assert (e["direction"], e["target"], e["from_revision"], e["revision"]) == ("upgrade", "head", "0006", REQUIRED_REVISION)
-    assert [s["revision"] for s in e["applied"]] == ["0007", "0008"]
+    assert (e["direction"], e["target"], e["from_revision"], e["revision"]) == ("upgrade", "head", "0007", REQUIRED_REVISION)
+    assert [s["revision"] for s in e["applied"]] == ["0008", "0009"]
     steps = sum(_seconds(s["seconds"]) for s in e["applied"])
     lock_wait, transaction, total = (_seconds(e[k]) for k in ("lock_wait_seconds", "transaction_seconds", "total_seconds"))
     # Each step lies inside the one transaction, and the transaction and the lock wait inside the run (rounded to 1 ms).
@@ -65,9 +65,9 @@ def test_a_run_from_an_empty_database_starts_from_none(empty_schema):
 
 def test_a_downgrade_names_the_revisions_it_undid(empty_schema):
     _migrated("head", url=empty_schema)
-    e = _migrated("0006", "--downgrade", url=empty_schema)
-    assert (e["direction"], e["from_revision"], e["revision"]) == ("downgrade", REQUIRED_REVISION, "0006")
-    assert [s["revision"] for s in e["applied"]] == ["0008", "0007"]
+    e = _migrated("0007", "--downgrade", url=empty_schema)
+    assert (e["direction"], e["from_revision"], e["revision"]) == ("downgrade", REQUIRED_REVISION, "0007")
+    assert [s["revision"] for s in e["applied"]] == ["0009", "0008"]
 
 
 def test_the_lock_wait_is_the_time_spent_behind_the_other_migrator(empty_schema):
@@ -94,7 +94,7 @@ def test_the_lock_wait_is_the_time_spent_behind_the_other_migrator(empty_schema)
     assert e["total_seconds"] >= e["lock_wait_seconds"] + e["transaction_seconds"] - 0.002, e
 
 
-# Run the real cmapi-migrate with known delays: 0007's ALTER and 0008's index build, inside their steps and the transaction,
+# Run the real cmapi-migrate with known delays: 0008's index build and 0009's DROP INDEX, inside their steps and the transaction,
 # and every commit. The last commit ends the transaction; the setup commit before it falls in the total only. SQLAlchemy
 # 2.1's "commit" event runs before the driver's commit: "Intercept commit() events, as initiated by a Transaction"
 # (sqlalchemy/engine/events.py).
@@ -106,9 +106,9 @@ from cmapi.core.db.migrate import run
 
 @event.listens_for(Engine, "before_cursor_execute")
 def _slow_steps(conn, cursor, statement, *args):
-    if statement.startswith("ALTER TABLE request_events ALTER COLUMN at SET DEFAULT"):    # 0007
-        time.sleep(float(sys.argv[1]))
     if statement.startswith("CREATE UNIQUE INDEX uq_cr_idempotency_caller"):              # 0008
+        time.sleep(float(sys.argv[1]))
+    if statement.lstrip().startswith("DROP INDEX uq_cr_idempotency"):                     # 0009, after a newline
         time.sleep(float(sys.argv[2]))
 
 @event.listens_for(Engine, "commit")
@@ -123,16 +123,16 @@ def test_each_time_holds_its_own_work_and_the_transaction_ends_after_its_commit(
     """A step's seconds are its own revision's (not zero, not its neighbour's), and the transaction's include its commit:
     the table locks are held until then, which is what docs/12 reads the number for."""
     first, second, commit = 0.5, 1.0, 0.4
-    _migrated("0006", url=empty_schema)
+    _migrated("0007", url=empty_schema)
     env = {**os.environ, "CMAPI_DATABASE_URL": empty_schema, "PYTHONPATH": str(ROOT / "cmapi/src"), "PYTHONDONTWRITEBYTECODE": "1"}
     p = subprocess.run([sys.executable, "-c", SLOW, str(first), str(second), str(commit), "head"], env=env,
                        capture_output=True, text=True, timeout=120)
     assert p.returncode == 0, (p.stdout + p.stderr)[-800:]
     e = json.loads(p.stdout)
     steps = {s["revision"]: s["seconds"] for s in e["applied"]}
-    assert list(steps) == ["0007", "0008"], e
-    assert first <= steps["0007"] < second <= steps["0008"] < second + first, e
-    assert e["transaction_seconds"] >= steps["0007"] + steps["0008"] + commit, e
+    assert list(steps) == ["0008", "0009"], e
+    assert first <= steps["0008"] < second <= steps["0009"] < second + first, e
+    assert e["transaction_seconds"] >= steps["0008"] + steps["0009"] + commit, e
     assert e["lock_wait_seconds"] < commit, e
     assert e["total_seconds"] >= e["lock_wait_seconds"] + e["transaction_seconds"] + commit, e
 

@@ -1,0 +1,59 @@
+0008: 0008
+rows: (200000, 152000, 32000, 30000) (all, keyed, keyed with no caller, expired keys)
+
+0008, release 1's expiry UPDATE (every expired row of the key):
+    Update on change_requests (actual time=18.359..18.388 rows=0 loops=1)
+      Buffers: shared hit=771
+      ->  Index Scan using uq_cr_idempotency on change_requests (actual time=18.318..18.328 rows=0 loops=1)
+            Index Cond: ((idempotency_key)::text = 'key-90000'::text)
+            Filter: (created_at < (now() - '24:00:00'::interval))
+            Rows Removed by Filter: 1
+            Buffers: shared hit=771
+    Planning:
+      Buffers: shared hit=18
+    Planning Time: 0.678 ms
+    Execution Time: 18.871 ms
+
+0008, release 1's SELECT (key_owner):
+    Limit (actual time=17.446..17.515 rows=1 loops=1)
+      Buffers: shared hit=771
+      ->  Sort (actual time=17.418..17.453 rows=1 loops=1)
+            Sort Key: created_at, request_id
+            Sort Method: quicksort  Memory: 25kB
+            Buffers: shared hit=771
+            ->  Index Scan using uq_cr_idempotency on change_requests (actual time=0.072..17.360 rows=1 loops=1)
+                  Index Cond: ((idempotency_key)::text = 'key-90000'::text)
+                  Filter: ((COALESCE(idempotency_sub, ((requester ->> 'submittedBySub'::text))::character varying, requester_sub))::text = 'sub-svc0'::text)
+                  Buffers: shared hit=771
+    Planning:
+      Buffers: shared hit=82
+    Planning Time: 1.750 ms
+    Execution Time: 17.677 ms
+
+0009 on these rows: {"from_revision": "0008", "revision": "0009", "applied": [{"revision": "0009", "seconds": 6.672}], "transaction_seconds": 12.497, "total_seconds": 12.793}
+after 0009: (122000, 0) (keyed, keyed with no caller)
+
+0009, this code's expiry UPDATE (the caller's row):
+    Update on change_requests (actual time=0.089..0.130 rows=0 loops=1)
+      Buffers: shared hit=4
+      ->  Index Scan using uq_cr_idempotency_caller on change_requests (actual time=0.063..0.074 rows=0 loops=1)
+            Index Cond: (((idempotency_sub)::text = 'sub-svc0'::text) AND ((idempotency_key)::text = 'key-90000'::text))
+            Filter: (created_at < (now() - '24:00:00'::interval))
+            Rows Removed by Filter: 1
+            Buffers: shared hit=4
+    Planning:
+      Buffers: shared hit=22
+    Planning Time: 0.466 ms
+    Execution Time: 0.717 ms
+
+0009, this code's SELECT:
+    Index Scan using uq_cr_idempotency_caller on change_requests (actual time=0.049..0.070 rows=1 loops=1)
+      Index Cond: (((idempotency_sub)::text = 'sub-svc0'::text) AND ((idempotency_key)::text = 'key-90000'::text))
+      Buffers: shared hit=4
+    Planning:
+      Buffers: shared hit=121
+    Planning Time: 1.560 ms
+    Execution Time: 0.163 ms
+
+0009 downgrade on these rows: {"from_revision": "0009", "revision": "0008", "transaction_seconds": 3.345}
+load at the end of the probes: { 11.25 9.83 9.45 }; another service suite (pid 27522) was running in its own database

@@ -1,0 +1,561 @@
+start 2026-11-24T03:14:50Z load { 9.03 8.60 8.66 }
+FFFFFFFFF...F..FF.......F..                                              [100%]
+=================================== FAILURES ===================================
+_ test_the_upgrade_fills_each_keyed_row_with_its_caller_and_keeps_only_the_caller_index _
+
+empty_schema = 'postgresql://cmapi:***@127.0.0.1:55432/cmapi_603_main?options=-csearch_path%3Dmig'
+
+    def test_the_upgrade_fills_each_keyed_row_with_its_caller_and_keeps_only_the_caller_index(empty_schema):
+        """Rows at 0008: two written by 0007 pods (no caller), one by release 1's code, expired ones, and one with no key. Each
+        keyed live row gets its caller by 0008's rule, an expired key is cleared before the fill (here one shares its caller
+        and key with a live row, which the caller's index would refuse), and `uq_cr_idempotency_caller` is the only unique
+        index. A live delegated key is not refused: it has one owner. Before (cb59e19): no 0009, so `head` changes nothing."""
+        _run(empty_schema, "0008")
+        with psycopg.connect(empty_schema, autocommit=True) as c:
+            _insert(c, "a-0007-own", requester_sub="sub-ola", key="k1")
+            _insert(c, "b-0007-svc-for-ola", requester_sub="sub-ola", key="k2", submitted_by="sub-svc", hours_ago=23)
+            _insert(c, "c-release-1-svc-for-amy", requester_sub="sub-amy", key="k3", submitted_by="sub-svc", sub="sub-svc",
+                    with_sub=True)
+            _insert(c, "d-0007-svc-own-expired", requester_sub="sub-svc", key="k2", hours_ago=25)
+            _insert(c, "e-release-1-expired", requester_sub="sub-ola", key="k4", hours_ago=25, sub="sub-ola", with_sub=True)
+            _insert(c, "f-no-key", requester_sub="sub-ola", key=None)
+            _insert(c, "g-release-1-caller-only", requester_sub="sub-amy", key="k5", sub="sub-svc2", with_sub=True,
+                    requester={"requester": {"sub": "sub-amy"}, "automated": True, "submittedBy": "svc2"})
+    
+            _run(empty_schema, "head")
+            rows, indexes, version = _state(c)
+>           assert version == "0009" == REQUIRED_REVISION, version
+E           AssertionError: 0008
+E           assert '0008' == '0009'
+E             
+E             - 0009
+E             ?    ^
+E             + 0008
+E             ?    ^
+
+tests/service/test_idempotency_release2_603.py:63: AssertionError
+_ test_the_upgrade_refuses_a_live_delegated_row_without_its_caller_and_changes_nothing _
+
+empty_schema = 'postgresql://cmapi:***@127.0.0.1:55432/cmapi_603_main?options=-csearch_path%3Dmig'
+
+    def test_the_upgrade_refuses_a_live_delegated_row_without_its_caller_and_changes_nothing(empty_schema):
+        """A 0007 pod's delegated row with no `submittedBySub`: its caller is not known, and 0009 does not guess the person.
+        An expired key and a row with no caller beside it show that nothing was cleared or filled. Before (cb59e19): `head`
+        is 0008, so nothing is refused."""
+        _run(empty_schema, "0008")
+        with psycopg.connect(empty_schema, autocommit=True) as c:
+            _insert(c, "x-delegated", requester_sub="sub-ola", key="k6", hours_ago=1,
+                    requester={"requester": {"sub": "sub-ola"}, "automated": True, "submittedBy": "svc"})
+            _insert(c, "y-0007-own", requester_sub="sub-amy", key="k7")
+            _insert(c, "z-expired", requester_sub="sub-ola", key="k8", hours_ago=30, sub="sub-ola", with_sub=True)
+            before = _everything(c)
+            assert before["version"] == "0008" and before["count"] == 3
+    
+>           out = _refused(empty_schema, "head")
+
+tests/service/test_idempotency_release2_603.py:91: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+url = 'postgresql://cmapi:***@127.0.0.1:55432/cmapi_603_main?options=-csearch_path%3Dmig'
+args = ('head',)
+p = <Popen: returncode: 0 args: ['/Users/olasumbo/gitRepos/workbench/cmapi/ob1-r...>
+out = '{"direction": "upgrade", "target": "head", "from_revision": "0008", "revision": "0008", "applied": [], "lock_wait_sec...s": 0.035, "total_seconds": 0.215, "event": "migrated", "level": "info", "timestamp": "2026-11-24T03:15:03.490027Z"}\n'
+@py_assert1 = 0
+
+    def _refused(url, *args):
+        p = migrate(url, *args)
+        out = p.communicate()[0]
+>       assert p.returncode != 0, out[-800:]
+E       AssertionError: {"direction": "upgrade", "target": "head", "from_revision": "0008", "revision": "0008", "applied": [], "lock_wait_seconds": 0.004, "transaction_seconds": 0.035, "total_seconds": 0.215, "event": "migrated", "level": "info", "timestamp": "2026-11-24T03:15:03.490027Z"}
+E         
+E       assert 0 != 0
+E        +  where 0 = <Popen: returncode: 0 args: ['/Users/olasumbo/gitRepos/workbench/cmapi/ob1-r...>.returncode
+
+tests/service/test_idempotency_caller_592.py:301: AssertionError
+_ test_the_upgrade_refuses_a_live_collision_under_the_caller_and_changes_nothing _
+
+empty_schema = 'postgresql://cmapi:***@127.0.0.1:55432/cmapi_603_main?options=-csearch_path%3Dmig'
+
+    def test_the_upgrade_refuses_a_live_collision_under_the_caller_and_changes_nothing(empty_schema):
+        """Two pairs that release 1's window let through: one service's key for two persons, both from 0007 pods, and one from
+        a 0007 pod beside one from release 1's code. The caller's index cannot hold either pair once it is filled. Before
+        (cb59e19): `head` is 0008 and keeps both."""
+        _run(empty_schema, "0008")
+        with psycopg.connect(empty_schema, autocommit=True) as c:
+            _insert(c, "a-0007-for-ola", requester_sub="sub-ola", key="k1", submitted_by="sub-svc", hours_ago=2)
+            _insert(c, "b-0007-for-amy", requester_sub="sub-amy", key="k1", submitted_by="sub-svc", hours_ago=1)
+            _insert(c, "c-0007-for-ola", requester_sub="sub-ola", key="k2", submitted_by="sub-svc", hours_ago=3)
+            _insert(c, "d-release-1-for-amy", requester_sub="sub-amy", key="k2", submitted_by="sub-svc", sub="sub-svc",
+                    with_sub=True)
+            before = _everything(c)
+    
+>           out = _refused(empty_schema, "head")
+
+tests/service/test_idempotency_release2_603.py:115: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+url = 'postgresql://cmapi:***@127.0.0.1:55432/cmapi_603_main?options=-csearch_path%3Dmig'
+args = ('head',)
+p = <Popen: returncode: 0 args: ['/Users/olasumbo/gitRepos/workbench/cmapi/ob1-r...>
+out = '{"direction": "upgrade", "target": "head", "from_revision": "0008", "revision": "0008", "applied": [], "lock_wait_sec...s": 0.039, "total_seconds": 0.271, "event": "migrated", "level": "info", "timestamp": "2026-11-24T03:15:08.963397Z"}\n'
+@py_assert1 = 0
+
+    def _refused(url, *args):
+        p = migrate(url, *args)
+        out = p.communicate()[0]
+>       assert p.returncode != 0, out[-800:]
+E       AssertionError: {"direction": "upgrade", "target": "head", "from_revision": "0008", "revision": "0008", "applied": [], "lock_wait_seconds": 0.004, "transaction_seconds": 0.039, "total_seconds": 0.271, "event": "migrated", "level": "info", "timestamp": "2026-11-24T03:15:08.963397Z"}
+E         
+E       assert 0 != 0
+E        +  where 0 = <Popen: returncode: 0 args: ['/Users/olasumbo/gitRepos/workbench/cmapi/ob1-r...>.returncode
+
+tests/service/test_idempotency_caller_592.py:301: AssertionError
+________ test_the_downgrade_restores_release_1_and_keeps_every_live_key ________
+
+empty_schema = 'postgresql://cmapi:***@127.0.0.1:55432/cmapi_603_main?options=-csearch_path%3Dmig'
+
+    def test_the_downgrade_restores_release_1_and_keeps_every_live_key(empty_schema):
+        """0009 can be downgraded: back to release 1's two unique indexes and no check, every live key and its caller kept,
+        so release 1's code finds them. An expired key is cleared, as the lookup would clear it, so that it cannot block the
+        requester's index. Then up again. Before (cb59e19): there is no 0009 to downgrade."""
+        _run(empty_schema, "head")
+        with psycopg.connect(empty_schema, autocommit=True) as c:
+            _insert(c, "a-own", requester_sub="sub-ola", key="k1", hours_ago=2, sub="sub-ola", with_sub=True)
+            _insert(c, "b-svc-for-ola", requester_sub="sub-ola", key="k2", submitted_by="sub-svc", sub="sub-svc", with_sub=True)
+>           _insert(c, "c-expired-svc-for-ola", requester_sub="sub-ola", key="k1", submitted_by="sub-svc", hours_ago=25,
+                    sub="sub-svc", with_sub=True)
+
+tests/service/test_idempotency_release2_603.py:141: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/service/test_idempotency_caller_592.py:318: in _insert
+    c.execute(f"INSERT INTO change_requests ({cols}) VALUES ({marks})", [*values, hours_ago, *([sub] if with_sub else [])])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [BAD] at 0x112138410>
+query = 'INSERT INTO change_requests (request_id, instance, cluster_id, namespace, env, plugin, action, status, plan, plan_has...b) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now() - make_interval(hours => %s), %s)'
+params = ['c-expired-svc-for-ola', 'test', 'CRC', 'c-expired-svc-for-ola', 'dev', 'namespaces', ...]
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UniqueViolation: duplicate key value violates unique constraint "uq_cr_idempotency"
+E           DETAIL:  Key (requester_sub, idempotency_key)=(sub-ola, k1) already exists.
+
+../../../ob1-run/venv/lib/python3.12/site-packages/psycopg/connection.py:304: UniqueViolation
+_ test_the_downgrade_refuses_a_live_pair_of_one_requester_and_changes_nothing __
+
+empty_schema = 'postgresql://cmapi:***@127.0.0.1:55432/cmapi_603_main?options=-csearch_path%3Dmig'
+
+    def test_the_downgrade_refuses_a_live_pair_of_one_requester_and_changes_nothing(empty_schema):
+        """Since 0009 the person and a service writing for her may hold the same key (the inverted window test). Release 1's
+        requester index cannot hold that pair, so the downgrade refuses while both are live, and succeeds once one is over
+        24 hours old. Before (cb59e19): no 0009."""
+        _run(empty_schema, "head")
+        with psycopg.connect(empty_schema, autocommit=True) as c:
+            _insert(c, "a-own", requester_sub="sub-ola", key="k1", hours_ago=2, sub="sub-ola", with_sub=True)
+>           _insert(c, "b-svc-for-ola", requester_sub="sub-ola", key="k1", submitted_by="sub-svc", sub="sub-svc", with_sub=True)
+
+tests/service/test_idempotency_release2_603.py:163: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/service/test_idempotency_caller_592.py:318: in _insert
+    c.execute(f"INSERT INTO change_requests ({cols}) VALUES ({marks})", [*values, hours_ago, *([sub] if with_sub else [])])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [BAD] at 0x11330fcb0>
+query = 'INSERT INTO change_requests (request_id, instance, cluster_id, namespace, env, plugin, action, status, plan, plan_has...b) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now() - make_interval(hours => %s), %s)'
+params = ['b-svc-for-ola', 'test', 'CRC', 'b-svc-for-ola', 'dev', 'namespaces', ...]
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UniqueViolation: duplicate key value violates unique constraint "uq_cr_idempotency"
+E           DETAIL:  Key (requester_sub, idempotency_key)=(sub-ola, k1) already exists.
+
+../../../ob1-run/venv/lib/python3.12/site-packages/psycopg/connection.py:304: UniqueViolation
+______ test_rows_that_a_0007_pod_wrote_replay_for_their_caller_after_0009 ______
+
+empty_schema = 'postgresql://cmapi:***@127.0.0.1:55432/cmapi_603_main?options=-csearch_path%3Dmig'
+test_config = PosixPath('/private/var/folders/fg/jr6hdz6962516sgpfclbrvqw0000gn/T/pytest-of-olasumbo/pytest-1852/config0')
+keys = <conftest.Keys object at 0x11333d850>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11333c9e0>
+
+    def test_rows_that_a_0007_pod_wrote_replay_for_their_caller_after_0009(empty_schema, test_config, keys, monkeypatch):
+        """End to end, through HTTP. The app writes a service's request for ola and ola's own. Back at 0008 their caller is
+        emptied, which is what a 0007 pod leaves on release 1's schema (its model has no `idempotency_sub`). 0009 fills it, and
+        each caller's retry replays its request, by `idempotency_sub` alone. Ola's own use of the service's key is a new
+        request of hers. Before (cb59e19): the caller stays empty, and ola gets 409 "in use"."""
+        _run(empty_schema, "head")
+        monkeypatch.setattr(conftest, "DB_URL", empty_schema)
+        body = {**NS, "onBehalfOf": "ola"}
+        with conftest.build_world(test_config, keys, monkeypatch) as (client, ctx, *_rest):
+            _directory(ctx)
+            by_service = client.post(URL, json=body, headers=_service(keys, "old-pod-svc")).json()["requestId"]
+            own = client.post(URL, json=OTHER, headers=_ola(keys, "old-pod-ola")).json()["requestId"]
+            ctx.db.engine.dispose()
+    
+        _run(empty_schema, "0008", "--downgrade")
+        with psycopg.connect(empty_schema, autocommit=True) as c:
+            c.execute("UPDATE change_requests SET idempotency_sub = NULL")
+        _run(empty_schema, "head")
+    
+        with conftest.build_world(test_config, keys, monkeypatch) as (client, ctx, *_rest):
+            _directory(ctx)
+>           assert _keys_of(ctx.db, by_service) == ("sub-ola", SVC_SUB, "old-pod-svc")
+E           AssertionError: assert ('sub-ola', N...'old-pod-svc') == ('sub-ola', '...'old-pod-svc')
+E             
+E             At index 1 diff: None != 'sub-service-account-svc-payments-ci'
+E             Use -v to get more diff
+
+tests/service/test_idempotency_release2_603.py:200: AssertionError
+----------------------------- Captured stdout call -----------------------------
+2026-11-23 21:15:18 [info     ] cluster_tls_mode               cluster_id=CRC mode=trusted previous=None server_name=None
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:18.788286Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 320.8, "event": "http", "request_id": "a9f724470ba4461b", "level": "info", "timestamp": "2026-11-24T03:15:19.164561Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 94.4, "event": "http", "request_id": "1f0cb8c7644d49f3", "level": "info", "timestamp": "2026-11-24T03:15:19.312729Z"}
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:23.310826Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:23.433771Z"}
+_ test_the_lookup_and_its_expiry_find_the_key_by_its_caller_through_the_caller_index _
+
+world = (<starlette.testclient.TestClient object at 0x1139e7380>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x11393e5d0>, <conftest.FakeValidator object at 0x11393fdd0>, <conftest.Keys object at 0x11333d850>)
+
+    def test_the_lookup_and_its_expiry_find_the_key_by_its_caller_through_the_caller_index(world):
+        """Release 1 looked up by `key_owner()`, a COALESCE that no index serves, and expired every row of the key, by the key
+        alone (#592 record: a 57 ms sequential scan on 200,000 rows). Since 0009 both statements name `idempotency_sub` and the
+        key, the two columns of the caller's index. Before (cb59e19): neither plan's index condition names `idempotency_sub`."""
+        _client, ctx, *_rest = world
+        statements = []
+    
+        def capture(conn, cursor, statement, params, context, executemany):
+            if "change_requests" in statement:
+                statements.append((statement, params))
+    
+        event.listen(ctx.db.engine, "before_cursor_execute", capture)
+        try:
+            with ctx.db.session() as s:
+                assert RequestRepo(s).by_idempotency(SVC_SUB, "plan-key") is None
+        finally:
+            event.remove(ctx.db.engine, "before_cursor_execute", capture)
+        assert [s.split()[0] for s, _p in statements] == ["UPDATE", "SELECT"], statements
+        url = conftest.DB_URL.replace("postgresql+psycopg://", "postgresql://", 1)
+        for plan in _plans(statements, url):
+>           assert any(name == "uq_cr_idempotency_caller" and "idempotency_sub" in cond and "idempotency_key" in cond
+                       for name, cond in plan), plan
+E           AssertionError: [('uq_cr_idempotency_caller', "((idempotency_key)::text = 'plan-key'::text)")]
+E           assert False
+E            +  where False = any(<generator object test_the_lookup_and_its_expiry_find_the_key_by_its_caller_through_the_caller_index.<locals>.<genexpr> at 0x1133c6e90>)
+
+tests/service/test_idempotency_release2_603.py:247: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"direction": "upgrade", "target": "head", "from_revision": null, "revision": "0008", "applied": [{"revision": "0001", "seconds": 0.243}, {"revision": "0002", "seconds": 0.009}, {"revision": "0003", "seconds": 0.006}, {"revision": "0004", "seconds": 0.005}, {"revision": "0005", "seconds": 0.013}, {"revision": "0006", "seconds": 0.044}, {"revision": "0007", "seconds": 0.005}, {"revision": "0008", "seconds": 0.02}], "lock_wait_seconds": 0.003, "transaction_seconds": 0.364, "total_seconds": 0.475, "event": "migrated", "level": "info", "timestamp": "2026-11-24T03:15:24.139469Z"}
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:25.090817Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:25.214085Z"}
+_______________ test_a_database_at_release_1_is_behind_this_code _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1138ff410>
+
+    def test_a_database_at_release_1_is_behind_this_code(monkeypatch):
+        """This code drops the requester's index and reads `idempotency_sub` alone, so release 1's schema is not ready for it:
+        /readyz is 503 until the migrate initContainer has run 0009. Before (cb59e19): REQUIRED_REVISION was 0008."""
+>       assert REQUIRED_REVISION == "0009"
+E       AssertionError: assert '0008' == '0009'
+E         
+E         - 0009
+E         ?    ^
+E         + 0008
+E         ?    ^
+
+tests/service/test_idempotency_release2_603.py:254: AssertionError
+_____________ test_the_database_refuses_a_keyed_row_with_no_caller _____________
+
+world = (<starlette.testclient.TestClient object at 0x113a70ec0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x113a05dc0>, <conftest.FakeValidator object at 0x113a05e80>, <conftest.Keys object at 0x11333d850>)
+
+    def test_the_database_refuses_a_keyed_row_with_no_caller(world):
+        """A 0007 image started by mistake on 0009's schema would write such rows: 0009 is a later release's revision to its
+        migrator, so it migrates nothing and its /readyz is ok. The caller's index cannot see them, NULLs being distinct, so
+        the database refuses them. A row with no key needs no caller. Before (cb59e19): both rows are written."""
+        _client, ctx, *_rest = world
+        insert = ("INSERT INTO change_requests (request_id, instance, cluster_id, namespace, env, plugin, action, status, plan, "
+                  "plan_hash, requester, requester_sub, requester_kind, requester_client, requester_username, idempotency_key, "
+                  "idempotency_fingerprint) VALUES (:r, 'test', 'CRC', :r, 'dev', 'namespaces', 'create', 'cancelled', '{}', "
+                  "'h', '{}', 'sub-ola', 'user', 'c', 'ola', :key, :fp)")
+        with ctx.db.session() as s:
+            s.execute(text(insert), {"r": "no-key", "key": None, "fp": None})
+>       with pytest.raises(IntegrityError) as caught, ctx.db.session() as s:
+E       Failed: DID NOT RAISE <class 'sqlalchemy.exc.IntegrityError'>
+
+tests/service/test_idempotency_release2_603.py:275: Failed
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:26.161133Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:26.279247Z"}
+________ test_the_person_cannot_replay_the_service_request_with_its_key ________
+
+world = (<starlette.testclient.TestClient object at 0x113c0e1b0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x113fc3e60>, <conftest.FakeValidator object at 0x113fc3fe0>, <conftest.Keys object at 0x11333d850>)
+
+    def test_the_person_cannot_replay_the_service_request_with_its_key(world):
+        """The person the service named cannot replay its request with its key. Before (8a5b41c): her body with `onBehalfOf`
+        replayed it (202), and another body was 409 naming it. In release 1 (cb59e19): 422 for `onBehalfOf`, the lock, and for
+        another namespace 409 from the requester's index, which held the pair (person, key) and named no request. After 0009
+        (#603), which drops that index: the key is hers too, so another namespace is her own new request, 202, and her retry
+        replays it. The service's request keeps its key, and the service's retry still replays it."""
+        client, ctx, *_rest, keys = world
+        _directory(ctx)
+        rid = client.post(URL, json={**NS, "onBehalfOf": "ola"}, headers=_service(keys, "svc-key-2")).json()["requestId"]
+    
+        same = client.post(URL, json={**NS, "onBehalfOf": "ola"}, headers=_ola(keys, "svc-key-2"))
+        assert same.status_code == 422 and same.json()["code"] == "on-behalf-of-not-allowed", same.text
+    
+        # The service's request holds the namespace: the lock answers, naming its holder, as it does for anyone who writes to a
+        # held namespace (#496). It does not replay it. In release 1 the requester's index could answer first instead.
+        held = client.post(URL, json=NS, headers=_ola(keys, "svc-key-2"))
+>       assert held.status_code == 409 and held.json()["code"] == "change-pending", held.text
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/idempotency-replay","title":"idempotency replay","status":409,"detail":"Idempotency-Key is in use for another request","code":"idempotency-replay"}
+E       assert (409 == 409 and 'idempotency-replay' == 'change-pending'
+E        +  where 409 = <Response [409 Conflict]>.status_code
+E         
+E         - change-pending
+E         + idempotency-replay)
+
+tests/service/test_idempotency_caller_592_after.py:157: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:31.573104Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:31.707033Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 197.7, "event": "http", "request_id": "e6861a87b28c4c01", "level": "info", "timestamp": "2026-11-24T03:15:31.962980Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 23.2, "event": "http", "request_id": "b60e9ec4c1944e26", "level": "info", "timestamp": "2026-11-24T03:15:32.042846Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 409, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 80.2, "event": "http", "request_id": "a53a7ac89b3d4320", "level": "info", "timestamp": "2026-11-24T03:15:32.178063Z"}
+__ test_the_person_can_use_a_key_that_a_service_held_for_them_once_it_expires __
+
+world = (<starlette.testclient.TestClient object at 0x1135095b0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x113884cb0>, <conftest.FakeValidator object at 0x113a05700>, <conftest.Keys object at 0x11333d850>)
+
+    def test_the_person_can_use_a_key_that_a_service_held_for_them_once_it_expires(world):
+        """In release 1 the service's expired row still held (person, key) in the requester's index. Before (2c663b8): the
+        lookup cleared only the caller's own expired rows, so the person got 409 "in use" on every try, for good. Since 0009
+        (#603) only the caller's index exists: the person's lookup leaves the service's expired row alone, and the service's
+        own next use of the key clears it and gets a new request, never the expired one."""
+        client, ctx, *_rest, keys = world
+        _directory(ctx)
+        rid = client.post(URL, json={**NS, "onBehalfOf": "ola"}, headers=_service(keys, "svc-expired")).json()["requestId"]
+        with ctx.db.session() as s:
+            s.execute(text("UPDATE change_requests SET created_at = now() - interval '25 hours' WHERE request_id = :r"),
+                      {"r": rid})
+    
+        own = client.post(URL, json=OTHER, headers=_ola(keys, "svc-expired"))
+        assert own.status_code == 202 and own.json()["requestId"] != rid, own.text
+        assert _keys_of(ctx.db, own.json()["requestId"]) == ("sub-ola", "sub-ola", "svc-expired")
+>       assert _keys_of(ctx.db, rid) == ("sub-ola", SVC_SUB, "svc-expired"), "another caller's lookup leaves it as it is"
+E       AssertionError: another caller's lookup leaves it as it is
+E       assert ('sub-ola', None, None) == ('sub-ola', '...'svc-expired')
+E         
+E         At index 1 diff: None != 'sub-service-account-svc-payments-ci'
+E         Use -v to get more diff
+
+tests/service/test_idempotency_caller_592_after.py:211: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:36.086359Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:36.283696Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 280.0, "event": "http", "request_id": "6b91f53139d94267", "level": "info", "timestamp": "2026-11-24T03:15:36.648483Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 110.8, "event": "http", "request_id": "64d02f36807c486d", "level": "info", "timestamp": "2026-11-24T03:15:36.838968Z"}
+______ test_a_service_can_use_a_key_that_the_person_held_once_it_expires _______
+
+world = (<starlette.testclient.TestClient object at 0x113317aa0>, AppContext(settings=Settings(config_dir=PosixPath('/private/...FakeKube object at 0x113336660>, <conftest.FakeValidator object at 0x113337a40>, <conftest.Keys object at 0x11333d850>)
+
+    def test_a_service_can_use_a_key_that_the_person_held_once_it_expires(world):
+        """The other direction, a second caller: the person's own expired key, then a service sends it for her. In release 1,
+        clearing only the caller's rows left the person's row in the requester's index. Before (2c663b8): 409 "in use". Since
+        0009 the person's expired row keeps its key until her own next use of it, which clears it (#603)."""
+        client, ctx, *_rest, keys = world
+        _directory(ctx)
+        rid = client.post(URL, json=NS, headers=_ola(keys, "ola-expired")).json()["requestId"]
+        with ctx.db.session() as s:
+            s.execute(text("UPDATE change_requests SET created_at = now() - interval '25 hours' WHERE request_id = :r"),
+                      {"r": rid})
+    
+        by_service = client.post(URL, json={**OTHER, "onBehalfOf": "ola"}, headers=_service(keys, "ola-expired"))
+        assert by_service.status_code == 202 and by_service.json()["requestId"] != rid, by_service.text
+>       assert _keys_of(ctx.db, rid) == ("sub-ola", "sub-ola", "ola-expired")
+E       AssertionError: assert ('sub-ola', None, None) == ('sub-ola', '...'ola-expired')
+E         
+E         At index 1 diff: None != 'sub-ola'
+E         Use -v to get more diff
+
+tests/service/test_idempotency_caller_592_after.py:232: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:37.896301Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:38.032054Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 259.0, "event": "http", "request_id": "bbe3f21ed26f40a9", "level": "info", "timestamp": "2026-11-24T03:15:38.347108Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 98.8, "event": "http", "request_id": "710b898f9436491a", "level": "info", "timestamp": "2026-11-24T03:15:38.540792Z"}
+_____ test_a_0007_insert_in_the_window_no_longer_escapes_the_caller_index ______
+
+empty_schema = 'postgresql://cmapi:***@127.0.0.1:55432/cmapi_603_main?options=-csearch_path%3Dmig'
+
+    def test_a_0007_insert_in_the_window_no_longer_escapes_the_caller_index(empty_schema):
+        """The risk that release 1 accepted (docs/12), inverted by 0009 (#603). At 0008, with the column list of a 0007 pod (no
+        `idempotency_sub`), one service's key for two persons is two rows, because NULLs are distinct in
+        `uq_cr_idempotency_caller`. 0009 refuses while both are live, changing nothing, and succeeds once one is over 24 hours
+        old. At 0009 the same insert is refused by the database. Before (cb59e19): 0009 does not exist, and `head` accepts both
+        rows and the insert."""
+        _run(empty_schema, "0008")
+        with psycopg.connect(empty_schema, autocommit=True) as c:
+            _insert(c, "a-svc-for-ola", requester_sub="sub-ola", key="k9", submitted_by="sub-svc", hours_ago=1)
+            _insert(c, "b-svc-for-amy", requester_sub="sub-amy", key="k9", submitted_by="sub-svc")
+            before = _state(c)
+            assert before[0] == {"a-svc-for-ola": ("k9", "fp-a-svc-for-ola", None), "b-svc-for-amy": ("k9", "fp-b-svc-for-amy", None)}
+    
+>           out = _refused(empty_schema, "head")
+
+tests/service/test_idempotency_caller_592_after.py:439: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+url = 'postgresql://cmapi:***@127.0.0.1:55432/cmapi_603_main?options=-csearch_path%3Dmig'
+args = ('head',)
+p = <Popen: returncode: 0 args: ['/Users/olasumbo/gitRepos/workbench/cmapi/ob1-r...>
+out = '{"direction": "upgrade", "target": "head", "from_revision": "0008", "revision": "0008", "applied": [], "lock_wait_sec...s": 0.027, "total_seconds": 0.205, "event": "migrated", "level": "info", "timestamp": "2026-11-24T03:16:14.213703Z"}\n'
+@py_assert1 = 0
+
+    def _refused(url, *args):
+        p = migrate(url, *args)
+        out = p.communicate()[0]
+>       assert p.returncode != 0, out[-800:]
+E       AssertionError: {"direction": "upgrade", "target": "head", "from_revision": "0008", "revision": "0008", "applied": [], "lock_wait_seconds": 0.003, "transaction_seconds": 0.027, "total_seconds": 0.205, "event": "migrated", "level": "info", "timestamp": "2026-11-24T03:16:14.213703Z"}
+E         
+E       assert 0 != 0
+E        +  where 0 = <Popen: returncode: 0 args: ['/Users/olasumbo/gitRepos/workbench/cmapi/ob1-r...>.returncode
+
+tests/service/test_idempotency_caller_592_after.py:294: AssertionError
+==================================== PASSES ====================================
+________ test_a_service_retry_on_behalf_of_a_person_replays_its_request ________
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:27.183153Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:27.305959Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 189.1, "event": "http", "request_id": "1e71ec13def449c1", "level": "info", "timestamp": "2026-11-24T03:15:27.548065Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 31.7, "event": "http", "request_id": "7e7b46e1eab84bf2", "level": "info", "timestamp": "2026-11-24T03:15:27.633203Z"}
+{"method": "POST", "route": "/api/v1/requests/{request_id}:cancel", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 41.7, "event": "http", "request_id": "0bb6df430c764de0", "level": "info", "timestamp": "2026-11-24T03:15:27.737100Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 22.0, "event": "http", "request_id": "f561528f7dac46c9", "level": "info", "timestamp": "2026-11-24T03:15:27.813988Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 409, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 16.8, "event": "http", "request_id": "4c99a3d805f24803", "level": "info", "timestamp": "2026-11-24T03:15:27.884666Z"}
+_______ test_a_service_retry_that_loses_the_race_gets_the_closed_winner ________
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:28.710269Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:28.831949Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 203.7, "event": "http", "request_id": "acc55e99a32b41bb", "level": "info", "timestamp": "2026-11-24T03:15:29.099913Z"}
+{"method": "POST", "route": "/api/v1/requests/{request_id}:cancel", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 49.7, "event": "http", "request_id": "3657db1235ab4283", "level": "info", "timestamp": "2026-11-24T03:15:29.205317Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 67.8, "event": "http", "request_id": "4ea35357395441b0", "level": "info", "timestamp": "2026-11-24T03:15:29.328646Z"}
+___ test_one_service_key_for_a_second_person_is_refused_by_the_caller_index ____
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:30.176452Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:30.297935Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 278.7, "event": "http", "request_id": "69dde52134b34030", "level": "info", "timestamp": "2026-11-24T03:15:30.630231Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 409, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 75.1, "event": "http", "request_id": "b1bdec1f9a94484e", "level": "info", "timestamp": "2026-11-24T03:15:30.759636Z"}
+____________________ test_a_person_own_retry_still_replays _____________________
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:33.120987Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:33.262512Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 197.2, "event": "http", "request_id": "b2db42a95fe54116", "level": "info", "timestamp": "2026-11-24T03:15:33.515791Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 31.0, "event": "http", "request_id": "ff867b88afa24905", "level": "info", "timestamp": "2026-11-24T03:15:33.603623Z"}
+_______________ test_a_service_key_is_free_again_after_24_hours ________________
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:34.489854Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:34.633547Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 325.5, "event": "http", "request_id": "fc625f271f4040b5", "level": "info", "timestamp": "2026-11-24T03:15:35.034045Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 87.5, "event": "http", "request_id": "55609df02cc84fe3", "level": "info", "timestamp": "2026-11-24T03:15:35.193693Z"}
+_______________ test_a_key_named_after_an_index_is_an_opaque_key _______________
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:39.773197Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:40.002254Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 829.0, "event": "http", "request_id": "fafd58b121bf4e3b", "level": "info", "timestamp": "2026-11-24T03:15:40.901998Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 409, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 81.4, "event": "http", "request_id": "7617889c4a654278", "level": "info", "timestamp": "2026-11-24T03:15:41.035708Z"}
+_ test_a_key_exactly_24_hours_old_is_still_held_by_the_lookup_and_the_migration _
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:15:42.015816Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:15:42.163960Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 219.0, "event": "http", "request_id": "099fd08af0004d1d", "level": "info", "timestamp": "2026-11-24T03:15:42.447369Z"}
+_______ test_keys_written_by_this_code_replay_after_a_schema_round_trip ________
+----------------------------- Captured stdout call -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:16:22.057265Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:16:22.199828Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 213.8, "event": "http", "request_id": "f64907db637047e8", "level": "info", "timestamp": "2026-11-24T03:16:22.470800Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 102.7, "event": "http", "request_id": "1fc1e96afcdc42f3", "level": "info", "timestamp": "2026-11-24T03:16:22.629692Z"}
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-24T03:16:26.779778Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-24T03:16:26.909685Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-service-account-svc-payments-ci", "client": "svc-payments-ci", "ms": 39.7, "event": "http", "request_id": "bcaf0a1b12d845fb", "level": "info", "timestamp": "2026-11-24T03:16:27.059580Z"}
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 19.8, "event": "http", "request_id": "92dbeacf72044d15", "level": "info", "timestamp": "2026-11-24T03:16:27.134884Z"}
+=========================== short test summary info ============================
+PASSED tests/service/test_idempotency_caller_592_after.py::test_a_service_retry_on_behalf_of_a_person_replays_its_request
+PASSED tests/service/test_idempotency_caller_592_after.py::test_a_service_retry_that_loses_the_race_gets_the_closed_winner
+PASSED tests/service/test_idempotency_caller_592_after.py::test_one_service_key_for_a_second_person_is_refused_by_the_caller_index
+PASSED tests/service/test_idempotency_caller_592_after.py::test_a_person_own_retry_still_replays
+PASSED tests/service/test_idempotency_caller_592_after.py::test_a_service_key_is_free_again_after_24_hours
+PASSED tests/service/test_idempotency_caller_592_after.py::test_a_key_named_after_an_index_is_an_opaque_key
+PASSED tests/service/test_idempotency_caller_592_after.py::test_a_key_exactly_24_hours_old_is_still_held_by_the_lookup_and_the_migration
+PASSED tests/service/test_idempotency_caller_592_after.py::test_the_upgrade_keys_each_stored_key_on_its_caller_and_keeps_the_old_index
+PASSED tests/service/test_idempotency_caller_592_after.py::test_the_upgrade_refuses_a_live_collision_and_succeeds_once_it_expires
+PASSED tests/service/test_idempotency_caller_592_after.py::test_the_upgrade_refuses_a_live_delegated_row_without_its_caller
+PASSED tests/service/test_idempotency_caller_592_after.py::test_the_upgrade_refuses_a_live_delegated_row_whose_caller_is_not_a_subject[a-number]
+PASSED tests/service/test_idempotency_caller_592_after.py::test_the_upgrade_refuses_a_live_delegated_row_whose_caller_is_not_a_subject[empty]
+PASSED tests/service/test_idempotency_caller_592_after.py::test_the_downgrade_keeps_every_key_and_the_old_index
+PASSED tests/service/test_idempotency_caller_592_after.py::test_keys_written_by_this_code_replay_after_a_schema_round_trip
+FAILED tests/service/test_idempotency_release2_603.py::test_the_upgrade_fills_each_keyed_row_with_its_caller_and_keeps_only_the_caller_index
+FAILED tests/service/test_idempotency_release2_603.py::test_the_upgrade_refuses_a_live_delegated_row_without_its_caller_and_changes_nothing
+FAILED tests/service/test_idempotency_release2_603.py::test_the_upgrade_refuses_a_live_collision_under_the_caller_and_changes_nothing
+FAILED tests/service/test_idempotency_release2_603.py::test_the_downgrade_restores_release_1_and_keeps_every_live_key
+FAILED tests/service/test_idempotency_release2_603.py::test_the_downgrade_refuses_a_live_pair_of_one_requester_and_changes_nothing
+FAILED tests/service/test_idempotency_release2_603.py::test_rows_that_a_0007_pod_wrote_replay_for_their_caller_after_0009
+FAILED tests/service/test_idempotency_release2_603.py::test_the_lookup_and_its_expiry_find_the_key_by_its_caller_through_the_caller_index
+FAILED tests/service/test_idempotency_release2_603.py::test_a_database_at_release_1_is_behind_this_code
+FAILED tests/service/test_idempotency_release2_603.py::test_the_database_refuses_a_keyed_row_with_no_caller
+FAILED tests/service/test_idempotency_caller_592_after.py::test_the_person_cannot_replay_the_service_request_with_its_key
+FAILED tests/service/test_idempotency_caller_592_after.py::test_the_person_can_use_a_key_that_a_service_held_for_them_once_it_expires
+FAILED tests/service/test_idempotency_caller_592_after.py::test_a_service_can_use_a_key_that_the_person_held_once_it_expires
+FAILED tests/service/test_idempotency_caller_592_after.py::test_a_0007_insert_in_the_window_no_longer_escapes_the_caller_index
+13 failed, 14 passed in 94.02s (0:01:34)
+end 2026-11-24T03:16:27Z rc=1
