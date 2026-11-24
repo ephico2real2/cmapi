@@ -1,0 +1,398 @@
+== 2026-11-24T18:05:23Z image quay.io/keycloak/keycloak@sha256:0aae0de7fca85525f727d3354df17896092de8bb26ae4c12d89c77e5df8cbce4
+== container kc640-99e53aa6 on http://127.0.0.1:46281
+Keycloak 26.6.4
+== realms, and the issuer each one's .well-known/openid-configuration serves
+{"realm": "cmapi", "issuer": "http://127.0.0.1:46281/realms/cmapi"}
+{"realm": "cmapi 640", "issuer": "http://127.0.0.1:46281/realms/cmapi%20640"}
+{"realm": "pct%41é", "issuer": "http://127.0.0.1:46281/realms/pct%2541%C3%A9"}
+
+######## before: <workbench>/wt-640-outputs/before-src/cmapi/src
+-- core/context.py, the realm from the issuer:
+   150:        realm = issuer.rsplit("/realms/", 1)[1]
+   151:        base = settings.keycloak_admin_url or issuer.rsplit("/realms/", 1)[0]
+== before  KeycloakAdminDirectory  issuer http://127.0.0.1:46281/realms/cmapi
+  realm from issuer.rsplit("/realms/", 1): 'cmapi'
+  POST /realms/cmapi/protocol/openid-connect/token -> 200
+  GET  /admin/realms/cmapi/users?username=ola&exact=true&briefRepresentation=false -> 200
+  get_user('ola') = 'ola'
+  GET  /admin/realms/cmapi/users?q=employeeId%3A1001&exact=true&briefRepresentation=false -> 200
+  find_by_employee_id('1001') = 'ola'
+  GET  /admin/realms/cmapi/users?search=ola&max=10&briefRepresentation=false -> 200
+  search('ola') = ['ola']
+== before  realm_sync.main  issuer http://127.0.0.1:46281/realms/cmapi
+  user profile: employeeId, middleName declared
+  password grant: off on each client (changed: admin-cli)
+  access token type: at+jwt on each client of cmapi
+  cmapi-realm-admin: realm-management ['realm-admin'] present
+  cmapi-directory: realm-management ['view-users', 'query-users'] granted
+  cmapi-automation: cmapi-nonprod ['cmapi-onboarding'] granted
+  groups under /cmapi: 0 with their client roles
+  LDAP federation: off in values
+  realm cmapi at http://127.0.0.1:46281: in sync
+== before  KeycloakAdminDirectory  issuer http://127.0.0.1:46281/realms/cmapi%20640
+  realm from issuer.rsplit("/realms/", 1): 'cmapi%20640'
+  POST /realms/cmapi%20640/protocol/openid-connect/token -> 200
+  GET  /admin/realms/cmapi%2520640/users?username=ola&exact=true&briefRepresentation=false -> 404
+  get_user('ola') = None
+  GET  /admin/realms/cmapi%2520640/users?q=employeeId%3A1001&exact=true&briefRepresentation=false -> 404
+  find_by_employee_id('1001') = None
+  GET  /admin/realms/cmapi%2520640/users?search=ola&max=10&briefRepresentation=false -> 404
+  search('ola') = []
+== before  realm_sync.main  issuer http://127.0.0.1:46281/realms/cmapi%20640
+  user profile: employeeId, middleName declared
+  password grant: off on each client (changed: admin-cli)
+  access token type: at+jwt on each client of cmapi
+  cmapi-realm-admin: realm-management ['realm-admin'] present
+  cmapi-directory: realm-management ['view-users', 'query-users'] granted
+  cmapi-automation: cmapi-nonprod ['cmapi-onboarding'] granted
+  groups under /cmapi: 0 with their client roles
+  LDAP federation: off in values
+  realm cmapi%20640 at http://127.0.0.1:46281: in sync
+== before  KeycloakAdminDirectory  issuer http://127.0.0.1:46281/realms/pct%2541%C3%A9
+  realm from issuer.rsplit("/realms/", 1): 'pct%2541%C3%A9'
+  POST /realms/pct%2541%C3%A9/protocol/openid-connect/token -> 200
+  GET  /admin/realms/pct%252541%25C3%25A9/users?username=ola&exact=true&briefRepresentation=false -> 404
+  get_user('ola') = None
+  GET  /admin/realms/pct%252541%25C3%25A9/users?q=employeeId%3A1001&exact=true&briefRepresentation=false -> 404
+  find_by_employee_id('1001') = None
+  GET  /admin/realms/pct%252541%25C3%25A9/users?search=ola&max=10&briefRepresentation=false -> 404
+  search('ola') = []
+== before  realm_sync.main  issuer http://127.0.0.1:46281/realms/pct%2541%C3%A9
+  user profile: employeeId, middleName declared
+  password grant: off on each client (changed: admin-cli)
+  access token type: at+jwt on each client of cmapi
+  cmapi-realm-admin: realm-management ['realm-admin'] present
+  cmapi-directory: realm-management ['view-users', 'query-users'] granted
+  cmapi-automation: cmapi-nonprod ['cmapi-onboarding'] granted
+  groups under /cmapi: 0 with their client roles
+  LDAP federation: off in values
+  realm pct%2541%C3%A9 at http://127.0.0.1:46281: in sync
+
+######## after: <workbench>/wt-640/cmapi/src
+-- core/context.py, the realm from the issuer:
+   150:        base, realm = split_issuer(issuer)          # the realm's name, decoded once from the issuer (#640)
+== after  KeycloakAdminDirectory  issuer http://127.0.0.1:46281/realms/cmapi
+  realm from split_issuer(issuer): 'cmapi'
+  POST /realms/cmapi/protocol/openid-connect/token -> 200
+  GET  /admin/realms/cmapi/users?username=ola&exact=true&briefRepresentation=false -> 200
+  get_user('ola') = 'ola'
+  GET  /admin/realms/cmapi/users?q=employeeId%3A1001&exact=true&briefRepresentation=false -> 200
+  find_by_employee_id('1001') = 'ola'
+  GET  /admin/realms/cmapi/users?search=ola&max=10&briefRepresentation=false -> 200
+  search('ola') = ['ola']
+== after  realm_sync.main  issuer http://127.0.0.1:46281/realms/cmapi
+  user profile: employeeId, middleName present
+  password grant: off on each client
+  access token type: at+jwt on each client of cmapi
+  cmapi-realm-admin: realm-management ['realm-admin'] present
+  cmapi-directory: realm-management ['view-users', 'query-users'] present
+  cmapi-automation: cmapi-nonprod ['cmapi-onboarding'] present
+  groups under /cmapi: 0 with their client roles
+  LDAP federation: off in values
+  realm cmapi at http://127.0.0.1:46281: in sync
+== after  KeycloakAdminDirectory  issuer http://127.0.0.1:46281/realms/cmapi%20640
+  realm from split_issuer(issuer): 'cmapi 640'
+  POST /realms/cmapi%20640/protocol/openid-connect/token -> 200
+  GET  /admin/realms/cmapi%20640/users?username=ola&exact=true&briefRepresentation=false -> 200
+  get_user('ola') = 'ola'
+  GET  /admin/realms/cmapi%20640/users?q=employeeId%3A1001&exact=true&briefRepresentation=false -> 200
+  find_by_employee_id('1001') = 'ola'
+  GET  /admin/realms/cmapi%20640/users?search=ola&max=10&briefRepresentation=false -> 200
+  search('ola') = ['ola']
+== after  realm_sync.main  issuer http://127.0.0.1:46281/realms/cmapi%20640
+  user profile: employeeId, middleName present
+  password grant: off on each client
+  access token type: at+jwt on each client of cmapi
+  cmapi-realm-admin: realm-management ['realm-admin'] present
+  cmapi-directory: realm-management ['view-users', 'query-users'] present
+  cmapi-automation: cmapi-nonprod ['cmapi-onboarding'] present
+  groups under /cmapi: 0 with their client roles
+  LDAP federation: off in values
+  realm cmapi 640 at http://127.0.0.1:46281: in sync
+== after  KeycloakAdminDirectory  issuer http://127.0.0.1:46281/realms/pct%2541%C3%A9
+  realm from split_issuer(issuer): 'pct%41é'
+  POST /realms/pct%2541%C3%A9/protocol/openid-connect/token -> 200
+  GET  /admin/realms/pct%2541%C3%A9/users?username=ola&exact=true&briefRepresentation=false -> 200
+  get_user('ola') = 'ola'
+  GET  /admin/realms/pct%2541%C3%A9/users?q=employeeId%3A1001&exact=true&briefRepresentation=false -> 200
+  find_by_employee_id('1001') = 'ola'
+  GET  /admin/realms/pct%2541%C3%A9/users?search=ola&max=10&briefRepresentation=false -> 200
+  search('ola') = ['ola']
+== after  realm_sync.main  issuer http://127.0.0.1:46281/realms/pct%2541%C3%A9
+  user profile: employeeId, middleName present
+  password grant: off on each client
+  access token type: at+jwt on each client of cmapi
+  cmapi-realm-admin: realm-management ['realm-admin'] present
+  cmapi-directory: realm-management ['view-users', 'query-users'] present
+  cmapi-automation: cmapi-nonprod ['cmapi-onboarding'] present
+  groups under /cmapi: 0 with their client roles
+  LDAP federation: off in values
+  realm pct%41é at http://127.0.0.1:46281: in sync
+
+== Keycloak's access log: the request lines it received for the test realms (not master)
+200 GET /admin/realms/cmapi/users/profile HTTP/1.1
+200 PUT /admin/realms/cmapi/users/profile HTTP/1.1
+201 POST /admin/realms/cmapi/clients HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-directory HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/cmapi/clients/5ac153dc-01e6-4abc-bdcf-c1dc6c29a7d5/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi/clients/1019abe0-dd1b-4a66-92d3-62270291e255/roles HTTP/1.1
+204 POST /admin/realms/cmapi/users/4c4a866d-af82-47eb-90a5-d5a7ee9ef445/role-mappings/clients/1019abe0-dd1b-4a66-92d3-62270291e255 HTTP/1.1
+201 POST /admin/realms/cmapi/clients HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-realm-admin HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/cmapi/clients/d6bdc4ad-8ebe-4883-ac09-54a7c2338e94/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi/clients/1019abe0-dd1b-4a66-92d3-62270291e255/roles HTTP/1.1
+204 POST /admin/realms/cmapi/users/0a09487c-3922-4fca-b0da-d0fcd847ddfd/role-mappings/clients/1019abe0-dd1b-4a66-92d3-62270291e255 HTTP/1.1
+201 POST /admin/realms/cmapi/clients HTTP/1.1
+201 POST /admin/realms/cmapi/clients HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-nonprod HTTP/1.1
+201 POST /admin/realms/cmapi/clients/882c7467-f0ad-4034-9a9f-476bf0038854/roles HTTP/1.1
+201 POST /admin/realms/cmapi/users HTTP/1.1
+200 GET /realms/cmapi/.well-known/openid-configuration HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users/profile HTTP/1.1
+200 PUT /admin/realms/cmapi%20640/users/profile HTTP/1.1
+201 POST /admin/realms/cmapi%20640/clients HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-directory HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/b113e36e-3cad-4278-a9c6-3a261fc7f713/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/406d74c4-5f13-4a73-b163-10494e1d16ad/roles HTTP/1.1
+204 POST /admin/realms/cmapi%20640/users/d82d819c-5812-4706-8604-1857303a4768/role-mappings/clients/406d74c4-5f13-4a73-b163-10494e1d16ad HTTP/1.1
+201 POST /admin/realms/cmapi%20640/clients HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-realm-admin HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/d00daa99-50b3-488e-9724-7257f8db84da/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/406d74c4-5f13-4a73-b163-10494e1d16ad/roles HTTP/1.1
+204 POST /admin/realms/cmapi%20640/users/09f7631d-e495-4827-9e82-49f35fd51d23/role-mappings/clients/406d74c4-5f13-4a73-b163-10494e1d16ad HTTP/1.1
+201 POST /admin/realms/cmapi%20640/clients HTTP/1.1
+201 POST /admin/realms/cmapi%20640/clients HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-nonprod HTTP/1.1
+201 POST /admin/realms/cmapi%20640/clients/6e87d7fd-5db3-4184-98de-f1834c997ae6/roles HTTP/1.1
+201 POST /admin/realms/cmapi%20640/users HTTP/1.1
+200 GET /realms/cmapi%20640/.well-known/openid-configuration HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users/profile HTTP/1.1
+200 PUT /admin/realms/pct%2541%C3%A9/users/profile HTTP/1.1
+201 POST /admin/realms/pct%2541%C3%A9/clients HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-directory HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/f9bb9adc-3b11-4d05-9105-68a7ff3cb679/service-account-user HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/84984494-0c10-49ec-999e-bba2b6dca3e7/roles HTTP/1.1
+204 POST /admin/realms/pct%2541%C3%A9/users/2f37ef62-9888-434e-9938-65db02de0c02/role-mappings/clients/84984494-0c10-49ec-999e-bba2b6dca3e7 HTTP/1.1
+201 POST /admin/realms/pct%2541%C3%A9/clients HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-realm-admin HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/71fcc409-8ba4-446d-a7d4-a5d0648f7117/service-account-user HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/84984494-0c10-49ec-999e-bba2b6dca3e7/roles HTTP/1.1
+204 POST /admin/realms/pct%2541%C3%A9/users/80aa4b58-be15-4694-a320-34a91a279202/role-mappings/clients/84984494-0c10-49ec-999e-bba2b6dca3e7 HTTP/1.1
+201 POST /admin/realms/pct%2541%C3%A9/clients HTTP/1.1
+201 POST /admin/realms/pct%2541%C3%A9/clients HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-nonprod HTTP/1.1
+201 POST /admin/realms/pct%2541%C3%A9/clients/ce5bc65c-3b7c-499d-81b8-ca5d04742eef/roles HTTP/1.1
+201 POST /admin/realms/pct%2541%C3%A9/users HTTP/1.1
+200 GET /realms/pct%2541%C3%A9/.well-known/openid-configuration HTTP/1.1
+200 POST /realms/cmapi/protocol/openid-connect/token HTTP/1.1
+200 GET /admin/realms/cmapi/users?username=ola&exact=true&briefRepresentation=false HTTP/1.1
+200 GET /admin/realms/cmapi/users?q=employeeId%3A1001&exact=true&briefRepresentation=false HTTP/1.1
+200 GET /admin/realms/cmapi/users?search=ola&max=10&briefRepresentation=false HTTP/1.1
+200 GET /realms/cmapi HTTP/1.1
+200 POST /realms/cmapi/protocol/openid-connect/token HTTP/1.1
+200 GET /admin/realms/cmapi/users/profile HTTP/1.1
+200 PUT /admin/realms/cmapi/users/profile HTTP/1.1
+200 GET /admin/realms/cmapi/clients?first=0&max=500 HTTP/1.1
+204 PUT /admin/realms/cmapi/clients/62db55de-6d1d-495d-8785-3755b5900a86 HTTP/1.1
+200 GET /admin/realms/cmapi/clients?first=10&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi/users?username=bot-user&exact=true HTTP/1.1
+200 GET /admin/realms/cmapi/clients?first=0&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi/clients?first=10&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/cmapi/clients/1019abe0-dd1b-4a66-92d3-62270291e255/roles HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-realm-admin HTTP/1.1
+200 GET /admin/realms/cmapi/clients/d6bdc4ad-8ebe-4883-ac09-54a7c2338e94/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi/users/0a09487c-3922-4fca-b0da-d0fcd847ddfd/role-mappings/clients/1019abe0-dd1b-4a66-92d3-62270291e255 HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/cmapi/clients/1019abe0-dd1b-4a66-92d3-62270291e255/roles HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-directory HTTP/1.1
+200 GET /admin/realms/cmapi/clients/5ac153dc-01e6-4abc-bdcf-c1dc6c29a7d5/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi/users/4c4a866d-af82-47eb-90a5-d5a7ee9ef445/role-mappings/clients/1019abe0-dd1b-4a66-92d3-62270291e255 HTTP/1.1
+204 POST /admin/realms/cmapi/users/4c4a866d-af82-47eb-90a5-d5a7ee9ef445/role-mappings/clients/1019abe0-dd1b-4a66-92d3-62270291e255 HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-nonprod HTTP/1.1
+200 GET /admin/realms/cmapi/clients/882c7467-f0ad-4034-9a9f-476bf0038854/roles HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-automation HTTP/1.1
+200 GET /admin/realms/cmapi/clients/f3d073ef-b231-43a4-8ee0-d334d733ec25/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi/users/643571f9-26e0-4efb-a44d-2f5f91744f5c/role-mappings/clients/882c7467-f0ad-4034-9a9f-476bf0038854 HTTP/1.1
+204 POST /admin/realms/cmapi/users/643571f9-26e0-4efb-a44d-2f5f91744f5c/role-mappings/clients/882c7467-f0ad-4034-9a9f-476bf0038854 HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-nonprod HTTP/1.1
+200 GET /admin/realms/cmapi/clients/882c7467-f0ad-4034-9a9f-476bf0038854/roles HTTP/1.1
+200 GET /admin/realms/cmapi/groups?search=cmapi&exact=true HTTP/1.1
+201 POST /admin/realms/cmapi/groups HTTP/1.1
+200 GET /admin/realms/cmapi/groups?search=cmapi&exact=true HTTP/1.1
+200 GET /admin/realms/cmapi/groups/83576333-2db6-489f-b79f-c8ea2d05f32a/children?max=100 HTTP/1.1
+200 POST /realms/cmapi%20640/protocol/openid-connect/token HTTP/1.1
+404 GET /admin/realms/cmapi%2520640/users?username=ola&exact=true&briefRepresentation=false HTTP/1.1
+404 GET /admin/realms/cmapi%2520640/users?q=employeeId%3A1001&exact=true&briefRepresentation=false HTTP/1.1
+404 GET /admin/realms/cmapi%2520640/users?search=ola&max=10&briefRepresentation=false HTTP/1.1
+200 GET /realms/cmapi%20640 HTTP/1.1
+200 POST /realms/cmapi%20640/protocol/openid-connect/token HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users/profile HTTP/1.1
+200 PUT /admin/realms/cmapi%20640/users/profile HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?first=0&max=500 HTTP/1.1
+204 PUT /admin/realms/cmapi%20640/clients/0aa17e2d-39e3-4dd5-96d4-82dd27957d73 HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?first=10&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users?username=bot-user&exact=true HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?first=0&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?first=10&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/406d74c4-5f13-4a73-b163-10494e1d16ad/roles HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-realm-admin HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/d00daa99-50b3-488e-9724-7257f8db84da/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users/09f7631d-e495-4827-9e82-49f35fd51d23/role-mappings/clients/406d74c4-5f13-4a73-b163-10494e1d16ad HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/406d74c4-5f13-4a73-b163-10494e1d16ad/roles HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-directory HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/b113e36e-3cad-4278-a9c6-3a261fc7f713/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users/d82d819c-5812-4706-8604-1857303a4768/role-mappings/clients/406d74c4-5f13-4a73-b163-10494e1d16ad HTTP/1.1
+204 POST /admin/realms/cmapi%20640/users/d82d819c-5812-4706-8604-1857303a4768/role-mappings/clients/406d74c4-5f13-4a73-b163-10494e1d16ad HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-nonprod HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/6e87d7fd-5db3-4184-98de-f1834c997ae6/roles HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-automation HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/86f7822a-9d26-478f-92f5-ba28e1debbef/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users/247128ca-eedc-4edd-84ad-66aab26f12f6/role-mappings/clients/6e87d7fd-5db3-4184-98de-f1834c997ae6 HTTP/1.1
+204 POST /admin/realms/cmapi%20640/users/247128ca-eedc-4edd-84ad-66aab26f12f6/role-mappings/clients/6e87d7fd-5db3-4184-98de-f1834c997ae6 HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-nonprod HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/6e87d7fd-5db3-4184-98de-f1834c997ae6/roles HTTP/1.1
+200 GET /admin/realms/cmapi%20640/groups?search=cmapi&exact=true HTTP/1.1
+201 POST /admin/realms/cmapi%20640/groups HTTP/1.1
+200 GET /admin/realms/cmapi%20640/groups?search=cmapi&exact=true HTTP/1.1
+200 GET /admin/realms/cmapi%20640/groups/3e08aca7-d580-4d20-b53a-dd75e4e917cf/children?max=100 HTTP/1.1
+200 POST /realms/pct%2541%C3%A9/protocol/openid-connect/token HTTP/1.1
+404 GET /admin/realms/pct%252541%25C3%25A9/users?username=ola&exact=true&briefRepresentation=false HTTP/1.1
+404 GET /admin/realms/pct%252541%25C3%25A9/users?q=employeeId%3A1001&exact=true&briefRepresentation=false HTTP/1.1
+404 GET /admin/realms/pct%252541%25C3%25A9/users?search=ola&max=10&briefRepresentation=false HTTP/1.1
+200 GET /realms/pct%2541%C3%A9 HTTP/1.1
+200 POST /realms/pct%2541%C3%A9/protocol/openid-connect/token HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users/profile HTTP/1.1
+200 PUT /admin/realms/pct%2541%C3%A9/users/profile HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?first=0&max=500 HTTP/1.1
+204 PUT /admin/realms/pct%2541%C3%A9/clients/691a61e2-aa99-4bb7-8929-22fc2cecc407 HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?first=10&max=500 HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users?username=bot-user&exact=true HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?first=0&max=500 HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?first=10&max=500 HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/84984494-0c10-49ec-999e-bba2b6dca3e7/roles HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-realm-admin HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/71fcc409-8ba4-446d-a7d4-a5d0648f7117/service-account-user HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users/80aa4b58-be15-4694-a320-34a91a279202/role-mappings/clients/84984494-0c10-49ec-999e-bba2b6dca3e7 HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/84984494-0c10-49ec-999e-bba2b6dca3e7/roles HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-directory HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/f9bb9adc-3b11-4d05-9105-68a7ff3cb679/service-account-user HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users/2f37ef62-9888-434e-9938-65db02de0c02/role-mappings/clients/84984494-0c10-49ec-999e-bba2b6dca3e7 HTTP/1.1
+204 POST /admin/realms/pct%2541%C3%A9/users/2f37ef62-9888-434e-9938-65db02de0c02/role-mappings/clients/84984494-0c10-49ec-999e-bba2b6dca3e7 HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-nonprod HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/ce5bc65c-3b7c-499d-81b8-ca5d04742eef/roles HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-automation HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/26132007-3840-4658-9614-fd3e26f98275/service-account-user HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users/038b5160-7d82-4b1e-a780-d1d97b8dd0a3/role-mappings/clients/ce5bc65c-3b7c-499d-81b8-ca5d04742eef HTTP/1.1
+204 POST /admin/realms/pct%2541%C3%A9/users/038b5160-7d82-4b1e-a780-d1d97b8dd0a3/role-mappings/clients/ce5bc65c-3b7c-499d-81b8-ca5d04742eef HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-nonprod HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/ce5bc65c-3b7c-499d-81b8-ca5d04742eef/roles HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/groups?search=cmapi&exact=true HTTP/1.1
+201 POST /admin/realms/pct%2541%C3%A9/groups HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/groups?search=cmapi&exact=true HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/groups/25ea1706-45e4-4f23-8e2e-4ebdede9a00c/children?max=100 HTTP/1.1
+200 POST /realms/cmapi/protocol/openid-connect/token HTTP/1.1
+200 GET /admin/realms/cmapi/users?username=ola&exact=true&briefRepresentation=false HTTP/1.1
+200 GET /admin/realms/cmapi/users?q=employeeId%3A1001&exact=true&briefRepresentation=false HTTP/1.1
+200 GET /admin/realms/cmapi/users?search=ola&max=10&briefRepresentation=false HTTP/1.1
+200 GET /realms/cmapi HTTP/1.1
+200 POST /realms/cmapi/protocol/openid-connect/token HTTP/1.1
+200 GET /admin/realms/cmapi/users/profile HTTP/1.1
+200 GET /admin/realms/cmapi/clients?first=0&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi/clients?first=10&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi/users?username=bot-user&exact=true HTTP/1.1
+200 GET /admin/realms/cmapi/clients?first=0&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi/clients?first=10&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/cmapi/clients/1019abe0-dd1b-4a66-92d3-62270291e255/roles HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-realm-admin HTTP/1.1
+200 GET /admin/realms/cmapi/clients/d6bdc4ad-8ebe-4883-ac09-54a7c2338e94/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi/users/0a09487c-3922-4fca-b0da-d0fcd847ddfd/role-mappings/clients/1019abe0-dd1b-4a66-92d3-62270291e255 HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/cmapi/clients/1019abe0-dd1b-4a66-92d3-62270291e255/roles HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-directory HTTP/1.1
+200 GET /admin/realms/cmapi/clients/5ac153dc-01e6-4abc-bdcf-c1dc6c29a7d5/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi/users/4c4a866d-af82-47eb-90a5-d5a7ee9ef445/role-mappings/clients/1019abe0-dd1b-4a66-92d3-62270291e255 HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-nonprod HTTP/1.1
+200 GET /admin/realms/cmapi/clients/882c7467-f0ad-4034-9a9f-476bf0038854/roles HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-automation HTTP/1.1
+200 GET /admin/realms/cmapi/clients/f3d073ef-b231-43a4-8ee0-d334d733ec25/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi/users/643571f9-26e0-4efb-a44d-2f5f91744f5c/role-mappings/clients/882c7467-f0ad-4034-9a9f-476bf0038854 HTTP/1.1
+200 GET /admin/realms/cmapi/clients?clientId=cmapi-nonprod HTTP/1.1
+200 GET /admin/realms/cmapi/clients/882c7467-f0ad-4034-9a9f-476bf0038854/roles HTTP/1.1
+200 GET /admin/realms/cmapi/groups?search=cmapi&exact=true HTTP/1.1
+200 GET /admin/realms/cmapi/groups/83576333-2db6-489f-b79f-c8ea2d05f32a/children?max=100 HTTP/1.1
+200 POST /realms/cmapi%20640/protocol/openid-connect/token HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users?username=ola&exact=true&briefRepresentation=false HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users?q=employeeId%3A1001&exact=true&briefRepresentation=false HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users?search=ola&max=10&briefRepresentation=false HTTP/1.1
+200 GET /realms/cmapi%20640 HTTP/1.1
+200 POST /realms/cmapi%20640/protocol/openid-connect/token HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users/profile HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?first=0&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?first=10&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users?username=bot-user&exact=true HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?first=0&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?first=10&max=500 HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/406d74c4-5f13-4a73-b163-10494e1d16ad/roles HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-realm-admin HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/d00daa99-50b3-488e-9724-7257f8db84da/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users/09f7631d-e495-4827-9e82-49f35fd51d23/role-mappings/clients/406d74c4-5f13-4a73-b163-10494e1d16ad HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/406d74c4-5f13-4a73-b163-10494e1d16ad/roles HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-directory HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/b113e36e-3cad-4278-a9c6-3a261fc7f713/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users/d82d819c-5812-4706-8604-1857303a4768/role-mappings/clients/406d74c4-5f13-4a73-b163-10494e1d16ad HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-nonprod HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/6e87d7fd-5db3-4184-98de-f1834c997ae6/roles HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-automation HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/86f7822a-9d26-478f-92f5-ba28e1debbef/service-account-user HTTP/1.1
+200 GET /admin/realms/cmapi%20640/users/247128ca-eedc-4edd-84ad-66aab26f12f6/role-mappings/clients/6e87d7fd-5db3-4184-98de-f1834c997ae6 HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients?clientId=cmapi-nonprod HTTP/1.1
+200 GET /admin/realms/cmapi%20640/clients/6e87d7fd-5db3-4184-98de-f1834c997ae6/roles HTTP/1.1
+200 GET /admin/realms/cmapi%20640/groups?search=cmapi&exact=true HTTP/1.1
+200 GET /admin/realms/cmapi%20640/groups/3e08aca7-d580-4d20-b53a-dd75e4e917cf/children?max=100 HTTP/1.1
+200 POST /realms/pct%2541%C3%A9/protocol/openid-connect/token HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users?username=ola&exact=true&briefRepresentation=false HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users?q=employeeId%3A1001&exact=true&briefRepresentation=false HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users?search=ola&max=10&briefRepresentation=false HTTP/1.1
+200 GET /realms/pct%2541%C3%A9 HTTP/1.1
+200 POST /realms/pct%2541%C3%A9/protocol/openid-connect/token HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users/profile HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?first=0&max=500 HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?first=10&max=500 HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users?username=bot-user&exact=true HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?first=0&max=500 HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?first=10&max=500 HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/84984494-0c10-49ec-999e-bba2b6dca3e7/roles HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-realm-admin HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/71fcc409-8ba4-446d-a7d4-a5d0648f7117/service-account-user HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users/80aa4b58-be15-4694-a320-34a91a279202/role-mappings/clients/84984494-0c10-49ec-999e-bba2b6dca3e7 HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=realm-management HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/84984494-0c10-49ec-999e-bba2b6dca3e7/roles HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-directory HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/f9bb9adc-3b11-4d05-9105-68a7ff3cb679/service-account-user HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users/2f37ef62-9888-434e-9938-65db02de0c02/role-mappings/clients/84984494-0c10-49ec-999e-bba2b6dca3e7 HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-nonprod HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/ce5bc65c-3b7c-499d-81b8-ca5d04742eef/roles HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-automation HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/26132007-3840-4658-9614-fd3e26f98275/service-account-user HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/users/038b5160-7d82-4b1e-a780-d1d97b8dd0a3/role-mappings/clients/ce5bc65c-3b7c-499d-81b8-ca5d04742eef HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients?clientId=cmapi-nonprod HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/clients/ce5bc65c-3b7c-499d-81b8-ca5d04742eef/roles HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/groups?search=cmapi&exact=true HTTP/1.1
+200 GET /admin/realms/pct%2541%C3%A9/groups/25ea1706-45e4-4f23-8e2e-4ebdede9a00c/children?max=100 HTTP/1.1
+== container kc640-99e53aa6 removed, with its volumes
+exit 0

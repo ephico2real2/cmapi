@@ -21,7 +21,7 @@ from cmapi.core.db import Database
 from cmapi.core.db.repo import DbKeyStore, SwitchRepo
 from cmapi.core.git import HostGitProvider, make_provider
 from cmapi.core.identity.directory import CachedDirectory
-from cmapi.core.identity.keycloak_admin import KeycloakAdminDirectory
+from cmapi.core.identity.keycloak_admin import KeycloakAdminDirectory, split_issuer
 from cmapi.core.listquery import Lister, Sorts, severity
 from cmapi.core.observability import AUTO_PAUSED, CONFIG_INFO, POLICY_MODE
 from cmapi.core.pipeline import Pipeline
@@ -147,9 +147,9 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
     directory = None
     ident = inst.get("identity") or {}
     if ident.get("directory", "keycloak") == "keycloak" and settings.directory_client_secret:
-        realm = issuer.rsplit("/realms/", 1)[1]
-        base = settings.keycloak_admin_url or issuer.rsplit("/realms/", 1)[0]
-        directory = CachedDirectory(KeycloakAdminDirectory(base, realm, ident.get("adminClient", "cmapi-directory"),
+        base, realm = split_issuer(issuer)          # the realm's name, decoded once from the issuer (#640)
+        directory = CachedDirectory(KeycloakAdminDirectory(settings.keycloak_admin_url or base, realm,
+                                                           ident.get("adminClient", "cmapi-directory"),
                                                            settings.directory_client_secret,
                                                            _http_for_directory(settings.verify)),
                                     ttl_seconds=int(ident.get("cacheSeconds", 900)))

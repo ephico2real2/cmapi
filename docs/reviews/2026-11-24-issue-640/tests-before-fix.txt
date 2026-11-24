@@ -1,0 +1,45 @@
+=================================== FAILURES ===================================
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:99: AttributeError: module 'cmapi.core.identity.keycloak_admin' has no attribute 'split_issuer'
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:99: AttributeError: module 'cmapi.core.identity.keycloak_admin' has no attribute 'split_issuer'
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:99: AttributeError: module 'cmapi.core.identity.keycloak_admin' has no attribute 'split_issuer'
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:99: AttributeError: module 'cmapi.core.identity.keycloak_admin' has no attribute 'split_issuer'
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:99: AttributeError: module 'cmapi.core.identity.keycloak_admin' has no attribute 'split_issuer'
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:99: AttributeError: module 'cmapi.core.identity.keycloak_admin' has no attribute 'split_issuer'
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:99: AttributeError: module 'cmapi.core.identity.keycloak_admin' has no attribute 'split_issuer'
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:108: AttributeError: module 'cmapi.core.identity.keycloak_admin' has no attribute 'split_issuer'
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:108: AttributeError: module 'cmapi.core.identity.keycloak_admin' has no attribute 'split_issuer'
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:108: AttributeError: module 'cmapi.core.identity.keycloak_admin' has no attribute 'split_issuer'
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:117: AssertionError: assert [('POST', b'/...%2541/users')] == [('POST', b'/...%2541/users')]
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:117: AssertionError: assert [('POST', b'/...s/a/b/users')] == [('POST', b'/...a%2Fb/users')]
+<workbench>/wt-640-outputs/before-tree/cmapi/src/cmapi/core/identity/keycloak_admin.py:42: KeyError: 'access_token'
+<workbench>/wt-640-outputs/before-tree/cmapi/src/cmapi/core/identity/keycloak_admin.py:42: KeyError: 'access_token'
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:143: AssertionError: assert [('POST', b'/...20640/users')] == [('POST', b'/...20640/users')]
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:143: AssertionError: assert [('POST', b'/...52541/users')] == [('POST', b'/...%2541/users')]
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:143: AssertionError: assert [('POST', b'/...%25A9/users')] == [('POST', b'/...C3%A9/users')]
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:154: AssertionError: assert [('GET', b'/r...ct%41/users')] == [('GET', b'/r...%2541/users')]
+<workbench>/wt-640-outputs/before-tree/cmapi/tests/service/test_keycloak_realm_in_url_path_640.py:154: AssertionError: assert [('GET', b'/r...s/a/b/users')] == [('GET', b'/r...a%2Fb/users')]
+<workbench>/wt-640-outputs/before-tree/cmapi/src/cmapi/tools/realm_sync.py:85: KeyError: 'access_token'
+<workbench>/wt-640-outputs/before-tree/cmapi/src/cmapi/tools/realm_sync.py:85: KeyError: 'access_token'
+=========================== short test summary info ============================
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_split_issuer_decodes_the_segment_once[cmapi-cmapi]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_split_issuer_decodes_the_segment_once[cmapi 640-cmapi%20640]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_split_issuer_decodes_the_segment_once[pct%41-pct%2541]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_split_issuer_decodes_the_segment_once[caf\xe9-caf%C3%A9]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_split_issuer_decodes_the_segment_once[a/b-a%2Fb]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_split_issuer_decodes_the_segment_once[a#b-a%23b]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_split_issuer_decodes_the_segment_once[a?b-a%3Fb]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_split_issuer_refuses_what_names_no_realm[https://sso.example.test/auth]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_split_issuer_refuses_what_names_no_realm[https://sso.example.test/realms/]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_split_issuer_refuses_what_names_no_realm[https://sso.example.test/realms/caf%E9]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_the_directory_sends_the_realm_name_once_encoded[pct%41-pct%2541]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_the_directory_sends_the_realm_name_once_encoded[a/b-a%2Fb]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_the_directory_sends_the_realm_name_once_encoded[a#b-a%23b]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_the_directory_sends_the_realm_name_once_encoded[a?b-a%3Fb]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_build_context_looks_up_users_in_the_issuers_realm[cmapi 640-cmapi%20640]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_build_context_looks_up_users_in_the_issuers_realm[pct%41-pct%2541]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_build_context_looks_up_users_in_the_issuers_realm[caf\xe9-caf%C3%A9]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_realm_sync_sends_the_realm_name_once_encoded[pct%41-pct%2541]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_realm_sync_sends_the_realm_name_once_encoded[a/b-a%2Fb]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_realm_sync_sends_the_realm_name_once_encoded[a#b-a%23b]
+FAILED tests/service/test_keycloak_realm_in_url_path_640.py::test_realm_sync_sends_the_realm_name_once_encoded[a?b-a%3Fb]
+21 failed, 7 passed in 17.29s
