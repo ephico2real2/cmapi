@@ -1,0 +1,5 @@
+surrogateescape name: 'caf\udce9.yaml' round-trips: True
+JSON body as UTF-8 (ensure_ascii=False): UnicodeEncodeError 'utf-8' codec can't encode character '\udce9' in position 5: surrogates not allowed
+JSON with ensure_ascii=True: {"caf\udce9.yaml": 1}
+server_version 16.15
+jsonb {"caf\udce9.yaml": 1} -> DataError (psycopg.errors.InvalidTextRepresentation) invalid input syntax for type json
