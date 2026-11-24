@@ -6,7 +6,8 @@ and a rollback of the image must be able to start.
 
 Each run writes one JSON event `migrated`, as the api's and the worker's are written (#614): the revision it started from,
 each revision it applied in order with its seconds, the seconds it waited for the other migrator's advisory lock, the
-seconds of the one transaction (the table locks are held until its commit), and the run's total. docs/12, section 4."""
+seconds of the one transaction (the table locks are held until its commit), and the run's total. A run that fails writes
+`migrate_failed` before its traceback. docs/12, section 4."""
 from __future__ import annotations
 
 import logging
@@ -76,10 +77,22 @@ def _log_run(direction: str, target: str, measured: dict, started: float) -> Non
 
 def run(argv: list[str] | None = None) -> None:
     args = argv if argv is not None else sys.argv[1:]
-    configure_logging(settings().log_level)
+    # INFO, not CMAPI_LOG_LEVEL: a run's result is its one line, and it printed whatever the level before #614. The level
+    # set for the api's container, where an operator may run cmapi-migrate by hand, must not hide it.
+    configure_logging("INFO")
     # The `migrated` event carries what Alembic's INFO lines say ("Running upgrade 0007 -> 0008"), with the times; its
     # plain-text lines would break the JSON log that every other cmapi component writes.
     logging.getLogger("alembic").setLevel(logging.WARNING)
+    try:
+        _migrate(args)
+    except (Exception, SystemExit) as exc:
+        cause = getattr(exc, "orig", exc)           # SQLAlchemy's DBAPIError wraps the driver's error, which has the SQLSTATE
+        # The class and the SQLSTATE only, never the error's text, which this code does not control. The traceback follows.
+        log.error("migrate_failed", error=type(cause).__name__, sqlstate=getattr(cause, "sqlstate", None))
+        raise
+
+
+def _migrate(args: list[str]) -> None:
     if not settings().database_url:
         sys.exit("CMAPI_DATABASE_URL is not set")
     url = os.environ.get("CMAPI_DATABASE_URL") or settings().database_url

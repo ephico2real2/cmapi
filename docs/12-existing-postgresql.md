@@ -107,13 +107,19 @@ server certificate's name is the one the pods will connect to (`verify-full` che
   limit the work done after acquisition, or the total migration time. The migrator takes its session advisory lock
   before it sets this timeout. CRC held 19 rows on 2026-11-23 (the read-only count on #592). Measure the transaction on a production-sized copy when
   you schedule the release.
-- **Reading a migration's times (#614).** Each migrator writes one JSON event `migrated` to its log
-  (`oc logs <pod> -c migrate`): `from_revision`, `revision`, and `applied`, each revision it ran in order with its
-  `seconds` inside the transaction. `transaction_seconds` runs from the transaction's begin to its commit, so it bounds how
-  long any table lock of the run, such as `0008`'s ACCESS EXCLUSIVE, is held. `lock_wait_seconds` is the time spent
-  waiting for the other pod's migrator on the advisory lock, and `total_seconds` is the run after the wait for the server.
-  Of the api's and the worker's migrators, the one with a non-empty `applied` ran the revisions, and the other found the
-  database at its target (`applied` is `[]`).
+- **Reading a migration's times (#614).** Each run of the migrator writes one result event to its log
+  (`oc logs <pod> -c migrate`), at any `CMAPI_LOG_LEVEL`, after any `waiting_for_database` events. Times are in seconds,
+  rounded to the millisecond.
+  - `migrated`, when the run succeeds. `from_revision` is the revision found after the advisory lock, and `revision` is
+    the revision at the end. `applied` lists each revision that ran, in order, with its `seconds`. The first revision's
+    seconds also include Alembic's setup: it reads `alembic_version` (and creates it in an empty database) and loads the
+    revision files. `transaction_seconds` runs from before the transaction begins to after it commits. So it is the
+    longest time that a table lock of the run, such as `0008`'s ACCESS EXCLUSIVE, can be held. `lock_wait_seconds` is
+    the `pg_advisory_lock` call: the wait for another migrator, plus a few milliseconds for the query. `total_seconds`
+    starts after the wait for the server. A migrator that found the database at its target has `applied: []`.
+  - `migrate_skipped`, when the database is at a later release's revision. Nothing ran.
+  - `migrate_failed`, when the run fails: the error's class and its `sqlstate`, such as `55P03` for a lock timeout. The
+    traceback follows, and the migrator exits non-zero.
 - **A changed password.** The pods read `cmapi-db-app` at start. A pod started from a Secret the server no longer
   accepts waits on the stale password until the 540 s wait runs out and then crash-loops (measured on kind with a CNPG
   cluster recreated under running pods): after a rotation, update the Secret and restart the api and the worker.

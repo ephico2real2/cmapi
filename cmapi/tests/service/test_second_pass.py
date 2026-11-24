@@ -326,34 +326,42 @@ def test_rollback_image_init_container_on_a_newer_schema_starts(schema):
 
 
 def test_migrate_gives_up_behind_a_long_transaction_instead_of_stalling_every_reader(schema):
-    """ALTER TABLE waits for ACCESS EXCLUSIVE behind an old worker's open transaction; every later reader queues behind it."""
+    """ALTER TABLE waits for ACCESS EXCLUSIVE behind an old worker's open transaction; every later reader queues behind it,
+    until the migrator gives up at its lock_timeout and exits non-zero, so that the initContainer tries again."""
     assert migrate(schema, "0002").returncode == 0
     old = psycopg.connect(_schema("sp")); old.execute("select * from jobs limit 1")      # an old pod's open transaction
+    # Connected first: once the migrator has queued, the reader only sends its query, well inside the 2 s (#615).
+    r = psycopg.connect(_schema("sp"), autocommit=True); r.execute("set statement_timeout='1000ms'")
     p = subprocess.Popen([sys.executable, "-c", "from cmapi.core.db.migrate import run; run(['head'])"],
                          env={**os.environ, "CMAPI_DATABASE_URL": schema, "PYTHONPATH": str(ROOT/"cmapi/src"), "PYTHONDONTWRITEBYTECODE": "1", "CMAPI_MIGRATE_LOCK_TIMEOUT": "2s"},
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    # Probe once the migrator's ACCESS EXCLUSIVE on jobs is queued (pg_locks.granted: "false if lock is awaited"), not
-    # after a fixed sleep: a slow start would probe before it and measure nothing (#615). It gives up 2 s after queuing.
-    deadline = time.monotonic() + 60
-    while not old.execute("select count(*) from pg_locks where relation = 'sp.jobs'::regclass and mode = 'AccessExclusiveLock' "
-                          "and not granted").fetchone()[0]:
-        assert time.monotonic() < deadline and p.poll() is None, "the migrator never queued for the table"
-        time.sleep(0.05)
-    r = psycopg.connect(_schema("sp"), autocommit=True); r.execute("set statement_timeout='1000ms'")
-    blocked = False
     try:
-        r.execute("select count(*) from jobs").fetchone()
-    except psycopg.errors.QueryCanceled:
-        blocked = True
-    r.close()
-    try:
-        p.wait(8); exited = True
-    except subprocess.TimeoutExpired:
-        p.kill(); exited = False
-    old.rollback(); old.close()
+        # Probe once the migrator's ACCESS EXCLUSIVE on jobs is queued (pg_locks.granted: "false if lock is awaited"), not
+        # after a fixed sleep: a slow start would probe before it and measure nothing (#615).
+        deadline = time.monotonic() + 60
+        while not old.execute("select count(*) from pg_locks where relation = 'sp.jobs'::regclass and mode = 'AccessExclusiveLock' "
+                              "and not granted and database = (select oid from pg_database where datname = current_database())"
+                              ).fetchone()[0]:
+            assert time.monotonic() < deadline and p.poll() is None, "the migrator never queued for the table"
+            time.sleep(0.05)
+        blocked = False
+        try:
+            r.execute("select count(*) from jobs").fetchone()
+        except psycopg.errors.QueryCanceled:
+            blocked = True
+        try:
+            out, exited = p.communicate(timeout=8)[0], True          # communicate drains the pipe; wait() would not
+        except subprocess.TimeoutExpired:
+            out, exited = "", False
+    finally:
+        if p.poll() is None:
+            p.kill(); p.communicate()
+        r.close(); old.rollback(); old.close()                      # before the fixture's DROP SCHEMA, which needs jobs
     print(f"[measure] migrate behind an open transaction: a reader blocked={blocked}, migrate exited within 10 s={exited}")
     assert exited, "migrate waits for ever, and every query on the table queues behind it"
     assert blocked, "a reader did not queue behind the migrator's ACCESS EXCLUSIVE"
+    failed = [json.loads(line) for line in out.splitlines() if line.startswith("{")]
+    assert p.returncode != 0 and [(e["event"], e["sqlstate"]) for e in failed] == [("migrate_failed", "55P03")], out[-800:]
 
 
 def test_a_migration_that_fails_leaves_the_last_good_revision_and_the_lock_free(schema):
@@ -363,7 +371,8 @@ def test_a_migration_that_fails_leaves_the_last_good_revision_and_the_lock_free(
     r = migrate(schema, "head")
     assert r.returncode != 0
     assert c.execute("select version_num from sp.alembic_version").fetchone()[0] == "0002"
-    assert c.execute("select count(*) from pg_locks where locktype='advisory' and objid=727364 and granted").fetchone()[0] == 0
+    assert c.execute("select count(*) from pg_locks where locktype='advisory' and objid=727364 and granted "
+                     "and database = (select oid from pg_database where datname = current_database())").fetchone()[0] == 0
     c.close()
 
 
