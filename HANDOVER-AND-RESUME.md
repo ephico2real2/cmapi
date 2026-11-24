@@ -60,6 +60,13 @@ the rulings and merges on green.
      - a real-database timing test replaces reviewer 1's mock test;
      - the #615 test is narrowed.
    - **Not finished:** the report still has `__NAME__` blanks (`__NOFAIL__`, `__LEAK__`, `__EXIT0HEAD__`, `__MARGIN__`, `__HEADRUNS__`, `__R1RUNS__`, `__EXIT0R1__`, `__R2RUNS__`, `__EXIT0R2__`, `__N__`). They are filled from the outputs of `queue-coordinator.sh`: `mutants.txt`, `after-r2-614-secondpass.txt`, `repeat615.txt` and `after-r2-migrate-related.txt`.
+   - **The runs finished at about 01:25Z on 2026-11-24** (`QUEUE-DONE`). Fill the blanks from them:
+     - `__NOFAIL__`, `__LEAK__`: both mutants killed (`mutants.txt`, exit 1).
+     - `__EXIT0R2__`, `__EXIT0R1__`: the exit-0 mutant is killed by reviewer 2's and by reviewer 1's test.
+     - `__EXIT0HEAD__`: it **passes** on head, so head misses it, as reviewer 1 said.
+     - `__HEADRUNS__`, `__R2RUNS__`, `__R1RUNS__`, `__N__`: 5 of 5 each (`repeat615.txt`, load 8.0 to 9.0).
+     - `__MARGIN__`: connect plus `SET`, over 50 runs: median 0.0228 s, p90 0.0242 s, max 0.0297 s.
+     - On reviewer 2's copy, `test_migrate_log_614.py` and `test_second_pass.py` gave 38 passed (`after-r2-614-secondpass.txt`). The related migration tests gave 60 passed (`after-r2-migrate-related.txt`).
    - Then the coordinator applies `fix.diff`.
 2. **PR #621** (#604 static files and If-Match, #619 If-Unmodified-Since, #620 If-Modified-Since). Worktree `workbench/wt-604`.
    - Reviewer 1: `workbench/review-621/codex-result.txt`, "request changes". There are two defects in `http_date`: it accepts invalid dates, which can turn a 200 into a 304 or a 412, and its RFC 850 two-digit-year cutoff is wrong.
