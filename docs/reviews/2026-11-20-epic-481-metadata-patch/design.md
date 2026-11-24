@@ -48,7 +48,7 @@ Decided per (kind, key) from `metadata-keys.yaml`, never from a list in code. Ch
 
 | Order | Key class (from configuration) | On an existing namespace | Reason shown |
 |---|---|---|---|
-| 1 | The namespace name (the path) | Fixed | "A namespace cannot be renamed." |
+| 1 | The namespace name (the path) | Fixed | — (the name is the path of the call; the tab has no row for it, and a body that names a namespace is 422 `validation-failed`) |
 | 2 | `system` | Fixed, for everyone | "Managed by cmapi." (expiry: "Change it with Extend, Set expiry or Make permanent.") |
 | 3 | `reservedPrefixes`, `adoptionLabels`, or a key no stanza allows | Fixed; kept as it is in Git. A key no stanza allows may be **removed** (`null`), never set or changed (coordinator ruling on #492 M2: otherwise, with Kyverno enforcing, a namespace holding one could never be changed). Since #497 the policy keeps such a key while its value is unchanged, so a change that leaves it passes too | "Reserved for the platform." / "Marks how the namespace was first made." / "Not allowed by this instance's rules." |
 | 4 | `operatorOnly` | Changeable only with `namespaces:protect` in that environment; fixed otherwise | "Needs namespaces:protect in dev." |
@@ -72,7 +72,7 @@ A missing required key on an old namespace (adoption, #234) is shown as a findin
   (`application/json`): a key left out is kept, a value sets it, `null` removes it. Other body fields (`tier`, `quota`,
   `limitRange`, `justification`, `onBehalfOf`) are unchanged.
 - **Headers.** `If-Match: "<etag>"` (required: 428 without it, 412 when Git moved), `Idempotency-Key` (required on submit:
-  400 without it), `Authorization`.
+  400 without it), `Authorization`. A list of tags in `If-Match` passes when one is the current etag. `*` is 428 (the owner, #571).
 - **Permission.** `namespaces:write` in the target environment; `namespaces:protect` too for an operator-only key.
 - **Answers.** 200 with the plan (dry run) or 202 with the request. The plan gains `metadataDiff` (additive):
 
@@ -131,7 +131,11 @@ show Git and the cluster side by side:
   "annotations": { "…": "live (as today)" },
   "git": {
     "labels":      { "company.net/cl": "1", "cmapi.net/cost-center": "cc-4410", "…": "…" },
-    "annotations": { "cmapi.net/team-dl": "payments-team@company.net", "…": "…" }
+    "annotations": { "cmapi.net/team-dl": "payments-team@company.net", "…": "…" },
+    "edits": {
+      "labels":      { "cmapi.net/managed": { "mode": "fixed", "reason": "Managed by cmapi.", "sensitive": false, "removable": false } },
+      "annotations": { }
+    }
   },
   "sync": {
     "state": "drift",
@@ -146,12 +150,16 @@ show Git and the cluster side by side:
 | State | When |
 |---|---|
 | `pending` | An open request holds the namespace (`openRequest` gives its ID and status), or Git was merged and the cluster does not have it yet |
-| `drift` | No request is open and a governed or extra key differs between Git and the live namespace (each one in `driftedKeys`) |
+| `drift` | No request is open and a governed, extra or operator-only key differs between Git and the live namespace (each one in `driftedKeys`), or the cluster does not have the namespace |
 | `in-sync` | Git and the live namespace have the same governed and extra keys |
 | `unknown` | The cluster's watch is not fresh (as the Policies tab's states) |
 
-Keys cmapi or other controllers write only on the cluster (not in Git) are left out of the comparison (a small,
-configurable ignore list: `kubernetes.io/metadata.name`, `openshift.io/*`, Argo CD tracking keys).
+`git.edits` gives the `x-cmapi-edit` of each key of Git that `metadata-keys.yaml` does not declare, and of each
+operator-only key. `removable` marks a key that no rule admits: a change may remove it and never set it (#528).
+
+Keys cmapi or other controllers write only on the cluster (not in Git) are left out of the comparison (the stanza
+`liveOnlyKeys` of `metadata-keys.yaml`, `fnmatch` globs; default `kubernetes.io/metadata.name`, `openshift.io/*`,
+`argocd.argoproj.io/*`, `app.kubernetes.io/instance`).
 
 ### 4.3 `GET /api/v1/metadata-keys` (exists; extended, additive)
 
@@ -198,7 +206,7 @@ The tab is where people browse their namespaces and change one. "New namespace" 
 
 ```
  Namespaces ────────────────────────────────────────────────────────────────────────────────
-  Cluster     [ CRC (dev)          ▾ ]   only clusters where you hold namespaces:write
+  Cluster     [ CRC (dev)          ▾ ]   every cluster cmapi manages
   Namespace   [ abc-pay…            🔍 ]  → abc-payments-dev · abc-payments-rnd …
 
   ● Drift   1 key on the cluster differs from Git · no open request            [ Reload ]

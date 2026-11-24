@@ -24,8 +24,10 @@ methodical code a junior engineer can follow; rules in data) and the decisions a
 | 4 | `GET /metadata-keys?operation=patch` | Simplified | One response; each key gains `x-cmapi-edit: {mode: fixed or automatic or required or optional, reason}` (additive) |
 | 5 | Per-key "Use current / Keep my edit" merge on 412 | **Kept for overlapping keys** (revised) | Re-applying blindly would overwrite another person's change to the same key (a lost update). Only keys both sides changed ask the choice; a new Check is required |
 
+Row 3 was replaced the same day: no permission filter on discovery (the owner, #482), and the read's field is `git: {labels, annotations}` (design.md §4.2).
+
 ## Order
 #479 Phase 1 (loader and rule model in `core/metadata.py`) merges first. Then #483 (contract), #484 (tab, reusing #479's field components), #485 (Swagger and ReDoc to the #480 standard).
 
 ## Live cluster state (owner, 2026-11-20)
-The detail read gains the Git labels and annotations (same read as the ETag) and `sync: {state: in-sync|pending|drift, openRequest, driftedKeys}`. The tab shows Git (desired), Live (cluster) and Your change, a status strip and per-key markers. Concurrency is already guarded: one open request per namespace (409) and If-Match on the folder ETag (412).
+The detail read gains the Git labels and annotations (same read as the ETag) and `sync: {state: in-sync|pending|drift|unknown, openRequest, driftedKeys}`. The tab shows Git (desired), Live (cluster) and Your change, a status strip and per-key markers. Concurrency is already guarded: one open request per namespace (409) and If-Match on the folder ETag (412).
