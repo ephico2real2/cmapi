@@ -1,0 +1,14 @@
+$ pytest tests/service --collect-only (PyJWT 2.15.1, pytest 9.2.0)
+tests/service/test_watch_review_455.py::test_the_kind_thread_survives_a_malformed_relist_and_recovers
+tests/service/test_watch_sync_client_once_402.py::test_watch_sync_reads_the_client_it_checked
+tests/service/test_yaml_quoting_355_api.py::test_a_label_y_and_an_annotation_n_reach_the_planned_file_as_strings
+
+=============================== warnings summary ===============================
+../../wt-655-outputs/venv-new/lib/python3.12/site-packages/starlette/testclient.py:40
+  <outputs>/venv-new/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2700 tests collected in 3.85s
+exit 0
+$ the same with PyJWT 2.10.1, pytest 8.3.4: 2700 tests collected

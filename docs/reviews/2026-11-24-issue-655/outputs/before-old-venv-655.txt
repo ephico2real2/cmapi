@@ -1,0 +1,115 @@
+$ PyJWT 2.10.1, pytest 8.3.4, src=src
+$ pytest tests/service/test_pyjwt_advisories_655.py
+FFF........                                                              [100%]
+=================================== FAILURES ===================================
+__________ test_a_token_with_an_unknown_critical_extension_is_refused __________
+
+keys = <conftest.Keys object at 0x10f681d90>
+
+    def test_a_token_with_an_unknown_critical_extension_is_refused(keys):
+        """RFC 7515, section 4.1.11: "If any of the listed extension Header Parameters are not understood and supported by the
+        recipient, then the JWS is invalid." The token is signed by the realm's own key, so only the crit list is wrong."""
+        token = jwt.encode(claims(), keys.pem, algorithm="RS256",
+                           headers={"kid": keys.kid, "typ": "at+jwt", "crit": ["x-cmapi-unknown"], "x-cmapi-unknown": True})
+        assert make(keys).authenticate(keys.token("ola")).username == "ola"     # the same key and claims, without crit, pass
+>       with pytest.raises(Problem) as e:
+E       Failed: DID NOT RAISE <class 'cmapi.core.errors.Problem'>
+
+tests/service/test_pyjwt_advisories_655.py:66: Failed
+______ test_a_deeply_nested_header_is_401_and_no_recursion_error_escapes _______
+
+keys = <conftest.Keys object at 0x10f681d90>
+
+    def test_a_deeply_nested_header_is_401_and_no_recursion_error_escapes(keys):
+        with pytest.raises(Problem) as e:
+>           make(keys).authenticate(nested_header_token(keys.kid))
+
+tests/service/test_pyjwt_advisories_655.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cmapi/core/auth.py:166: in authenticate
+    header = jwt.get_unverified_header(bearer)
+../../wt-655-outputs/venv-old/lib/python3.12/site-packages/jwt/api_jws.py:256: in get_unverified_header
+    headers = self._load(jwt)[2]
+../../wt-655-outputs/venv-old/lib/python3.12/site-packages/jwt/api_jws.py:280: in _load
+    header = json.loads(header_data)
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.decoder.JSONDecoder object at 0x10a95a540>
+s = '{"alg":"RS256","kid":"test-kid-1","x":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[...]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+>           obj, end = self.scan_once(s, idx)
+E           RecursionError: maximum recursion depth exceeded while decoding a JSON array from a unicode string
+
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/json/decoder.py:354: RecursionError
+_____________ test_a_deeply_nested_header_is_401_over_http_not_500 _____________
+
+keys = <conftest.Keys object at 0x10f681d90>
+
+    def test_a_deeply_nested_header_is_401_over_http_not_500(keys):
+        """Through cmapi's bearer dependency in a FastAPI app: on PyJWT 2.10.1 this was HTTP 500 (measured, also over uvicorn
+        with httptools at 26,727 bytes of Authorization header)."""
+        app = FastAPI()
+        app.state.auth = make(keys)
+    
+        @app.exception_handler(Problem)
+        async def problem(request: Request, p: Problem):
+            return JSONResponse({"code": p.code}, status_code=p.status)
+    
+        @app.get("/who")
+        def who(caller=Depends(caller_dependency(oauth2_scheme(ISSUER)))):
+            return {"sub": caller.sub}
+    
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get("/who", headers={"Authorization": f"Bearer {nested_header_token(keys.kid)}"})
+>       assert (r.status_code, r.json()) == (401, {"code": "unauthenticated"})
+
+tests/service/test_pyjwt_advisories_655.py:93: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../wt-655-outputs/venv-old/lib/python3.12/site-packages/httpx/_models.py:832: in json
+    return jsonlib.loads(self.content, **kwargs)
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.decoder.JSONDecoder object at 0x10a95a540>
+s = 'Internal Server Error', idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+>           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/json/decoder.py:356: JSONDecodeError
+=========================== short test summary info ============================
+FAILED tests/service/test_pyjwt_advisories_655.py::test_a_token_with_an_unknown_critical_extension_is_refused
+FAILED tests/service/test_pyjwt_advisories_655.py::test_a_deeply_nested_header_is_401_and_no_recursion_error_escapes
+FAILED tests/service/test_pyjwt_advisories_655.py::test_a_deeply_nested_header_is_401_over_http_not_500
+3 failed, 8 passed in 2.27s
+exit 1

@@ -1,0 +1,68 @@
+
+== pip-audit, from its hashed lock (cmapi/audit/requirements.txt)
+pip-audit 2.10.1
+
+== 1. The image's set: cmapi/requirements.txt with --require-hashes, then cmapi with --no-deps
+Found 14 known vulnerabilities in 1 package
+Name      Version ID              Fix Versions Aliases
+--------- ------- --------------- ------------ -------------------------------------------------
+starlette 0.41.3  PYSEC-2026-1941 0.47.2       CVE-2025-54121, GHSA-2c2j-9gv5-cj73
+starlette 0.41.3  PYSEC-2026-1942 0.49.1       CVE-2025-62727, GHSA-7f5h-v6xp-fcq8
+starlette 0.41.3  PYSEC-2026-249  1.3.1        GHSA-82w8-qh3p-5jfq, CVE-2026-54283
+starlette 0.41.3  PYSEC-2026-161  1.0.1        GHSA-86qp-5c8j-p5mr, X41-2026-002, CVE-2026-48710
+starlette 0.41.3  PYSEC-2026-248  1.3.0        GHSA-jp82-jpqv-5vv3, CVE-2026-54282
+starlette 0.41.3  PYSEC-2026-2281 1.1.0        CVE-2026-48818, GHSA-wqp7-x3pw-xc5r
+starlette 0.41.3  PYSEC-2026-2280 1.1.0        CVE-2026-48817, GHSA-x746-7m8f-x49c
+starlette 0.41.3  PYSEC-2026-161  1.0.1        GHSA-86qp-5c8j-p5mr, X41-2026-002, CVE-2026-48710
+starlette 0.41.3  PYSEC-2026-1941 0.47.2       CVE-2025-54121, GHSA-2c2j-9gv5-cj73
+starlette 0.41.3  PYSEC-2026-1942 0.49.1       CVE-2025-62727, GHSA-7f5h-v6xp-fcq8
+starlette 0.41.3  PYSEC-2026-2280 1.1.0        CVE-2026-48817, GHSA-x746-7m8f-x49c
+starlette 0.41.3  PYSEC-2026-2281 1.1.0        CVE-2026-48818, GHSA-wqp7-x3pw-xc5r
+starlette 0.41.3  PYSEC-2026-248  1.3.0        GHSA-jp82-jpqv-5vv3, CVE-2026-54282
+starlette 0.41.3  PYSEC-2026-249  1.3.1        GHSA-82w8-qh3p-5jfq, CVE-2026-54283
+No broken requirements found.
+ok: the lock satisfies pyproject.toml
+
+== 2. The service tests' set: set 1 plus cmapi[test]
+Found 14 known vulnerabilities in 1 package
+Name      Version ID              Fix Versions Aliases
+--------- ------- --------------- ------------ -------------------------------------------------
+starlette 0.41.3  PYSEC-2026-1941 0.47.2       CVE-2025-54121, GHSA-2c2j-9gv5-cj73
+starlette 0.41.3  PYSEC-2026-1942 0.49.1       GHSA-7f5h-v6xp-fcq8, CVE-2025-62727
+starlette 0.41.3  PYSEC-2026-249  1.3.1        GHSA-82w8-qh3p-5jfq, CVE-2026-54283
+starlette 0.41.3  PYSEC-2026-161  1.0.1        X41-2026-002, GHSA-86qp-5c8j-p5mr, CVE-2026-48710
+starlette 0.41.3  PYSEC-2026-248  1.3.0        CVE-2026-54282, GHSA-jp82-jpqv-5vv3
+starlette 0.41.3  PYSEC-2026-2281 1.1.0        CVE-2026-48818, GHSA-wqp7-x3pw-xc5r
+starlette 0.41.3  PYSEC-2026-2280 1.1.0        CVE-2026-48817, GHSA-x746-7m8f-x49c
+starlette 0.41.3  PYSEC-2026-161  1.0.1        CVE-2026-48710, X41-2026-002, GHSA-86qp-5c8j-p5mr
+starlette 0.41.3  PYSEC-2026-1941 0.47.2       CVE-2025-54121, GHSA-2c2j-9gv5-cj73
+starlette 0.41.3  PYSEC-2026-1942 0.49.1       GHSA-7f5h-v6xp-fcq8, CVE-2025-62727
+starlette 0.41.3  PYSEC-2026-2280 1.1.0        CVE-2026-48817, GHSA-x746-7m8f-x49c
+starlette 0.41.3  PYSEC-2026-2281 1.1.0        CVE-2026-48818, GHSA-wqp7-x3pw-xc5r
+starlette 0.41.3  PYSEC-2026-248  1.3.0        CVE-2026-54282, GHSA-jp82-jpqv-5vv3
+starlette 0.41.3  PYSEC-2026-249  1.3.1        GHSA-82w8-qh3p-5jfq, CVE-2026-54283
+
+== 3. The reference code's set: examples/local/requirements.txt
+Found 14 known vulnerabilities in 1 package
+Name      Version ID              Fix Versions Aliases
+--------- ------- --------------- ------------ -------------------------------------------------
+starlette 0.41.3  PYSEC-2026-1941 0.47.2       GHSA-2c2j-9gv5-cj73, CVE-2025-54121
+starlette 0.41.3  PYSEC-2026-1942 0.49.1       CVE-2025-62727, GHSA-7f5h-v6xp-fcq8
+starlette 0.41.3  PYSEC-2026-249  1.3.1        CVE-2026-54283, GHSA-82w8-qh3p-5jfq
+starlette 0.41.3  PYSEC-2026-161  1.0.1        CVE-2026-48710, X41-2026-002, GHSA-86qp-5c8j-p5mr
+starlette 0.41.3  PYSEC-2026-248  1.3.0        CVE-2026-54282, GHSA-jp82-jpqv-5vv3
+starlette 0.41.3  PYSEC-2026-2281 1.1.0        GHSA-wqp7-x3pw-xc5r, CVE-2026-48818
+starlette 0.41.3  PYSEC-2026-2280 1.1.0        GHSA-x746-7m8f-x49c, CVE-2026-48817
+starlette 0.41.3  PYSEC-2026-161  1.0.1        CVE-2026-48710, GHSA-86qp-5c8j-p5mr, X41-2026-002
+starlette 0.41.3  PYSEC-2026-1941 0.47.2       GHSA-2c2j-9gv5-cj73, CVE-2025-54121
+starlette 0.41.3  PYSEC-2026-1942 0.49.1       CVE-2025-62727, GHSA-7f5h-v6xp-fcq8
+starlette 0.41.3  PYSEC-2026-2280 1.1.0        GHSA-x746-7m8f-x49c, CVE-2026-48817
+starlette 0.41.3  PYSEC-2026-2281 1.1.0        GHSA-wqp7-x3pw-xc5r, CVE-2026-48818
+starlette 0.41.3  PYSEC-2026-248  1.3.0        CVE-2026-54282, GHSA-jp82-jpqv-5vv3
+starlette 0.41.3  PYSEC-2026-249  1.3.1        CVE-2026-54283, GHSA-82w8-qh3p-5jfq
+
+audit.sh: FAILED
+  - the image's set (cmapi/requirements.txt)
+  - the service tests' set (cmapi[test])
+  - the reference code's set (examples/local/requirements.txt)
+exit 1

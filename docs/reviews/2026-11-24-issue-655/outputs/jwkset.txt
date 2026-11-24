@@ -1,0 +1,8 @@
+PyJWT 2.10.1
+JWKS = [bad-n, the good key]: the good key's token -> refused 503 idp-unavailable: Keycloak signing keys are unreachable and this key is not cached
+JWKS = [no-n, the good key]: the good key's token -> refused 503 idp-unavailable: Keycloak signing keys are unreachable and this key is not cached
+JWKS = [rs-unknown-alg, the good key]: the good key's token -> refused 503 idp-unavailable: Keycloak signing keys are unreachable and this key is not cached
+PyJWT 2.15.1
+JWKS = [bad-n, the good key]: the good key's token -> refused 503 idp-unavailable: Keycloak signing keys are unreachable and this key is not cached
+JWKS = [no-n, the good key]: the good key's token -> refused 503 idp-unavailable: Keycloak signing keys are unreachable and this key is not cached
+JWKS = [rs-unknown-alg, the good key]: the good key's token -> refused 503 idp-unavailable: Keycloak signing keys are unreachable and this key is not cached

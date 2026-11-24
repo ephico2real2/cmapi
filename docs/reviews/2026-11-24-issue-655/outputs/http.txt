@@ -1,0 +1,10 @@
+PyJWT 2.10.1, uvicorn 0.32.1
+depth 1000, Authorization 2735 bytes: HTTP 401 {"status":401,"code":"unauthenticated"}
+depth 9997, Authorization 26727 bytes: HTTP 500 Internal Server Error
+depth 20000, Authorization 53402 bytes: HTTP 500 Internal Server Error
+depth 100000, Authorization 266735 bytes: HTTP 500 Internal Server Error
+PyJWT 2.15.1, uvicorn 0.32.1
+depth 1000, Authorization 2735 bytes: HTTP 401 {"status":401,"code":"unauthenticated"}
+depth 9997, Authorization 26727 bytes: HTTP 401 {"status":401,"code":"unauthenticated"}
+depth 20000, Authorization 53402 bytes: HTTP 401 {"status":401,"code":"unauthenticated"}
+depth 100000, Authorization 266735 bytes: HTTP 401 {"status":401,"code":"unauthenticated"}

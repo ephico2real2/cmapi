@@ -1,0 +1,319 @@
+$ PyJWT 2.15.1, pytest 9.2.0, src=src
+$ pytest tests/service/test_jwks_skip_bad_key_656_before.py
+FFFFF.F                                                                  [100%]
+=================================== FAILURES ===================================
+_ test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies[n is not base64url] _
+
+keys = <conftest.Keys object at 0x10e45e570>, case = 'n is not base64url'
+
+    @pytest.mark.parametrize("case", list(BAD_KEYS))
+    def test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies(keys: Keys, case):
+>       who = make(lambda url: [BAD_KEYS[case], keys.jwk]).authenticate(keys.token("ola"))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/service/test_jwks_skip_bad_key_656_before.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cmapi/core/auth.py:160: in authenticate
+    key = self.jwks.key(header["kid"])
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cmapi.core.auth.Jwks object at 0x10eb863f0>, kid = 'test-kid-1'
+
+    def key(self, kid: str) -> jwt.PyJWK:
+        now = self.clock()
+        with self._cond:
+            fetch = not self._refreshing and self._due(kid, now)
+            if fetch:
+                self._refreshing = True
+                if self._keys and kid not in self._keys and now - self._fetched_at <= self.lifespan:
+                    self._last_unknown = now
+            elif self._refreshing and kid not in self._keys:
+                self._cond.wait(timeout=6.0)                        # it may be the new key: wait for the one fetch in flight
+        if fetch:
+            # Outside the lock: callers whose key is cached keep verifying while this one waits on Keycloak.
+            ok = False
+            try:
+                self._load_stored()
+                ok = self._refresh()
+            finally:
+                with self._cond:
+                    self._refreshing = False
+                    self._last_failure = None if ok else self.clock()
+                    self._cond.notify_all()
+        with self._cond:
+            k = self._keys.get(kid)
+            if k is not None:
+                return k
+            if self._keys and self._last_failure is None:
+                raise jwt.InvalidTokenError("unknown signing key")
+        IDP_UNAVAILABLE.inc()
+>       raise Problem(503, "idp-unavailable", "Keycloak signing keys are unreachable and this key is not cached",
+                      extra={"retryAfter": 30})
+E       cmapi.core.errors.Problem: Keycloak signing keys are unreachable and this key is not cached
+
+src/cmapi/core/auth.py:128: Problem
+_ test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies[n is missing] _
+
+keys = <conftest.Keys object at 0x10e45e570>, case = 'n is missing'
+
+    @pytest.mark.parametrize("case", list(BAD_KEYS))
+    def test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies(keys: Keys, case):
+>       who = make(lambda url: [BAD_KEYS[case], keys.jwk]).authenticate(keys.token("ola"))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/service/test_jwks_skip_bad_key_656_before.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cmapi/core/auth.py:160: in authenticate
+    key = self.jwks.key(header["kid"])
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cmapi.core.auth.Jwks object at 0x10eb85a90>, kid = 'test-kid-1'
+
+    def key(self, kid: str) -> jwt.PyJWK:
+        now = self.clock()
+        with self._cond:
+            fetch = not self._refreshing and self._due(kid, now)
+            if fetch:
+                self._refreshing = True
+                if self._keys and kid not in self._keys and now - self._fetched_at <= self.lifespan:
+                    self._last_unknown = now
+            elif self._refreshing and kid not in self._keys:
+                self._cond.wait(timeout=6.0)                        # it may be the new key: wait for the one fetch in flight
+        if fetch:
+            # Outside the lock: callers whose key is cached keep verifying while this one waits on Keycloak.
+            ok = False
+            try:
+                self._load_stored()
+                ok = self._refresh()
+            finally:
+                with self._cond:
+                    self._refreshing = False
+                    self._last_failure = None if ok else self.clock()
+                    self._cond.notify_all()
+        with self._cond:
+            k = self._keys.get(kid)
+            if k is not None:
+                return k
+            if self._keys and self._last_failure is None:
+                raise jwt.InvalidTokenError("unknown signing key")
+        IDP_UNAVAILABLE.inc()
+>       raise Problem(503, "idp-unavailable", "Keycloak signing keys are unreachable and this key is not cached",
+                      extra={"retryAfter": 30})
+E       cmapi.core.errors.Problem: Keycloak signing keys are unreachable and this key is not cached
+
+src/cmapi/core/auth.py:128: Problem
+_ test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies[an alg PyJWT does not know] _
+
+keys = <conftest.Keys object at 0x10e45e570>
+case = 'an alg PyJWT does not know'
+
+    @pytest.mark.parametrize("case", list(BAD_KEYS))
+    def test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies(keys: Keys, case):
+>       who = make(lambda url: [BAD_KEYS[case], keys.jwk]).authenticate(keys.token("ola"))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/service/test_jwks_skip_bad_key_656_before.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cmapi/core/auth.py:160: in authenticate
+    key = self.jwks.key(header["kid"])
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cmapi.core.auth.Jwks object at 0x10eb85b50>, kid = 'test-kid-1'
+
+    def key(self, kid: str) -> jwt.PyJWK:
+        now = self.clock()
+        with self._cond:
+            fetch = not self._refreshing and self._due(kid, now)
+            if fetch:
+                self._refreshing = True
+                if self._keys and kid not in self._keys and now - self._fetched_at <= self.lifespan:
+                    self._last_unknown = now
+            elif self._refreshing and kid not in self._keys:
+                self._cond.wait(timeout=6.0)                        # it may be the new key: wait for the one fetch in flight
+        if fetch:
+            # Outside the lock: callers whose key is cached keep verifying while this one waits on Keycloak.
+            ok = False
+            try:
+                self._load_stored()
+                ok = self._refresh()
+            finally:
+                with self._cond:
+                    self._refreshing = False
+                    self._last_failure = None if ok else self.clock()
+                    self._cond.notify_all()
+        with self._cond:
+            k = self._keys.get(kid)
+            if k is not None:
+                return k
+            if self._keys and self._last_failure is None:
+                raise jwt.InvalidTokenError("unknown signing key")
+        IDP_UNAVAILABLE.inc()
+>       raise Problem(503, "idp-unavailable", "Keycloak signing keys are unreachable and this key is not cached",
+                      extra={"retryAfter": 30})
+E       cmapi.core.errors.Problem: Keycloak signing keys are unreachable and this key is not cached
+
+src/cmapi/core/auth.py:128: Problem
+_ test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies[n is not a string] _
+
+keys = <conftest.Keys object at 0x10e45e570>, case = 'n is not a string'
+
+    @pytest.mark.parametrize("case", list(BAD_KEYS))
+    def test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies(keys: Keys, case):
+>       who = make(lambda url: [BAD_KEYS[case], keys.jwk]).authenticate(keys.token("ola"))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/service/test_jwks_skip_bad_key_656_before.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cmapi/core/auth.py:160: in authenticate
+    key = self.jwks.key(header["kid"])
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cmapi.core.auth.Jwks object at 0x10eb856d0>, kid = 'test-kid-1'
+
+    def key(self, kid: str) -> jwt.PyJWK:
+        now = self.clock()
+        with self._cond:
+            fetch = not self._refreshing and self._due(kid, now)
+            if fetch:
+                self._refreshing = True
+                if self._keys and kid not in self._keys and now - self._fetched_at <= self.lifespan:
+                    self._last_unknown = now
+            elif self._refreshing and kid not in self._keys:
+                self._cond.wait(timeout=6.0)                        # it may be the new key: wait for the one fetch in flight
+        if fetch:
+            # Outside the lock: callers whose key is cached keep verifying while this one waits on Keycloak.
+            ok = False
+            try:
+                self._load_stored()
+                ok = self._refresh()
+            finally:
+                with self._cond:
+                    self._refreshing = False
+                    self._last_failure = None if ok else self.clock()
+                    self._cond.notify_all()
+        with self._cond:
+            k = self._keys.get(kid)
+            if k is not None:
+                return k
+            if self._keys and self._last_failure is None:
+                raise jwt.InvalidTokenError("unknown signing key")
+        IDP_UNAVAILABLE.inc()
+>       raise Problem(503, "idp-unavailable", "Keycloak signing keys are unreachable and this key is not cached",
+                      extra={"retryAfter": 30})
+E       cmapi.core.errors.Problem: Keycloak signing keys are unreachable and this key is not cached
+
+src/cmapi/core/auth.py:128: Problem
+__ test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies[no kid] ___
+
+keys = <conftest.Keys object at 0x10e45e570>, case = 'no kid'
+
+    @pytest.mark.parametrize("case", list(BAD_KEYS))
+    def test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies(keys: Keys, case):
+>       who = make(lambda url: [BAD_KEYS[case], keys.jwk]).authenticate(keys.token("ola"))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/service/test_jwks_skip_bad_key_656_before.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cmapi/core/auth.py:160: in authenticate
+    key = self.jwks.key(header["kid"])
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cmapi.core.auth.Jwks object at 0x10eb87080>, kid = 'test-kid-1'
+
+    def key(self, kid: str) -> jwt.PyJWK:
+        now = self.clock()
+        with self._cond:
+            fetch = not self._refreshing and self._due(kid, now)
+            if fetch:
+                self._refreshing = True
+                if self._keys and kid not in self._keys and now - self._fetched_at <= self.lifespan:
+                    self._last_unknown = now
+            elif self._refreshing and kid not in self._keys:
+                self._cond.wait(timeout=6.0)                        # it may be the new key: wait for the one fetch in flight
+        if fetch:
+            # Outside the lock: callers whose key is cached keep verifying while this one waits on Keycloak.
+            ok = False
+            try:
+                self._load_stored()
+                ok = self._refresh()
+            finally:
+                with self._cond:
+                    self._refreshing = False
+                    self._last_failure = None if ok else self.clock()
+                    self._cond.notify_all()
+        with self._cond:
+            k = self._keys.get(kid)
+            if k is not None:
+                return k
+            if self._keys and self._last_failure is None:
+                raise jwt.InvalidTokenError("unknown signing key")
+        IDP_UNAVAILABLE.inc()
+>       raise Problem(503, "idp-unavailable", "Keycloak signing keys are unreachable and this key is not cached",
+                      extra={"retryAfter": 30})
+E       cmapi.core.errors.Problem: Keycloak signing keys are unreachable and this key is not cached
+
+src/cmapi/core/auth.py:128: Problem
+________________ test_a_member_that_is_not_an_object_is_ignored ________________
+
+keys = <conftest.Keys object at 0x10e45e570>
+
+    def test_a_member_that_is_not_an_object_is_ignored(keys: Keys):
+>       who = make(lambda url: ["not-a-jwk", 7, None, keys.jwk]).authenticate(keys.token("ola"))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/service/test_jwks_skip_bad_key_656_before.py:42: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cmapi/core/auth.py:160: in authenticate
+    key = self.jwks.key(header["kid"])
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cmapi.core.auth.Jwks object at 0x10f256720>, kid = 'test-kid-1'
+
+    def key(self, kid: str) -> jwt.PyJWK:
+        now = self.clock()
+        with self._cond:
+            fetch = not self._refreshing and self._due(kid, now)
+            if fetch:
+                self._refreshing = True
+                if self._keys and kid not in self._keys and now - self._fetched_at <= self.lifespan:
+                    self._last_unknown = now
+            elif self._refreshing and kid not in self._keys:
+                self._cond.wait(timeout=6.0)                        # it may be the new key: wait for the one fetch in flight
+        if fetch:
+            # Outside the lock: callers whose key is cached keep verifying while this one waits on Keycloak.
+            ok = False
+            try:
+                self._load_stored()
+                ok = self._refresh()
+            finally:
+                with self._cond:
+                    self._refreshing = False
+                    self._last_failure = None if ok else self.clock()
+                    self._cond.notify_all()
+        with self._cond:
+            k = self._keys.get(kid)
+            if k is not None:
+                return k
+            if self._keys and self._last_failure is None:
+                raise jwt.InvalidTokenError("unknown signing key")
+        IDP_UNAVAILABLE.inc()
+>       raise Problem(503, "idp-unavailable", "Keycloak signing keys are unreachable and this key is not cached",
+                      extra={"retryAfter": 30})
+E       cmapi.core.errors.Problem: Keycloak signing keys are unreachable and this key is not cached
+
+src/cmapi/core/auth.py:128: Problem
+=========================== short test summary info ============================
+FAILED tests/service/test_jwks_skip_bad_key_656_before.py::test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies[n is not base64url]
+FAILED tests/service/test_jwks_skip_bad_key_656_before.py::test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies[n is missing]
+FAILED tests/service/test_jwks_skip_bad_key_656_before.py::test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies[an alg PyJWT does not know]
+FAILED tests/service/test_jwks_skip_bad_key_656_before.py::test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies[n is not a string]
+FAILED tests/service/test_jwks_skip_bad_key_656_before.py::test_a_bad_signing_key_is_skipped_and_the_good_one_still_verifies[no kid]
+FAILED tests/service/test_jwks_skip_bad_key_656_before.py::test_a_member_that_is_not_an_object_is_ignored
+6 failed, 1 passed in 1.60s
+exit 1

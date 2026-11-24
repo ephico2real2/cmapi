@@ -1,0 +1,16 @@
+$ python deploy/tests/ci-guard.py .github/workflows/ci.yml
+  ok   dependency-audit: a named runner, every pull request and push, contents: read
+  ok   dependency-audit: actions by full SHA
+  ok   dependency-audit: runs cmapi/audit.sh
+  ok   service: the tests run on the image's hashed lock
+  ok   the image installs the hashed lock, and nothing else resolves
+ci cases failed: 0
+$ mutant: s#run: cmapi/audit.sh python#run: echo skipped#
+  FAIL dependency-audit: runs cmapi/audit.sh
+ci cases failed: 1
+$ mutant: s#python -m pip install --require-hashes --no-deps --only-binary :all: -r cmapi/requirements.txt#true#
+  FAIL service: the tests run on the image's hashed lock
+ci cases failed: 1
+$ mutant: s#RUN pip install --no-cache-dir --no-deps --no-build-isolation --no-index \.#RUN pip install --no-cache-dir --no-build-isolation .#
+  FAIL the image installs the hashed lock, and nothing else resolves
+ci cases failed: 1

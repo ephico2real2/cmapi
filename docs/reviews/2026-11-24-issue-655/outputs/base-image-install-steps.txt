@@ -1,0 +1,36 @@
++ mkdir -p /tmp/w
++ cd /tmp/w
++ cp /cmapi/requirements.txt /cmapi/pyproject.toml .
++ cp -r /cmapi/src ./src
++ pip --version
+pip 24.2 from /opt/app-root/lib64/python3.12/site-packages/pip (python 3.12)
++ pip install --no-cache-dir --require-hashes --no-deps --only-binary :all: --no-index --find-links /wheels -r requirements.txt
++ tail -2
+      Successfully uninstalled pip-24.2
+Successfully installed alembic-1.20.1 annotated-types-0.8.0 anyio-4.16.0 certifi-2026.10.23 cffi-2.1.1 click-8.5.1 cryptography-50.0.2 fastapi-0.115.6 google-re2-1.1.20251105 h11-0.16.0 httpcore-1.0.9 httptools-0.9.0 httpx-0.28.1 idna-3.20 mako-1.4.3 markupsafe-3.0.4 pip-26.3 prometheus-client-0.24.1 psycopg-3.3.8 psycopg-binary-3.3.8 pycparser-3.12 pydantic-2.14.2 pydantic-core-2.50.2 pydantic-settings-2.16.2 pyjwt-2.15.1 python-dotenv-1.2.4 pyyaml-6.0.2 setuptools-84.2.1 sqlalchemy-2.1.8 starlette-0.41.3 structlog-26.1.0 typing-extensions-4.16.0 typing-inspection-0.4.5 uvicorn-0.32.1 uvloop-0.23.0 watchfiles-1.3.0 websockets-17.4
++ pip --version
+pip 26.3 from /opt/app-root/lib64/python3.12/site-packages/pip (python 3.12)
++ pip install --no-cache-dir --no-deps --no-build-isolation --no-index .
++ tail -1
+Successfully installed cmapi-0.2.0
++ pip check
+No broken requirements found.
++ pip uninstall --yes setuptools
+Found existing installation: setuptools 84.2.1
+Uninstalling setuptools-84.2.1:
+  Successfully uninstalled setuptools-84.2.1
++ pip list --format=freeze
++ wc -l
+37
++ grep -iE '^(pip|pyjwt|setuptools|cmapi)==' /tmp/frozen.txt
+cmapi==0.2.0
+pip==26.3
+PyJWT==2.15.1
++ cd /
++ python -c 'import cmapi.main, jwt; print("import ok", jwt.__version__)'
+import ok 2.15.1
++ command -v cmapi-api cmapi-worker cmapi-migrate cmapi-tools
+/opt/app-root/bin/cmapi-api
+/opt/app-root/bin/cmapi-worker
+/opt/app-root/bin/cmapi-migrate
+/opt/app-root/bin/cmapi-tools

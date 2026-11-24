@@ -1,0 +1,2 @@
+PyJWT 2.10.1, Python 3.12.14: RecursionError escapes from depth 9997; that token is 26708 bytes
+PyJWT 2.15.1: no RecursionError escapes up to depth 200000

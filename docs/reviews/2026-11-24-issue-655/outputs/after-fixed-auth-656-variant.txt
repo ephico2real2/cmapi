@@ -1,0 +1,5 @@
+$ PyJWT 2.15.1, pytest 9.2.0, src=src
+$ pytest tests/service/test_jwks_skip_bad_key_656_before.py
+.......                                                                  [100%]
+7 passed in 0.58s
+exit 0
