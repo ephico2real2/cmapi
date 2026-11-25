@@ -2,7 +2,8 @@
 
 docs/02, "Problems": "the body carries instanceUrl and portalUrl of the instance that serves it". The service suite's instance
 is nonprod (rnd, dev), and its instance.yaml `directory` sends qa and uat to staging and prod to prod, with no portalUrl. A
-member that the directory does not give is left out, never null (RFC 9457, section 3.2; core/config.py, environment_not_served).
+member that the directory does not give is left out, never null (core/config.py, environment_not_served, which cites
+RFC 9457, sections 3.1 and 3.2).
 """
 from __future__ import annotations
 
