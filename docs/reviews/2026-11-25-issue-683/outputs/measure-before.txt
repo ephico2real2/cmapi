@@ -1,0 +1,13 @@
+MEASURE unknown-members ~1.7MB: request 2,268,919 bytes -> 422 application/problem+json, answer 15,699,474 bytes, errors 170000, 2.051 s
+MEASURE non-string labels ~1.7MB: request 2,247,821 bytes -> 422 application/problem+json, answer 12,369,474 bytes, errors 130000, 1.816 s
+MEASURE unknown-members 60000: request 768,919 bytes -> 422 application/problem+json, answer 5,509,474 bytes, errors 60000, 0.694 s
+MEASURE unknown-members 90000: request 1,158,919 bytes -> 422 application/problem+json, answer 8,269,474 bytes, errors 90000, 0.953 s
+MEASURE largest create values ascii indent None: request 102,581 bytes -> 200 application/json, answer 211,902 bytes, errors 0, 0.315 s
+MEASURE largest create values ascii indent 2: request 103,021 bytes -> 200 application/json, answer 211,902 bytes, errors 0, 0.181 s
+MEASURE largest create values U+00E9 indent None: request 233,653 bytes -> 200 application/json, answer 327,390 bytes, errors 0, 0.196 s
+MEASURE largest create values U+00E9 indent 2: request 234,093 bytes -> 200 application/json, answer 327,390 bytes, errors 0, 0.219 s
+MEASURE largest create values U+4E2D indent None: request 168,085 bytes -> 200 application/json, answer 315,934 bytes, errors 0, 0.173 s
+MEASURE largest create values U+4E2D indent 2: request 168,525 bytes -> 200 application/json, answer 315,934 bytes, errors 0, 0.172 s
+MEASURE largest create values U+0001 indent None: request 430,261 bytes -> 200 application/json, answer 836,190 bytes, errors 0, 0.256 s
+MEASURE largest create values U+0001 indent 2: request 430,701 bytes -> 200 application/json, answer 836,190 bytes, errors 0, 0.261 s
+2 passed in 16.99s

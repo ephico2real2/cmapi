@@ -1,0 +1,5 @@
+#683, 2026-11-25, service-suite world on this Mac (PostgreSQL 16, cmapi_impl_683), measure_422_683.py, 7 runs after a warm-up:
+after  (fix/683): MEASURE422 request 769,136 bytes -> [(422, 2354, 20)]; median 0.365 s, min 0.353 s, max 0.420 s
+before (main src stashed): MEASURE422 request 769,136 bytes -> [(422, 5509474, 60000)]; median 0.612 s, min 0.554 s, max 0.638 s
+Retracted: measure-after.txt's 1.499 s for the same body was the first request of its test to reach a route (cold start); the
+before run's equivalent request was its third. The 7-run medians above replace it.

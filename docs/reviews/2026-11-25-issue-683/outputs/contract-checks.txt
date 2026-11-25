@@ -1,0 +1,49 @@
+== gate vs main
+No breaking changes to report, but the specs are different.
+Run 'oasdiff diff' to see structural differences.
+exit 0
+== gate vs newest released
+== oasdiff changelog
+10 changes: 0 error, 0 warning, 10 info
+info	[response-non-success-status-added] at contract/openapi.json
+	in API POST /api/v1/admin/auto-approval:pause
+		added the non-success response with the status `413`
+
+info	[response-non-success-status-added] at contract/openapi.json
+	in API POST /api/v1/admin/auto-approval:resume
+		added the non-success response with the status `413`
+
+info	[response-non-success-status-added] at contract/openapi.json
+	in API POST /api/v1/admin/prune:confirm
+		added the non-success response with the status `413`
+
+info	[response-non-success-status-added] at contract/openapi.json
+	in API POST /api/v1/clusters/{cluster_id}/namespaces
+		added the non-success response with the status `413`
+
+info	[response-non-success-status-added] at contract/openapi.json
+	in API PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}
+		added the non-success response with the status `413`
+
+info	[response-non-success-status-added] at contract/openapi.json
+	in API POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend
+		added the non-success response with the status `413`
+
+info	[response-non-success-status-added] at contract/openapi.json
+	in API POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent
+		added the non-success response with the status `413`
+
+info	[response-non-success-status-added] at contract/openapi.json
+== changelog.py --check
+exit 0
+== lint-test
+ok   refused, as it must: a cmapi.net/ key is a property of a schema in an example that is not of a metadata map (cmapi-net-keys-only-in-labels)
+ok   refused, as it must: a cmapi.net/ key is under a properties object of a body's labels map, not of the schema of one (cmapi-net-keys-only-in-labels)
+lint-test: 37 cases, 0 failed
+exit 0
+== gate-test
+gate-test: refused, as it must: an endpoint is removed
+gate-test: refused, as it must: a request body gains a required field
+gate-test: passed, as it must: a new endpoint and a new optional response field
+gate-test: the changelog of two released documents has the removed and the added endpoint
+exit 0
