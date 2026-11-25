@@ -26,7 +26,10 @@ from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 from packaging.requirements import Requirement
 from packaging.version import Version
+from starlette.applications import Starlette
 from starlette.responses import FileResponse, MalformedRangeHeader
+from starlette.routing import Mount
+from starlette.staticfiles import StaticFiles
 
 from conftest import build_world
 from test_api_docs import bundles  # noqa: F401  (the fixture: the files the image holds)
@@ -93,12 +96,14 @@ def test_a_static_file_answers_the_cve_range_at_once(bundles, world):
     assert min(elapsed) < PARSE_BOUND_S, f"{min(elapsed):.3f} s for GET {STATIC_FILE} with a 16 kB Range header"
 
 
-def test_the_range_answers_that_starlette_1_fixed(bundles, world):
+def test_the_range_answers_that_starlette_1_fixed(bundles):
     """RFC 9110 (https://www.rfc-editor.org/rfc/rfc9110.txt): a 416 sends `Content-Range: bytes */<length>` (section 14.4,
     `unsatisfied-range = "*/" complete-length` after `range-unit SP`); a multipart 206 sends Content-Type
     multipart/byteranges and "MUST NOT generate a Content-Range header field in the HTTP header section of a multiple part
-    response" (section 15.3.7.2); its parts are framed with CRLF (section 15.3.7.2, RFC 2046 section 5.1.1)."""
-    client, *_ = world
+    response" (section 15.3.7.2); its parts are framed with CRLF (section 15.3.7.2, RFC 2046 section 5.1.1).
+
+    Starlette's own StaticFiles, over the same bundle: cmapi's /static ignores Range (#649, test_static_range_649.py)."""
+    client = TestClient(Starlette(routes=[Mount("/static/swagger", StaticFiles(directory=bundles / "swagger-ui"))]))
     length = len(client.get(STATIC_FILE).content)
     unsatisfiable = client.get(STATIC_FILE, headers={"Range": f"bytes={length + 10}-"})
     assert (unsatisfiable.status_code, unsatisfiable.headers.get("content-range")) == (416, f"bytes */{length}")
