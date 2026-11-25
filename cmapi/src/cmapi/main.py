@@ -28,6 +28,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from cmapi import __version__
 from cmapi.core.auth import caller_dependency, oauth2_scheme, unauthenticated_headers
+from cmapi.core.bodylimit import RequestBodyLimitMiddleware, too_large
 from cmapi.core.config import InstanceConfig
 from cmapi.core.context import AppContext, build_context
 from cmapi.core.changelog import changelog_html
@@ -44,6 +45,10 @@ from cmapi.routers import EXAMPLE_CLUSTER, admin, health, me, requests
 from cmapi.settings import Settings, settings
 
 STATIC = Path(os.environ.get("CMAPI_STATIC_DIR", "/opt/app-root/static"))
+# The errors that a 422 validation-failed names, at most (#683). pydantic reports one for each item it refuses, so before the
+# limit a 769 KB body of unknown members was answered with 5.5 MB; the request body limit bounds the work, this the answer.
+# The same number as the places of one surrogate refusal (core/models.py MAX_PLACES, #353).
+MAX_VALIDATION_ERRORS = 20
 
 
 class ConditionalStaticFiles(StaticFiles):
@@ -248,6 +253,10 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     def problem_response(p: Problem, headers: dict[str, str] | None = None) -> Response:
         return JSONResponse(p.body(problem_base), status_code=p.status, media_type="application/problem+json", headers=headers)
 
+    # The innermost, so nothing reads the body before it counts, and an over-limit read that escapes the 413 handler below
+    # reaches it before UnhandledToProblemMiddleware could call it a failure; its answer still gets the request ID and CORS (#683).
+    app.add_middleware(RequestBodyLimitMiddleware, problem_response=problem_response,
+                       max_bytes=ctx.cfg.max_request_body_bytes)
     app.add_middleware(UnhandledToProblemMiddleware, problem_response=problem_response)
     app.add_middleware(RefuseNulMiddleware, problem_response=problem_response)
 
@@ -273,13 +282,22 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
         # FastAPI's own refusal of a parameter or a body, as the same RFC 9457 problem as every other refusal. The input value is
         # left out: it can hold what the caller did not mean to send back, and the field names it. A string_surrogate error of
         # RequestBody stands for each place its context names, below its own location (#353), so each field is named.
+        # The first MAX_VALIDATION_ERRORS errors, in pydantic's order (#683).
         errors = []
         for e in exc.errors():
             loc = tuple(e.get("loc", ()))
             places = e["ctx"]["places"] if e.get("type") == SURROGATE_CODE else [((), e.get("msg", ""))]
             errors += [{"field": ".".join(str(part) for part in (*loc, *place)), "message": message, "code": e.get("type", "")}
                        for place, message in places]
-        return problem_response(validation_failed(errors))
+            if len(errors) >= MAX_VALIDATION_ERRORS:
+                break
+        return problem_response(validation_failed(errors[:MAX_VALIDATION_ERRORS]))
+
+    @app.exception_handler(413)
+    async def content_too_large(_: Request, exc: HTTPException) -> Response:
+        """Content that passed the limit while the application read it (core/bodylimit.py, ContentTooLarge, #683). Starlette
+        looks a status handler up before framework_refusal's class handler (_exception_handler.py:46-50)."""
+        return problem_response(too_large(ctx.cfg.max_request_body_bytes))
 
     @app.exception_handler(TierError)
     async def tier_error_handler(_: Request, exc: TierError) -> Response:
