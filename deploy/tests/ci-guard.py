@@ -156,4 +156,56 @@ skopeo_calls = re.findall(r"\bskopeo\((\"[^()\n]*)\)", base_code)
 check(skopeo_calls == ['"inspect", "--raw", f"docker://{repo}@{pinned}"',
                        '"copy", "--quiet", "--preserve-digests", "--remove-signatures", f"docker://{repo}@{image}", f"oci:{layout}"'],
       f"base-images.py runs skopeo with its TLS and digest checks, and copies each image unchanged: {skopeo_calls}")
+# #650: OpenShift runs each image as an arbitrary UID in group 0 with no capabilities. A file of the image that such a user
+# cannot read fails only when it is served: under /static, Starlette sends 200 and then a cut body. So each image's build, as
+# such a user and after the last change to its files, fails on a path it cannot read, a directory it cannot search or a program
+# it cannot run. The check is a RUN of the Containerfile, so every job that builds the image runs it (images, images-pr,
+# front-door). Every COPY of the final stage lands under a path that the check reads, so a new one cannot escape it.
+def final_stage(path):
+    """The final stage's instructions as (INSTRUCTION, rest), continuations joined, comments and blank lines dropped."""
+    logical, buf = [], ""
+    for raw in open(os.path.join(ROOT, path)).read().splitlines():
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.endswith("\\"):
+            buf += s[:-1] + " "
+            continue
+        word, _, rest = (buf + s).partition(" ")
+        logical.append((word.upper(), rest.strip())); buf = ""
+    start = max((i for i, (w, _) in enumerate(logical) if w == "FROM"), default=-1)
+    return logical[start + 1:]
+MODES_USER = "1000690000:0"
+# Each clause whole, so that a mutant which keeps the words and drops the failure (an exit 1, a test) is caught.
+MODES_RUN = ('canary=$(mktemp); chmod 000 "$canary";',
+             'if [ -r "$canary" ]; then echo "the modes check cannot see modes: this user reads a file of mode 000" >&2; exit 1; fi;',
+             'rm -f "$canary";',
+             """bad=$( { find $paths ! -type l -exec sh -c 'for p; do [ -r "$p" ] || echo "cannot read $p"; done' sh {} +;""",
+             """find $paths \\( -type d -o -type f -perm -100 \\) -exec sh -c 'for p; do [ -x "$p" ] || echo "cannot search or run $p"; done' sh {} +;""",
+             '} 2>&1 ) || true;',
+             """if [ -n "$bad" ]; then printf 'Not usable by an arbitrary UID in group 0 (#650):\\n%s\\n' "$bad" >&2; exit 1; fi;""")
+# After the check, only instructions that change no file of the image.
+METADATA = {"USER", "EXPOSE", "ENTRYPOINT", "CMD", "STOPSIGNAL", "HEALTHCHECK", "LABEL", "ENV"}
+for path, runtime_user in (("cmapi/Containerfile", "1001"), ("cmapi-portal-ui/Containerfile", "101")):
+    stage = final_stage(path)
+    at = next((i for i, (w, r) in enumerate(stage) if w == "USER" and r == MODES_USER), None)
+    run = stage[at + 1][1] if at is not None and at + 1 < len(stage) and stage[at + 1][0] == "RUN" else ""
+    missing = [s for s in MODES_RUN if s not in run]
+    check(bool(run) and run.startswith("set -eu;") and not missing,
+          f"{path}: the build checks the image's modes as an arbitrary UID in group 0 (USER {MODES_USER}), canary first; missing {missing}")
+    after = stage[at + 2:] if run else []
+    users = [r for w, r in after if w == "USER"]
+    check(bool(run) and all(w in METADATA for w, _ in after) and users == [runtime_user],
+          f"{path}: the check follows the last change to the image's files, and the image then runs as {runtime_user}: {after}")
+    m = re.search(r'\bpaths="([^"]+)";', run)
+    checked = [p.rstrip("/") for p in m[1].split()] if m else []
+    workdir, landed = "/", []
+    for w, r in stage:
+        if w == "WORKDIR":
+            workdir = os.path.normpath(os.path.join(workdir, r))
+        elif w in ("COPY", "ADD"):
+            landed.append(os.path.normpath(os.path.join(workdir, r.split()[-1])))
+    escaped = [d for d in landed if not any(d == p or d.startswith(p + "/") for p in checked)]
+    check(bool(checked) and bool(landed) and not escaped,
+          f"{path}: every COPY of the final stage lands under a path the check reads ({checked}); outside it: {escaped}")
 print("ci cases failed:", len(fails)); sys.exit(1 if fails else 0)

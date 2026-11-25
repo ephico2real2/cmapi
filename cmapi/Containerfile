@@ -105,6 +105,25 @@ RUN pip install --no-cache-dir --no-deps --no-build-isolation --no-index . && \
     chown -R 1001:0 /opt/app-root && chmod -R g=u /opt/app-root
 COPY policies /etc/cmapi/policies
 
+# OpenShift runs the image as an arbitrary UID that owns no file, is in group 0 and has no capabilities ("Support arbitrary
+# user ids", the OpenShift image guidelines). chmod -R g=u gives group 0 the owner's bits, so a file its owner cannot read stays
+# unreadable, and a COPY after it keeps the modes of the build context. Such a file under /static passes StaticFiles' os.stat,
+# and Starlette 1.10.0 sends 200 before it opens the file (responses.py:427-433): the client gets a cut body (#650). So the
+# build runs as such a user and fails on a path it cannot read, a directory it cannot search, or a file that its owner may run
+# and it cannot. The canary first proves the check sees modes: a user with CAP_DAC_OVERRIDE reads a file of mode 000, and the
+# check would pass anything.
+USER 1000690000:0
+RUN set -eu; \
+    canary=$(mktemp); chmod 000 "$canary"; \
+    if [ -r "$canary" ]; then echo "the modes check cannot see modes: this user reads a file of mode 000" >&2; exit 1; fi; \
+    rm -f "$canary"; \
+    paths="/opt/app-root /etc/cmapi /usr/local/bin"; \
+    bad=$( { find $paths ! -type l -exec sh -c 'for p; do [ -r "$p" ] || echo "cannot read $p"; done' sh {} +; \
+             find $paths \( -type d -o -type f -perm -100 \) -exec sh -c 'for p; do [ -x "$p" ] || echo "cannot search or run $p"; done' sh {} +; \
+           } 2>&1 ) || true; \
+    if [ -n "$bad" ]; then printf 'Not usable by an arbitrary UID in group 0 (#650):\n%s\n' "$bad" >&2; exit 1; fi; \
+    echo "image modes (#650): an arbitrary UID in group 0 reads every file and searches every directory under $paths"
+
 USER 1001
 EXPOSE 8080 9090
 ENTRYPOINT ["cmapi-api"]
