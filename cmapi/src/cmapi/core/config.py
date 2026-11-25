@@ -15,7 +15,7 @@ Each file is validated by its own module; this module adds the checks no single 
 - instance.yaml's clusterTLS names only served environments, each with a boolean insecureSkipTLSVerify (core/clustertls.py, #434);
 - instance.yaml's directory maps each name to a list of environments, an http(s) url and an optional http(s) portalUrl, the
   shape environment_not_served reads on every refusal (#674);
-- instance.yaml's http.maxRequestBodyBytes is a whole number of bytes, 1 or more (core/bodylimit.py, #683).
+- instance.yaml's http.maxRequestBodyBytes is a whole number of bytes, 1 to 2**53 - 1 (core/bodylimit.py, #683).
 
 At startup any problem stops cmapi. On reload (ConfigMap watch, content hash) the running config is
 kept when the new one fails, and cmapi_config_reload_failed{file} is set.

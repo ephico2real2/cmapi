@@ -253,8 +253,8 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     def problem_response(p: Problem, headers: dict[str, str] | None = None) -> Response:
         return JSONResponse(p.body(problem_base), status_code=p.status, media_type="application/problem+json", headers=headers)
 
-    # The innermost, so nothing reads the body before it counts, and an over-limit read that escapes the 413 handler below
-    # reaches it before UnhandledToProblemMiddleware could call it a failure; its answer still gets the request ID and CORS (#683).
+    # The innermost, so nothing reads the body before it counts, and a refusal is answered by it before
+    # UnhandledToProblemMiddleware could call it a failure; its answer still gets the request ID and CORS (#683).
     app.add_middleware(RequestBodyLimitMiddleware, problem_response=problem_response,
                        max_bytes=ctx.cfg.max_request_body_bytes)
     app.add_middleware(UnhandledToProblemMiddleware, problem_response=problem_response)
@@ -295,8 +295,8 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
 
     @app.exception_handler(413)
     async def content_too_large(_: Request, exc: HTTPException) -> Response:
-        """Content that passed the limit while the application read it (core/bodylimit.py, ContentTooLarge, #683). Starlette
-        looks a status handler up before framework_refusal's class handler (_exception_handler.py:46-50)."""
+        """Content over the limit, read by the application (core/bodylimit.py, ContentTooLarge, #683); the middleware drops
+        this answer and sends the same 413 itself. Looked up before framework_refusal (_exception_handler.py:46-50)."""
         return problem_response(too_large(ctx.cfg.max_request_body_bytes))
 
     @app.exception_handler(TierError)

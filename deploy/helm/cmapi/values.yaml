@@ -45,7 +45,8 @@ instance:
   # The base of each problem type URI (RFC 9457). One base for all the instances of an organisation, on a host that points
   # at an instance: each instance serves /problems/<code>. Empty: the default, https://cmapi.ephico2real.com/problems/.
   problems: {}             # {typeBase: https://<host>/problems/}
-  # The most bytes of request content the API reads (#683): a body over it is 413 content-too-large, before it is read.
+  # The most bytes of request content the API reads (#683): a body over it is 413 content-too-large, before it is read
+  # when its Content-Length says so, else at the limit as it arrives. 1 to 9007199254740991 (2^53 - 1).
   # Empty: 1 MiB, 2.4 times the largest create of the reference metadata-keys.yaml (docs/18, "instance.http"). The front
   # door refuses more than 1 MiB on its own (client_max_body_size 1m), so a larger value serves direct callers only.
   http: {}                 # {maxRequestBodyBytes: 1048576}

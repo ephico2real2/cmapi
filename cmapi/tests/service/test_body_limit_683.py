@@ -24,6 +24,7 @@ import pytest
 import uvicorn
 import yaml
 
+from cmapi.core import listquery
 from cmapi.core.bodylimit import DEFAULT_MAX_REQUEST_BODY_BYTES, parse_http
 from cmapi.core.config import ConfigError, load_instance
 from conftest import build_world
@@ -193,6 +194,159 @@ def test_the_middleware_answers_an_over_limit_read_that_no_handler_takes():
     assert (status, body) == (200, b"read 20")
 
 
+def test_content_over_the_limit_after_a_streamed_answer_started_leaves_the_answer_whole(small, monkeypatch, capsys):
+    """Review 691, F1. uvicorn 0.32.1 says ASGI spec_version 2.3, so Starlette 1.10.0's StreamingResponse reads receive()
+    for a disconnect while it streams (responses.py, listen_for_disconnect). The CSV export is such an answer. Content over
+    the limit that arrives once the 200 has started cannot become a 413; before the fix it raised there, the stream ended
+    early, and the log said `unhandled` (RuntimeError "Caught handled exception, but response already started")."""
+    client, ctx, git, kube, validator, keys = small
+
+    def lines(rows, columns):
+        yield "name\n"
+        time.sleep(0.2)
+        yield "row\n"
+
+    monkeypatch.setattr(listquery, "_csv_lines", lines)
+    started = asyncio.Event()
+    sent: list[dict] = []
+    reads = 0
+
+    async def receive():
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            await started.wait()
+            return {"type": "http.request", "body": b"x" * (LIMIT + 1), "more_body": True}
+        if reads == 2:
+            return {"type": "http.request", "body": b"y" * 10, "more_body": False}
+        await asyncio.sleep(30)
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+        if message["type"] == "http.response.start":
+            started.set()
+
+    path = "/api/v1/quotas:export"
+    scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"}, "http_version": "1.1", "method": "GET",
+             "scheme": "http", "path": path, "raw_path": path.encode(), "query_string": b"", "root_path": "",
+             "headers": [(k.lower().encode(), v.encode()) for k, v in
+                         [*auth(keys, "ola", **OLA).items(), ("Transfer-Encoding", "chunked")]],
+             "client": ("127.0.0.1", 50000), "server": ("testserver", 80), "state": {}}
+    capsys.readouterr()
+    asyncio.run(client.app(scope, receive, send))
+    assert [m["status"] for m in sent if m["type"] == "http.response.start"] == [200]
+    assert b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body") == b"name\nrow\n"
+    assert sent[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
+    assert reads >= 2
+    out = capsys.readouterr().out
+    assert '"event": "unhandled"' not in out
+    assert out.count('"event": "content_dropped"') == 1, out
+
+
+def streamed_scope(path: str, header_list: list[tuple[str, str]]) -> dict:
+    """A GET as uvicorn 0.32.1 sends it, with ASGI spec_version 2.3: Starlette 1.10.0's StreamingResponse and FileResponse
+    then read receive() for a disconnect while they stream (responses.py:270-285 and :396-410)."""
+    return {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"}, "http_version": "1.1", "method": "GET",
+            "scheme": "http", "path": path, "raw_path": path.encode(), "query_string": b"", "root_path": "",
+            "headers": [(k.lower().encode(), v.encode()) for k, v in [*header_list, ("Transfer-Encoding", "chunked")]],
+            "client": ("127.0.0.1", 50000), "server": ("testserver", 80), "state": {}}
+
+
+def test_a_streamed_answer_that_starts_after_its_own_read_refused_the_content_is_replaced_by_the_413(small, monkeypatch,
+                                                                                                     capsys):
+    """Review 691, reviewer 2. The content over the limit is already there when the export's disconnect listener first
+    reads, before the stream task has run: the read refuses it, and the stream task's 200 start follows (anyio cancels only
+    a task that has started). Before the fix that start went out, Starlette turned the refusal into RuntimeError
+    ("response already started"), the 200 was cut short and the log said `unhandled`. Over TCP this is the head and the
+    content in one write, at any limit below what uvicorn buffers before the first read (test_on_a_real_server_*)."""
+    client, ctx, git, kube, validator, keys = small
+
+    def lines(rows, columns):
+        yield "name\n"
+        yield "row\n"
+
+    monkeypatch.setattr(listquery, "_csv_lines", lines)
+    sent: list[dict] = []
+    reads = 0
+
+    async def receive():
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            return {"type": "http.request", "body": b"x" * (LIMIT + 1), "more_body": False}
+        await asyncio.sleep(30)
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+
+    capsys.readouterr()
+    asyncio.run(client.app(streamed_scope("/api/v1/quotas:export", list(auth(keys, "ola", **OLA).items())), receive, send))
+    starts = [m for m in sent if m["type"] == "http.response.start"]
+    assert [m["status"] for m in starts] == [413], sent
+    answer_headers = {k.decode().lower(): v.decode() for k, v in starts[0]["headers"]}
+    assert_too_large(413, answer_headers["content-type"],
+                     b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body"))
+    assert answer_headers.get("x-request-id")
+    assert sent[-1].get("more_body", False) is False
+    assert reads == 1
+    assert '"event": "unhandled"' not in capsys.readouterr().out
+
+
+@pytest.fixture
+def small_static(test_config, tmp_path, fresh_db, keys, monkeypatch):
+    """The app with a limit of 4096 bytes and a Swagger UI bundle of 300 KiB under /static, which is public by default."""
+    import cmapi.main as main_mod
+
+    bundle = tmp_path / "static" / "swagger-ui" / "swagger-ui-bundle.js"
+    bundle.parent.mkdir(parents=True)
+    bundle.write_bytes(b"/*" + b"b" * (300 * 1024) + b"*/")
+    monkeypatch.setattr(main_mod, "STATIC", tmp_path / "static")
+    with build_world(_config(test_config, tmp_path, {"maxRequestBodyBytes": LIMIT}), keys, monkeypatch) as w:
+        yield w, bundle.read_bytes()
+
+
+@pytest.mark.parametrize("arrives", ["after the start", "before the start"])
+def test_a_static_file_with_content_over_the_limit_gets_one_whole_answer(small_static, capsys, arrives):
+    """Review 691, reviewer 2: the /static files are the other answer that reads receive() while it streams (FileResponse),
+    and they need no token. Content over the limit that arrives after the 200 has started leaves the file whole; content
+    that its first read refuses gets the 413. Before the fix both cut the 200 short and logged `unhandled`."""
+    (client, ctx, git, kube, validator, keys), bundle = small_static
+    started = asyncio.Event()
+    sent: list[dict] = []
+    reads = 0
+
+    async def receive():
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            if arrives == "after the start":
+                await started.wait()
+            return {"type": "http.request", "body": b"x" * (LIMIT + 1), "more_body": False}
+        await asyncio.sleep(30)
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+        if message["type"] == "http.response.start":
+            started.set()
+        await asyncio.sleep(0)
+
+    capsys.readouterr()
+    asyncio.run(client.app(streamed_scope("/static/swagger/swagger-ui-bundle.js", []), receive, send))
+    starts = [m for m in sent if m["type"] == "http.response.start"]
+    body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    answer_headers = {k.decode().lower(): v.decode() for k, v in starts[0]["headers"]}
+    if arrives == "after the start":
+        assert [m["status"] for m in starts] == [200] and body == bundle
+    else:
+        assert [m["status"] for m in starts] == [413], sent
+        assert_too_large(413, answer_headers["content-type"], body)
+    assert sent[-1].get("more_body", False) is False
+    assert '"event": "unhandled"' not in capsys.readouterr().out
+
+
 # ---- the limit itself
 
 
@@ -258,11 +412,15 @@ def test_a_validation_failure_names_at_most_twenty_errors(world):
 
 @pytest.mark.parametrize("http, problem", [
     ("1048576", "http must be a mapping"),
-    ({"maxRequestBodyBytes": 0}, "http.maxRequestBodyBytes is a whole number of bytes, 1 or more, not 0"),
-    ({"maxRequestBodyBytes": -1}, "http.maxRequestBodyBytes is a whole number of bytes, 1 or more, not -1"),
-    ({"maxRequestBodyBytes": True}, "http.maxRequestBodyBytes is a whole number of bytes, 1 or more, not True"),
-    ({"maxRequestBodyBytes": "1m"}, "http.maxRequestBodyBytes is a whole number of bytes, 1 or more, not '1m'"),
-    ({"maxRequestBodyBytes": 1.5}, "http.maxRequestBodyBytes is a whole number of bytes, 1 or more, not 1.5"),
+    ({"maxRequestBodyBytes": 0}, "http.maxRequestBodyBytes is a whole number of bytes, 1 to 9007199254740991, not 0"),
+    ({"maxRequestBodyBytes": -1}, "http.maxRequestBodyBytes is a whole number of bytes, 1 to 9007199254740991, not -1"),
+    ({"maxRequestBodyBytes": True}, "http.maxRequestBodyBytes is a whole number of bytes, 1 to 9007199254740991, not True"),
+    ({"maxRequestBodyBytes": "1m"}, "http.maxRequestBodyBytes is a whole number of bytes, 1 to 9007199254740991, not '1m'"),
+    ({"maxRequestBodyBytes": 1.5}, "http.maxRequestBodyBytes is a whole number of bytes, 1 to 9007199254740991, not 1.5"),
+    ({"maxRequestBodyBytes": 2**53},
+     "http.maxRequestBodyBytes is a whole number of bytes, 1 to 9007199254740991, not 9007199254740992"),
+    ({"maxRequestBodyBytes": "1e+21"},
+     "http.maxRequestBodyBytes is a whole number of bytes, 1 to 9007199254740991, not '1e+21'"),
     ({"maxBodyBytes": 4096}, "http has unknown fields ['maxBodyBytes']"),
 ])
 def test_a_limit_that_is_not_one_stops_the_start(tmp_path, http, problem):
@@ -272,7 +430,8 @@ def test_a_limit_that_is_not_one_stops_the_start(tmp_path, http, problem):
 
 
 @pytest.mark.parametrize("http, limit", [(None, 1024 * 1024), ({}, 1024 * 1024), ({"maxRequestBodyBytes": 1}, 1),
-                                         ({"maxRequestBodyBytes": 3 * 1024 * 1024}, 3 * 1024 * 1024)])
+                                         ({"maxRequestBodyBytes": 3 * 1024 * 1024}, 3 * 1024 * 1024),
+                                         ({"maxRequestBodyBytes": 2**53 - 1}, 2**53 - 1)])
 def test_the_limit_comes_from_instance_yaml(tmp_path, http, limit):
     assert parse_http(http) == (limit, [])
     assert load_instance(_config(NONPROD, tmp_path, http), KEYS).max_request_body_bytes == limit
@@ -304,8 +463,13 @@ def test_the_chart_writes_the_limit_and_its_schema_refuses_one_that_is_not(tmp_p
     assert rendered_http(tmp_path) == {}
     assert parse_http({}) == (DEFAULT_MAX_REQUEST_BODY_BYTES, [])
     assert rendered_http(tmp_path, 'instance.http={"maxRequestBodyBytes":2097152}') == {"maxRequestBodyBytes": 2097152}
+    # The largest value the schema takes renders as the same integer, which the loader takes (review 691, F2).
+    largest = rendered_http(tmp_path, 'instance.http={"maxRequestBodyBytes":9007199254740991}')
+    assert largest == {"maxRequestBodyBytes": 2**53 - 1} and parse_http(largest) == (2**53 - 1, [])
+    # 1e21 renders as "1e+21" (toJson), a string to PyYAML, and 2**53 + 1 renders rounded: the schema refuses both.
     for bad in ('instance.http={"maxRequestBodyBytes":0}', 'instance.http={"maxRequestBodyBytes":"1m"}',
-                'instance.http={"maxBodyBytes":4096}'):
+                'instance.http={"maxBodyBytes":4096}', 'instance.http={"maxRequestBodyBytes":1e21}',
+                'instance.http={"maxRequestBodyBytes":9007199254740993}'):
         r = helm(tmp_path, bad)
         assert r.returncode != 0 and "/instance/http" in r.stderr, (bad, r.stderr)
 
@@ -393,6 +557,85 @@ def test_on_a_real_server(small, http):
             else:
                 assert (status, body) == (400, b"Invalid HTTP request received."), body[:500]
     assert recorded(small) == 0 and git.prs == {}
+
+
+def read_chunked_answer(sock: socket.socket, data: bytes = b"") -> tuple[int, dict[str, str], bytes]:
+    """One HTTP/1.1 answer, with a Content-Length or chunked (RFC 9112, section 7.1), read from the socket after `data`."""
+    while b"\r\n\r\n" not in data:
+        chunk = sock.recv(65536)
+        assert chunk, data
+        data += chunk
+    head, _, rest = data.partition(b"\r\n\r\n")
+    lines = head.decode().split("\r\n")
+    fields = {k.strip().lower(): v.strip() for k, v in (line.split(":", 1) for line in lines[1:])}
+    if "content-length" in fields:
+        sock_rest = rest
+        while len(sock_rest) < int(fields["content-length"]):
+            chunk = sock.recv(65536)
+            assert chunk, sock_rest
+            sock_rest += chunk
+        return int(lines[0].split()[1]), fields, sock_rest[:int(fields["content-length"])]
+    assert fields.get("transfer-encoding") == "chunked", fields
+    body = b""
+    while True:
+        while b"\r\n" not in rest:
+            chunk = sock.recv(65536)
+            assert chunk, (body, rest)  # the connection closed before the last chunk: a cut answer
+            rest += chunk
+        size_line, _, rest = rest.partition(b"\r\n")
+        size = int(size_line, 16)
+        while len(rest) < size + 2:
+            chunk = sock.recv(65536)
+            assert chunk, (body, rest)
+            rest += chunk
+        if size == 0:
+            return int(lines[0].split()[1]), fields, body
+        body, rest = body + rest[:size], rest[size + 2:]
+
+
+@pytest.mark.parametrize("http", ["h11", "httptools"])
+@pytest.mark.parametrize("content", ["with the head", "after the start"])
+def test_on_a_real_server_a_streamed_export_with_content_over_the_limit_gets_one_whole_answer(small, monkeypatch, capsys,
+                                                                                               http, content):
+    """Review 691. Over TCP to uvicorn 0.32.1, a GET of the CSV export with chunked content of 3 x LIMIT / 2 bytes:
+    - sent with the head, uvicorn holds it all before the export's disconnect listener first reads: the answer is the 413;
+    - sent once the 200's head has come (the rows come 0.2 s apart), the export is whole.
+    Before the fix the first broke at any limit under what uvicorn buffers (measured at 4096 to 262144 bytes; uvicorn
+    pauses at 65536 bytes, flow_control.py, after reads of up to 256 KiB), and the second at every limit: the 200 was cut
+    and the log said `unhandled`. Either way the connection then serves the next request."""
+    client, ctx, git, kube, validator, keys = small
+
+    def lines(rows, columns):
+        yield "name\n"
+        time.sleep(0.2)
+        yield "row\n"
+
+    monkeypatch.setattr(listquery, "_csv_lines", lines)
+    chunked = b"".join(b"%x\r\n%s\r\n" % (LIMIT // 2, b" " * (LIMIT // 2)) for _ in range(3)) + b"0\r\n\r\n"
+    head = request_head("GET", "/api/v1/quotas:export", {**auth(keys, "ola", **OLA), "Transfer-Encoding": "chunked"})
+    capsys.readouterr()
+    with Server(client.app, http) as port:
+        with socket.create_connection(("127.0.0.1", port), timeout=10) as sock:
+            if content == "with the head":
+                sock.sendall(head + chunked)
+                status, fields, body = read_chunked_answer(sock)
+            else:
+                sock.sendall(head)
+                started = b""
+                while b"\r\n\r\n" not in started:  # the 200's head has come: the answer has started
+                    chunk = sock.recv(65536)
+                    assert chunk, started
+                    started += chunk
+                sock.sendall(chunked)
+                status, fields, body = read_chunked_answer(sock, started)
+            if content == "with the head":
+                assert_too_large(status, fields["content-type"], body)
+            else:
+                assert (status, body) == (200, b"name\nrow\n"), body[:500]
+            sock.sendall(request_head("GET", "/api/v1/version", {}))
+            status, fields, body = read_answer(sock)
+            assert status == 200 and json.loads(body)["version"]
+    assert '"event": "unhandled"' not in capsys.readouterr().out
 
 
 def label_key(i: int) -> str:

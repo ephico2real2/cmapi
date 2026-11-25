@@ -6,7 +6,7 @@
     "instance": {"type": "object", "properties": {"clusterTokens": {"$ref": "#/definitions/clusterTokens"},
       "http": {"type": "object", "additionalProperties": false,
                "description": "instance.yaml http (#683): maxRequestBodyBytes, the most bytes of request content the API reads. Empty: 1 MiB",
-               "properties": {"maxRequestBodyBytes": {"type": "integer", "minimum": 1}}}}},
+               "properties": {"maxRequestBodyBytes": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}}}}},
     "clusters": {
       "oneOf": [
         {"type": "object", "additionalProperties": {"$ref": "#/definitions/cluster"}},

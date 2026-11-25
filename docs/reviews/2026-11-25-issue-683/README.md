@@ -100,8 +100,12 @@ cmapi's: nothing reads the body before it counts, an over-limit read that escape
 1. A `Content-Length` over the limit: 413 at once. No route runs, no sign-in, no byte read. uvicorn sends `100 Continue` only
    when the application reads, so a client that waits for it gets the 413 instead.
 2. No `Content-Length` (chunked): each `http.request` message is counted, and the one that passes the limit raises
-   `ContentTooLarge`, an `HTTPException(413)`. FastAPI raises it again from the body's read (above), and `create_app`'s handler
-   for the status 413 answers the problem. The middleware answers it too if it reaches it before an answer has started.
+   `ContentTooLarge`, an `HTTPException(413)`. FastAPI raises it again from the body's read (above). The middleware sends the
+   problem itself and drops anything the application sends after the refusal, so the client gets one answer, the 413, even
+   when a streamed answer's start follows its own refused read (review 691). `create_app`'s handler for the status 413 keeps
+   the exception from `framework_refusal`. Content that passes the limit after an answer has started is passed on empty
+   (a 413 can no longer be sent) and logged once as `content_dropped`; only a streamed answer's disconnect listener reads
+   then (Starlette 1.10.0 `StreamingResponse` and `FileResponse`, ASGI spec 2.3).
 3. Content longer than its `Content-Length`: what is read counts, not what is declared. uvicorn itself never passes more than the
    declared bytes (measured below).
 4. The rest of a refused body is uvicorn's to drop: it reads it, discards it and keeps the connection (measured below with both
