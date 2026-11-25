@@ -104,8 +104,6 @@ RUN pip install --no-cache-dir --no-deps --no-build-isolation --no-index . && \
     mkdir -p /etc/cmapi/config /etc/cmapi/policies /opt/app-root/src/.kube && \
     chown -R 1001:0 /opt/app-root && chmod -R g=u /opt/app-root
 COPY policies /etc/cmapi/policies
-# MUTANT (#650 proof, reverted next): one bundle that its owner and group 0 cannot read
-RUN chmod 0600 /opt/app-root/static/redoc/redoc.standalone.js
 
 # OpenShift runs the image as an arbitrary UID that owns no file, is in group 0 and has no capabilities ("Support arbitrary
 # user ids", the OpenShift image guidelines). chmod -R g=u gives group 0 the owner's bits, so a file its owner cannot read stays
