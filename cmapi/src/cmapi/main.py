@@ -22,7 +22,6 @@ from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
 from starlette.requests import ClientDisconnect
-from starlette.responses import FileResponse
 from starlette.routing import Match
 from starlette.staticfiles import PathLike
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -72,10 +71,11 @@ class ConditionalStaticFiles(StaticFiles):
     def file_response(self, full_path: PathLike, stat_result: os.stat_result, scope: Scope,
                       status_code: int = 200) -> Response:
         """FileResponse says `Accept-Ranges: bytes`. Section 14.3: "A server that does not support any kind of range request
-        for the target resource MAY send Accept-Ranges: none to advise the client not to attempt a range request"."""
+        for the target resource MAY send Accept-Ranges: none to advise the client not to attempt a range request". The 304
+        says it too: a cache updates a stored 200 with each field of the 304 (RFC 9111, section 3.2), and a bundle keeps its
+        ETag from image to image (the npm tarball fixes its mtime), so a 200 stored before #649 said `bytes`."""
         response = super().file_response(full_path, stat_result, scope, status_code)
-        if isinstance(response, FileResponse):
-            response.headers["accept-ranges"] = "none"
+        response.headers["accept-ranges"] = "none"
         return response
 
     def is_not_modified(self, response_headers: Headers, request_headers: Headers) -> bool:
