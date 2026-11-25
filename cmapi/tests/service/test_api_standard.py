@@ -514,9 +514,11 @@ def test_each_namespace_write_shows_the_refusals_of_its_own_steps(spec, operatio
     assert not (codes & every) - has, sorted((codes & every) - has)
 
 
-def test_an_environment_that_the_tier_catalog_does_not_serve_is_a_policy_violation(spec):
-    """GET /tiers?environment=x raises TierError, which main.py answers with 422 policy-violation."""
-    assert "policy-violation" in _codes(spec, "tiers_tiers", "422")
+def test_an_environment_that_the_instance_does_not_serve_is_environment_not_served_on_tiers(spec):
+    """GET /tiers?environment=x refuses an unserved environment before the catalog, with 422 environment-not-served and the
+    serving instance's URLs (#671; it was a TierError, answered as policy-violation), so the document lists that code."""
+    codes = _codes(spec, "tiers_tiers", "422")
+    assert "environment-not-served" in codes and "policy-violation" not in codes, sorted(codes)
 
 
 def test_each_403_example_names_the_permission_of_its_route(spec):

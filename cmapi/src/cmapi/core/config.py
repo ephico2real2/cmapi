@@ -12,7 +12,9 @@ Each file is validated by its own module; this module adds the checks no single 
 - plugins.yaml, when the instance has one, names only plugins of this build, and its overrides for this instance name
   only served environments (core/plugins.py);
 - instance.yaml's git.url is a URL the Git layer may use, git.hostChecks is a boolean, git.username one line (#286);
-- instance.yaml's clusterTLS names only served environments, each with a boolean insecureSkipTLSVerify (core/clustertls.py, #434).
+- instance.yaml's clusterTLS names only served environments, each with a boolean insecureSkipTLSVerify (core/clustertls.py, #434);
+- instance.yaml's directory maps each name to a list of environments, an http(s) url and an optional http(s) portalUrl, the
+  shape environment_not_served reads on every refusal (#674).
 
 At startup any problem stops cmapi. On reload (ConfigMap watch, content hash) the running config is
 kept when the new one fails, and cmapi_config_reload_failed{file} is set.
@@ -22,6 +24,8 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -29,6 +33,7 @@ from cmapi.core.approvals import ApprovalRules
 from cmapi.core.authz import DEFAULT_GROUP_PATH, RolePolicy, check_group_path
 from cmapi.core.cluster_tokens import TokenPolicy
 from cmapi.core.clustertls import ClusterTLSSettings
+from cmapi.core.errors import Problem
 from cmapi.core.giturl import GitConfigError, parse_remote
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.plugins import PluginSwitch
@@ -58,6 +63,21 @@ class InstanceConfig:
     policy: PolicySettings = field(default_factory=PolicySettings)   # instance.yaml `policy` (#213)
     cluster_tls: ClusterTLSSettings = field(default_factory=ClusterTLSSettings)   # instance.yaml `clusterTLS` (#434)
     cluster_tokens: TokenPolicy = field(default_factory=TokenPolicy)
+
+
+def environment_not_served(cfg: InstanceConfig, env: str) -> Problem:
+    """The 422 environment-not-served for an environment this instance does not serve (#671).
+
+    Every refusal of one is built here, so each names the instance that serves the environment, as docs/02, "Problems", says:
+    instanceUrl and portalUrl, from the entry of instance.yaml `directory` that lists it (its shape is checked at the start,
+    _directory_problems). A member the entry does not give is left out, never null. RFC 9457 leaves an extension member's
+    type to its problem type (section 3.2), and this type makes each one a URL string; for the standard members, section 3.1
+    has a client treat a value not of the member's type "as if the member had not been present", and the same holds here.
+    """
+    serving = next((d for d in (cfg.raw_instance["instance"].get("directory") or {}).values()
+                    if env in d.get("environments", [])), {})
+    urls = {member: serving[key] for member, key in (("instanceUrl", "url"), ("portalUrl", "portalUrl")) if serving.get(key)}
+    return Problem.unprocessable("environment-not-served", f"{env} is not served by the {cfg.name} instance", **urls)
 
 
 def _read(path: Path) -> tuple[dict, str]:
@@ -117,6 +137,7 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
     if expiration and "prod" in allowed and expiration.allows("prod"):
         problems.append("expiration.yaml: prod can never expire")
     problems.extend(_git_problems(me.get("git") or {}))
+    problems.extend(_directory_problems(me.get("directory")))
     policy, policy_problems = PolicySettings.parse(me.get("policy"), allowed)
     problems.extend(policy_problems)
     cluster_tls, tls_problems = ClusterTLSSettings.parse(me.get("clusterTLS"), allowed)
@@ -129,6 +150,32 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
         raise ConfigError(problems)
     return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, plugins, hashes, policy,
                           cluster_tls, cluster_tokens)
+
+
+def _directory_problems(directory: Any) -> list[str]:
+    """instance.yaml `directory`, read by environment_not_served on every refusal: a shape that the start does not check
+    would turn those 422 answers into 500 (#674)."""
+    if directory is None:
+        return []
+    if not isinstance(directory, dict):
+        return ["instance.directory must be a mapping of an instance's name to its url, environments and optional portalUrl"]
+    problems = []
+    for name, entry in directory.items():
+        where = f"instance.directory.{name}"
+        if not isinstance(entry, dict):
+            problems.append(f"{where} must be a mapping with url, environments and an optional portalUrl")
+            continue
+        envs = entry.get("environments")
+        if not isinstance(envs, list) or not all(isinstance(e, str) and e for e in envs):
+            problems.append(f"{where}.environments must be a list of environment names")
+        for key in ("url", "portalUrl"):
+            value = entry.get(key)
+            if key == "portalUrl" and value in (None, ""):
+                continue                    # optional; environment_not_served leaves the member out
+            parts = urlsplit(value) if isinstance(value, str) else None
+            if parts is None or parts.scheme not in ("https", "http") or not parts.netloc:
+                problems.append(f"{where}.{key} must be an absolute http(s) URL: {value!r}")
+    return problems
 
 
 def _git_problems(git: dict) -> list[str]:

@@ -12328,7 +12328,7 @@ export interface operations {
     tiers_tiers: {
         parameters: {
             query?: {
-                /** @description Only this environment. Without it, the answer has each environment that the instance serves. */
+                /** @description Only this environment. Without it, the answer has each environment that the instance serves. One the instance does not serve returns 422 `environment-not-served`. */
                 environment?: string | null;
             };
             header?: never;
@@ -12560,7 +12560,7 @@ export interface operations {
             /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
-             *     Codes: `policy-violation`, `validation-failed`.
+             *     Codes: `environment-not-served`, `validation-failed`.
              */
             422: {
                 headers: {

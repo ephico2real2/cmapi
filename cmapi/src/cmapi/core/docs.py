@@ -58,7 +58,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "validation-failed": (422, "Request body is not valid"),
     "policy-violation": (422, "Metadata refused"),
     "capacity-exceeded": (422, "memory would exceed the cluster"),
-    "environment-not-served": (422, "qa is served by the staging instance"),
+    "environment-not-served": (422, "qa is not served by the nonprod instance"),
     "cluster-not-writable": (422, "CRC is imported but has no clusters.yaml entry"),
     "plugin-disabled": (422, "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there"),
     "reserved-namespace": (422, "kube-tools is reserved"),
@@ -174,6 +174,9 @@ PROBLEM_EXTRAS: dict[str, dict[str, Any]] = {
     "validator-unavailable": {"retryAfter": 60},
     "folder-holds-submodule": {"paths": ["clusters/CRC/namespaces/payments-dev/vendor"]},
     "folder-not-utf8": {"paths": ["clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"]},
+    # the instance that serves qa, from instance.yaml directory (core/config.py environment_not_served, #671)
+    "environment-not-served": {"instanceUrl": "https://cmapi-staging.ephico2real.com",
+                               "portalUrl": "https://portal-staging.ephico2real.com"},
 }
 
 
