@@ -1,0 +1,24 @@
+PyJWT 2.10.1, httpx 0.28.1, Python 3.12.14
+1 HS confusion, PEM mutated: Authenticator -> refused: Problem 401 unauthenticated (Invalid token: unsupported algorithm)
+1 HS confusion, PEM mutated: jwt.decode(key object, algorithms=['RS256']) -> refused: InvalidAlgorithmError: The specified alg value is not allowed
+1 HS confusion, PEM mutated: jwt.decode(secret, algorithms=['HS256']) [library guard only, not cmapi's call] -> ACCEPTED: {'iss': 'https://keycloak.test/realms/cmapi', 'aud': ['cmapi-nonprod'], 'sub': 'sub-ola', 'iat': 1795541267, 'exp': 1795541567, 'preferred_username': 
+1 HS confusion, DER: Authenticator -> refused: Problem 401 unauthenticated (Invalid token: unsupported algorithm)
+1 HS confusion, DER: jwt.decode(key object, algorithms=['RS256']) -> refused: InvalidAlgorithmError: The specified alg value is not allowed
+1 HS confusion, DER: jwt.decode(secret, algorithms=['HS256']) [library guard only, not cmapi's call] -> ACCEPTED: {'iss': 'https://keycloak.test/realms/cmapi', 'aud': ['cmapi-nonprod'], 'sub': 'sub-ola', 'iat': 1795541267, 'exp': 1795541567, 'preferred_username': 
+1 HS confusion, JWK JSON: Authenticator -> refused: Problem 401 unauthenticated (Invalid token: unsupported algorithm)
+1 HS confusion, JWK JSON: jwt.decode(key object, algorithms=['RS256']) -> refused: InvalidAlgorithmError: The specified alg value is not allowed
+1 HS confusion, JWK JSON: jwt.decode(secret, algorithms=['HS256']) [library guard only, not cmapi's call] -> ACCEPTED: {'iss': 'https://keycloak.test/realms/cmapi', 'aud': ['cmapi-nonprod'], 'sub': 'sub-ola', 'iat': 1795541267, 'exp': 1795541567, 'preferred_username': 
+2 unknown crit: Authenticator -> ACCEPTED: Identity(sub='sub-ola', username='ola', kind='user', client_id='', email=None, given_name=None, middle_name=None, family_name=None, employee_id=None, 
+3 nested header (267027 bytes): Authenticator -> ESCAPED builtins.RecursionError: maximum recursion depth exceeded while decoding a JSON array from a unicode string
+3 nested payload (266753 bytes): Authenticator -> refused: Problem 401 unauthenticated (Invalid token)
+3 nested header depth 1000 (3027 bytes): Authenticator -> refused: Problem 401 unauthenticated (Invalid token)
+3 nested header depth 5000 (13694 bytes): Authenticator -> refused: Problem 401 unauthenticated (Invalid token)
+3 nested header depth 20000 (53694 bytes): Authenticator -> ESCAPED builtins.RecursionError: maximum recursion depth exceeded while decoding a JSON array from a unicode string
+3 nested payload: PyJWKClient.get_signing_key_from_jwt [examples/local/app.py] -> ESCAPED builtins.RecursionError: maximum recursion depth exceeded while decoding a JSON array from a unicode string
+3 nested header: PyJWKClient.get_signing_key_from_jwt [examples/local/app.py] -> ESCAPED builtins.RecursionError: maximum recursion depth exceeded while decoding a JSON array from a unicode string
+4 JWKS behind a 302: Jwks._http_fetch -> ESCAPED httpx.HTTPStatusError: Redirect response '302 Found' for url 'http://127.0.0.1:52622/redirect'
+Redirect location: 'http://1; the redirect target was fetched: False
+4 JWKS behind a 302: Jwks.key -> refused: Problem 503 idp-unavailable (Keycloak signing keys are unreachable and this key is not cached)
+4 JWKS at file://: Jwks._http_fetch -> ESCAPED httpx.UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol.
+4 JWKS at ftp://: Jwks._http_fetch -> ESCAPED httpx.UnsupportedProtocol: Request URL has an unsupported protocol 'ftp://'.
+4 JWKS at data://: Jwks._http_fetch -> ESCAPED httpx.UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol.

@@ -1,0 +1,37 @@
+
+== pip-audit, from its hashed lock (cmapi/audit/requirements.txt)
+pip-audit 2.10.1
+
+== 1. The image's set: cmapi/requirements.txt with --require-hashes, then cmapi with --no-deps
+Found 14 known vulnerabilities in 1 package
+Name      Version ID              Fix Versions Aliases
+--------- ------- --------------- ------------ -------------------------------------------------
+starlette 0.41.3  PYSEC-2026-1941 0.47.2       CVE-2025-54121, GHSA-2c2j-9gv5-cj73
+starlette 0.41.3  PYSEC-2026-1942 0.49.1       CVE-2025-62727, GHSA-7f5h-v6xp-fcq8
+starlette 0.41.3  PYSEC-2026-249  1.3.1        CVE-2026-54283, GHSA-82w8-qh3p-5jfq
+starlette 0.41.3  PYSEC-2026-161  1.0.1        GHSA-86qp-5c8j-p5mr, X41-2026-002, CVE-2026-48710
+starlette 0.41.3  PYSEC-2026-248  1.3.0        GHSA-jp82-jpqv-5vv3, CVE-2026-54282
+starlette 0.41.3  PYSEC-2026-2281 1.1.0        CVE-2026-48818, GHSA-wqp7-x3pw-xc5r
+starlette 0.41.3  PYSEC-2026-2280 1.1.0        CVE-2026-48817, GHSA-x746-7m8f-x49c
+starlette 0.41.3  PYSEC-2026-161  1.0.1        GHSA-86qp-5c8j-p5mr, X41-2026-002, CVE-2026-48710
+starlette 0.41.3  PYSEC-2026-1941 0.47.2       CVE-2025-54121, GHSA-2c2j-9gv5-cj73
+starlette 0.41.3  PYSEC-2026-1942 0.49.1       CVE-2025-62727, GHSA-7f5h-v6xp-fcq8
+starlette 0.41.3  PYSEC-2026-2280 1.1.0        CVE-2026-48817, GHSA-x746-7m8f-x49c
+starlette 0.41.3  PYSEC-2026-2281 1.1.0        CVE-2026-48818, GHSA-wqp7-x3pw-xc5r
+starlette 0.41.3  PYSEC-2026-248  1.3.0        GHSA-jp82-jpqv-5vv3, CVE-2026-54282
+starlette 0.41.3  PYSEC-2026-249  1.3.1        CVE-2026-54283, GHSA-82w8-qh3p-5jfq
+cmapi 0.2.0 has requirement fastapi==0.162.2, but you have fastapi 0.115.6.
+cmapi 0.2.0 has requirement starlette==1.10.0, but you have starlette 0.41.3.
+
+== 2. The service tests' set: set 1 plus cmapi[test]
+No known vulnerabilities found
+ok: the service tests' set (cmapi[test]) has no known advisory
+
+== 3. The reference code's set: examples/local/requirements.txt
+No known vulnerabilities found
+ok: the reference code's set (examples/local/requirements.txt) has no known advisory
+
+audit.sh: FAILED
+  - the image's set (cmapi/requirements.txt)
+  - pip check: cmapi/requirements.txt does not satisfy cmapi/pyproject.toml; run cmapi/lock.sh
+exit 1

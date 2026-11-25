@@ -1,0 +1,12 @@
+$ before the fix (HEAD's test), alone:
+1 passed in 0.20s
+$ before the fix, after tests/service/test_api_contract.py::test_openapi_lists_every_route_with_summary_permission_and_problems:
+FAILED tests/service/test_jwks_skip_bad_key_656_head.py::test_the_log_of_a_skipped_key_has_no_key_material
+1 failed, 1 passed in 3.35s
+$ after the fix, alone:
+1 passed in 0.32s
+$ after the fix, after tests/service/test_api_contract.py::test_openapi_lists_every_route_with_summary_permission_and_problems:
+2 passed in 3.50s
+$ mutant: the log line carries the error's message (the first fix's leak), after test_api_contract's first test
+FAILED tests/service/test_jwks_skip_bad_key_656.py::test_the_log_of_a_skipped_key_has_no_key_material
+1 failed, 1 passed in 3.61s

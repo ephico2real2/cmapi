@@ -1,0 +1,8 @@
+lock.sh: wrote cmapi/requirements.txt and cmapi/audit/requirements.txt (uv 0.13.7, releases older than 14 days)
+exit 0
+> annotated-doc==0.0.5 \
+< fastapi==0.115.6 \
+> fastapi==0.162.2 \
+> opentelemetry-api==1.45.2 \
+< starlette==0.41.3 \
+> starlette==1.10.0 \

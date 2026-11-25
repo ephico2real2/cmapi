@@ -32,7 +32,7 @@ incubating projects only).
 | FastAPI / Starlette / uvicorn | 0.162.2 / 1.10.0 / 0.32.1 (#651) | MIT / BSD-3 / BSD-3 | yes | none | any ASGI framework |
 | Pydantic (+ settings) | 2.14.2 / 2.16.2 | MIT | yes | none | — |
 | SQLAlchemy / psycopg / Alembic | 2.1.8 / 3.3.8 / 1.20.1 | MIT / LGPL-3 / MIT | yes | none | — |
-| PyJWT, httpx, PyYAML, structlog, prometheus-client | 2.10.1, 0.28.1, 6.0.2, 26.1.0, 0.24.1 | MIT, BSD-3, MIT, MIT/Apache-2.0, Apache-2.0 | yes | none | — |
+| PyJWT, httpx, PyYAML, structlog, prometheus-client | 2.15.1, 0.28.1, 6.0.2, 26.1.0, 0.24.1 | MIT, BSD-3, MIT, MIT/Apache-2.0, Apache-2.0 | yes | none | — |
 | PostgreSQL via CloudNativePG | operator 1.30.1 on CRC (`oc get csv -n openshift-operators`) | PostgreSQL / Apache-2.0 | yes | CloudNativePG: incubating | Crunchy, Zalando operator, a managed PostgreSQL |
 | Keycloak (Red Hat build) | RHBK operator on CRC, CR `keycloak` in namespace `keycloak` | Apache-2.0 | yes | incubating | any OIDC issuer (the Authenticator extension point) |
 | Gitea (Git host stand-in on CRC) | 1.25 rootless (`deploy/helm/cmapi-git`) | MIT | yes | none | GitHub, GitLab (GitProvider adapters) |
@@ -54,7 +54,7 @@ deploy/environments/crc.yaml` deploying by digest. The build refuses a dirty tre
 | Factor | Today | Gap | Fix | Phase |
 | --- | --- | --- | --- | --- |
 | I Codebase | One repo, branch `app-on-crc` | — | — | — |
-| II Dependencies | Pinned in `pyproject.toml` and `package-lock.json`; CLI binaries pinned by version and SHA-256 in the Containerfile | — | — | 1 |
+| II Dependencies | Pinned in `pyproject.toml` and `package-lock.json`; the image's whole Python set in a hashed lock, `cmapi/requirements.txt`, installed with `--require-hashes` and audited against OSV by the `dependency-audit` job (#655); CLI binaries pinned by version and SHA-256 in the Containerfile | — | — | 1 |
 | III Config | Instance files from ConfigMaps, secrets from Secrets, the rest `CMAPI_*` env (`cmapi/src/cmapi/settings.py`) | — | — | 1 |
 | IV Backing services | PostgreSQL, Keycloak, Git host and clusters reached by URL and credential; adapters behind `core/ports.py` | — | — | 1 |
 | V Build, release, run | Image by commit, release = chart + values + lock file | — | — | 1 |
@@ -101,7 +101,7 @@ documented, startup check `core/docs.py`) runs in the `service` job of `.github/
 | worker → cluster (`apply` delivery, a deviation; off by default and not selected for CRC) | Elevation, tampering | The worker's ServiceAccount gets the `cmapi-deliverer` ClusterRole only when the site acknowledges direct writes; it applies the stored approved plan after reading that Git `main`'s folder equals it, refuses an unmanaged namespace, and is contained by the `cmapi-deliverer-managed-only` ValidatingAdmissionPolicy. The API pods never hold it. A compromised worker can still delete or starve any managed namespace and skip `prune:confirm` | `tests/service/test_review_d_delivery.py`, the policy attacked on a real kube-apiserver 1.33.5 in the review (19 denied, 14 allowed), not on CRC |
 | Portal (browser) → Keycloak | Spoofing, CSRF | Authorization Code + PKCE through the public `cmapi-portal` client, redirect URIs pinned to the portal Route; tokens in memory, not local storage | Playwright walk: a token from `cmapi-cli` cannot be used by the portal client (different `azp`, same audience: allowed by design; recorded) |
 | Secrets | Information disclosure | Nothing secret in git, logs or the report; generated Secrets; the Git token and DB URL only as env from Secrets; the idempotency cache never keeps token-issuing responses | none yet: `deploy/check.sh` is planned |
-| Supply chain | Tampering | Base images by digest, CLI tarballs by SHA-256, Python pins, npm lock | the Containerfile fails on a checksum mismatch |
+| Supply chain | Tampering | Base images by digest, CLI tarballs by SHA-256, Python packages by a hashed lock (`cmapi/requirements.txt`, wheels only), npm lock; known advisories by `cmapi/audit.sh` (pip-audit, OSV) in CI (#655) | the Containerfile fails on a checksum mismatch, and `dependency-audit` on any advisory |
 
 Input handling: every body is a Pydantic model with `extra="forbid"`; namespace names, labels and
 annotations go through `core/naming.py` and `core/metadata.py` (DNS-1123, reserved prefixes, size caps).
@@ -184,11 +184,13 @@ from the CNPG server CA, never `unsafeSsl`. Proof planned on kind.
 
 ## 8. CI/CD
 
-GitHub Actions is the project's CI, `.github/workflows/ci.yml`, on every pull request and push to `main`,
-four jobs: `reference-code` (`examples/` tests), `service` (`cmapi/tests/service` against a PostgreSQL
-service container pinned by digest, with Helm 3.19.0 (installed by the `azure/setup-helm` action v4.3.1; this Mac has Helm 4.3.1) for the chart tests, which lint and render the chart for
-CRC and for the Ingress variant), `portal-mockup` (Playwright) and `portal-ui` (Vitest). Absent: an image
-build, SBOM, a scan, and a deployment job; the image is built on the Mac by `deploy/release-crc.sh`, and Argo
+GitHub Actions is the project's CI, `.github/workflows/ci.yml`, on every pull request and push to `main`.
+Its jobs: `reference-code` (`examples/` tests), `service` (`cmapi/tests/service` against a PostgreSQL
+service container pinned by digest, on the image's hashed lock, with Helm 3.19.0 (installed by the `azure/setup-helm` action v4.3.1; this Mac has Helm 4.3.1) for the chart tests, which lint and render the chart for
+CRC and for the Ingress variant), `dependency-audit` (`cmapi/audit.sh`: the Python sets of the image, the service tests
+and the reference code against OSV, failing on any advisory, #655), `portal-mockup` (Playwright), `portal-ui` (Vitest),
+`front-door`, `api-contract`, `manifests`, and the image builds: `images-pr` on a pull request, `images` (pushed to GHCR
+by digest and attested) on a push to `main`. Absent: an SBOM and a deployment job; Argo
 CD deploying cmapi itself from `deploy/environments/*.yaml` is not set up.
 
 ## 9. Product capabilities that make the app operable

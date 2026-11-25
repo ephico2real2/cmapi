@@ -1,0 +1,17 @@
+WARNING:pip_audit._cli:--no-deps is supported, but users are encouraged to fully hash their pinned dependencies
+WARNING:pip_audit._cli:Consider using a tool like `pip-compile`: https://pip-tools.readthedocs.io/en/latest/#using-hashes
+Found 12 known vulnerabilities in 1 package
+Name Version ID              Fix Versions Aliases
+---- ------- --------------- ------------ -----------------------------------
+pip  24.2    PYSEC-2026-1795 25.3         CVE-2025-8869, GHSA-4xh5-x5gv-qwph
+pip  24.2    PYSEC-2026-2875 26.1         CVE-2026-3219, GHSA-58qw-9mgm-455v
+pip  24.2    PYSEC-2026-1796 26.0         CVE-2026-1703, GHSA-6vgw-5pg2-w6jp
+pip  24.2    PYSEC-2026-2876 26.1         GHSA-jp4c-xjxw-mgf9, CVE-2026-6357
+pip  24.2    PYSEC-2026-3721 26.2.0       CVE-2026-13346, GHSA-qwm4-qh6w-59xr
+pip  24.2    PYSEC-2026-196  26.1.2       CVE-2026-8643, GHSA-wf93-45jw-7689
+pip  24.2    PYSEC-2026-1795 25.3         CVE-2025-8869, GHSA-4xh5-x5gv-qwph
+pip  24.2    PYSEC-2026-1796 26.0         CVE-2026-1703, GHSA-6vgw-5pg2-w6jp
+pip  24.2    PYSEC-2026-196  26.1.2       CVE-2026-8643, GHSA-wf93-45jw-7689
+pip  24.2    PYSEC-2026-2875 26.1         CVE-2026-3219, GHSA-58qw-9mgm-455v
+pip  24.2    PYSEC-2026-2876 26.1         GHSA-jp4c-xjxw-mgf9, CVE-2026-6357
+pip  24.2    PYSEC-2026-3721 26.2         CVE-2026-13346, GHSA-qwm4-qh6w-59xr

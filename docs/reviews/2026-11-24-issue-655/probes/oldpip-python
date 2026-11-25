@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Simulates CI's runner (#658): a venv that this python makes has pip 25.0.1, as the runner's bundled one. Anything else
+# runs python3.12 unchanged.
+if [[ ${1:-} == -m && ${2:-} == venv ]]; then
+  python3.12 -m venv "${@:3}" && "${!#}/bin/python" -m pip install --quiet --disable-pip-version-check pip==25.0.1
+else
+  exec python3.12 "$@"
+fi

@@ -77,4 +77,49 @@ check(bool(sign and verify and publish) and isteps.index(build_step(isteps)) < i
       and 'imagetools create --prefer-index=false --tag "$tag" "$IMAGE@$DIGEST"' in publish["run"]
       and publish.get("env", {}).get("DIGEST") == "${{ steps.build.outputs.digest }}" and "if" not in publish,
       "only a verified, successfully attested digest becomes the deployment tag")
+# #655: the dependency audit runs on every change with the command a developer runs, and what the image and the service tests
+# install comes from the hashed lock, so the audited set is the shipped one. Nothing in the workflow can skip the audit or
+# hide its failure, and the audit asks OSV with no ignore list (the review of #658).
+audit = ci["jobs"].get("dependency-audit") or {}
+asteps = audit.get("steps") or []
+check(audit.get("runs-on") == "ubuntu-24.04" and not {"if", "permissions", "continue-on-error", "env", "container"} & set(audit),
+      "dependency-audit: a named runner, every pull request and push, contents: read, and its failure fails the workflow")
+check(bool(asteps) and all(re.search(r"@[0-9a-f]{40}$", s["uses"]) for s in asteps if "uses" in s), "dependency-audit: actions by full SHA")
+audit_runs = [s for s in asteps if "cmapi/audit.sh" in s.get("run", "")]
+check(len(audit_runs) == 1 and audit_runs[0]["run"].strip() == "cmapi/audit.sh python" and set(audit_runs[0]) <= {"name", "run"},
+      "dependency-audit: runs cmapi/audit.sh, with no if, continue-on-error, env or shell on the step")
+check(not [k for k in (ci.get("env") or {}) if k.startswith(("PIP_", "CMAPI_AUDIT"))] and all("env" not in s for s in asteps),
+      "dependency-audit: no environment variable configures pip, pip-audit or the audit")
+def code_of(path):
+    return "\n".join(line for line in open(os.path.join(ROOT, path)) if not line.lstrip().startswith("#"))
+audit_sh, osv_audit = code_of("cmapi/audit.sh"), code_of("cmapi/audit/osv_audit.py")
+check('"--vulnerability-service", "osv"' in osv_audit and '"--strict"' in osv_audit and "audit/osv_audit.py" in audit_sh
+      and not re.search(r"ignore-vuln|--osv-url|--dry-run|--skip-editable|PIP_AUDIT", audit_sh + osv_audit),
+      "the audit asks OSV, strictly, with no ignore list")
+check(len(re.findall(r"^pip_install [^\n]*--require-hashes --no-deps", audit_sh, re.M)) == 2 and "1) failed+=" in audit_sh and "*) unaudited+=" in audit_sh
+      and "((${#failed[@]})) && exit 1" in audit_sh and "((${#unaudited[@]})) && exit 3" in audit_sh,
+      "audit.sh installs both locks by hash, and fails on an advisory (1) and on a set that was not audited (3)")
+# #658: a new venv has the pip its interpreter bundles (25.0.1 on the runner, in six advisories). Every venv of the audit is
+# made by venv(), which puts the lock's pip in it by hash before anything is installed or audited.
+venv_body = re.search(r"^venv\(\) \{\n(.*?)^\}", audit_sh, re.M | re.S)
+locked_pip = code_of("cmapi/locked-pip.sh")
+check(bool(venv_body) and '"$here/locked-pip.sh" "$work/$1/bin/python" ||' in venv_body.group(1)
+      and len(re.findall(r"-m venv\b", audit_sh)) == 1 and "-m venv" in venv_body.group(1)
+      and re.search(r"pip install [^\n]*--require-hashes --no-deps -r \"\$entry\"", locked_pip) is not None
+      and "/requirements.txt\"" in locked_pip and "awk '/^pip==/" in locked_pip,
+      "every venv of the audit gets the lock's pip, by hash, before it is used")
+service_install = next((s.get("run", "") for s in ci["jobs"]["service"]["steps"] if s.get("name") == "Install"), "")
+check("pip install --require-hashes --no-deps --only-binary :all: -r cmapi/requirements.txt" in service_install,
+      "service: the tests run on the image's hashed lock")
+# The image: exactly two installs. The lock by hash, wheels only, nothing resolved; then cmapi itself with the lock's build
+# backend and no index. Any other pip install line fails here. An index or a host needs no check: with --require-hashes pip
+# installs only the files whose SHA-256 the lock holds, wherever they come from (pip, "Secure installs").
+containerfile = code_of("cmapi/Containerfile")
+pip_lines = [line.split() for line in re.findall(r"\bpip[0-9.]* +install\b[^\n]*", containerfile)]
+check(len(pip_lines) == 2
+      and {"--require-hashes", "--no-deps", "--only-binary", ":all:", "-r", "requirements.txt"} <= set(pip_lines[0])
+      and {"--no-deps", "--no-build-isolation", "--no-index", "."} <= set(pip_lines[1]) and "-r" not in pip_lines[1],
+      "the image installs the hashed lock from wheels, then cmapi with no index, and nothing else")
+check(re.search(r"--no-index \.\s*&&\s*\\\n\s*pip check &&", containerfile) is not None,
+      "the image's build fails when the lock does not satisfy pyproject.toml (pip check)")
 print("ci cases failed:", len(fails)); sys.exit(1 if fails else 0)

@@ -1,0 +1,8 @@
+# What the image installs besides cmapi's own dependencies, which pyproject.toml pins. cmapi/lock.sh resolves this file with
+# pyproject.toml into requirements.txt, the hashed lock that the Containerfile installs with --require-hashes (#655).
+#
+# The build backend of pyproject.toml's [build-system]: the Containerfile builds cmapi with --no-build-isolation, so the
+# backend comes from the lock, hashed, and not from an unhashed download at build time. Keep the bound equal to [build-system].
+setuptools>=69
+# The installer itself: the base image's pip 24.2 is in six published advisories (#657).
+pip

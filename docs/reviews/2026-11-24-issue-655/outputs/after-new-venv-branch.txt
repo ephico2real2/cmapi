@@ -1,0 +1,99 @@
+$ PyJWT 2.15.1, pytest 9.2.0, src=src
+$ pytest tests/service/test_pyjwt_advisories_655.py tests/service/test_jwks_skip_bad_key_656.py tests/service/test_auth.py tests/service/test_review_b_auth.py tests/service/test_review_c_authz.py tests/service/test_review_r184_token_type.py tests/service/test_review_r181_oidc_security.py tests/service/test_crc_environment.py tests/service/test_token_renew_398.py
+............................................................
+[measure] 10 parallel valid tokens with a stale cache and Keycloak hanging 0.5 s: 0.51 s, 1 fetch attempts
+..
+GET    /api/v1/admin/auto-approval                                decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/admin/auto-approval                                decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+POST   /api/v1/admin/auto-approval:pause                          decl=approvals:pause enforced=approvals:pause none=401 viewer=403 onboarding=403
+POST   /api/v1/admin/auto-approval:resume                         decl=approvals:pause enforced=approvals:pause none=401 viewer=403 onboarding=403
+GET    /api/v1/admin/git-log                                      decl=reports:read enforced=reports:read none=401 viewer=403 onboarding=403
+HEAD   /api/v1/admin/git-log                                      decl=reports:read enforced=reports:read none=401 viewer=403 onboarding=403
+GET    /api/v1/admin/integrations                                 decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/admin/integrations                                 decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+GET    /api/v1/admin/kpi                                          decl=reports:read enforced=reports:read none=401 viewer=403 onboarding=403
+HEAD   /api/v1/admin/kpi                                          decl=reports:read enforced=reports:read none=401 viewer=403 onboarding=403
+GET    /api/v1/admin/plugins                                      decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/admin/plugins                                      decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+POST   /api/v1/admin/prune:confirm                                decl=operations:run enforced=operations:run none=401 viewer=403 onboarding=403
+GET    /api/v1/capacity                                           decl=capacity:read enforced=capacity:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/capacity                                           decl=capacity:read enforced=capacity:read none=401 viewer=200 onboarding=200
+GET    /api/v1/clusters                                           decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/clusters                                           decl=clusters:read enforced=clusters:read none=401 viewer=200 onboarding=200
+GET    /api/v1/clusters/{cluster_id}/namespaces                   decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/clusters/{cluster_id}/namespaces                   decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+POST   /api/v1/clusters/{cluster_id}/namespaces                   decl=namespaces:create enforced=namespaces:create none=401 viewer=403 onboarding=422
+GET    /api/v1/clusters/{cluster_id}/namespaces/{ns}              decl=objects:read enforced=objects:read none=401 viewer=404 onboarding=404
+HEAD   /api/v1/clusters/{cluster_id}/namespaces/{ns}              decl=objects:read enforced=objects:read none=401 viewer=404 onboarding=404
+PATCH  /api/v1/clusters/{cluster_id}/namespaces/{ns}              decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns}              decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+POST   /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+POST   /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+POST   /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set decl=namespaces:write enforced=namespaces:write none=401 viewer=403 onboarding=403
+POST   /api/v1/clusters/{id}:probe                                decl=operations:run enforced=operations:run none=401 viewer=403 onboarding=403
+GET    /api/v1/directory/users                                    decl=objects:read enforced=objects:read none=401 viewer=422 onboarding=422
+HEAD   /api/v1/directory/users                                    decl=objects:read enforced=objects:read none=401 viewer=422 onboarding=422
+GET    /api/v1/directory/users/{username}                         decl=objects:read enforced=objects:read none=401 viewer=503 onboarding=503
+HEAD   /api/v1/directory/users/{username}                         decl=objects:read enforced=objects:read none=401 viewer=503 onboarding=503
+GET    /api/v1/expirations                                        decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/expirations                                        decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/me                                                 decl=None enforced=None none=401 viewer=200 onboarding=200
+HEAD   /api/v1/me                                                 decl=None enforced=None none=401 viewer=200 onboarding=200
+GET    /api/v1/metadata-keys                                      decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/metadata-keys                                      decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/policies/rejections                                decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/policies/rejections                                decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+GET    /api/v1/policies/results                                   decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/policies/results                                   decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/quotas                                             decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/quotas                                             decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/quotas:export                                      decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/quotas:export                                      decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/quotas:suggest                                     decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/quotas:suggest                                     decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/requests                                           decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/requests                                           decl=requests:read enforced=requests:read none=401 viewer=200 onboarding=200
+GET    /api/v1/requests/{request_id}                              decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+HEAD   /api/v1/requests/{request_id}                              decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+GET    /api/v1/requests/{request_id}/approval-status              decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+HEAD   /api/v1/requests/{request_id}/approval-status              decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+GET    /api/v1/requests/{request_id}/events                       decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+HEAD   /api/v1/requests/{request_id}/events                       decl=requests:read enforced=requests:read none=401 viewer=404 onboarding=404
+POST   /api/v1/requests/{request_id}:approve                      decl=requests:approve enforced=requests:approve none=401 viewer=403 onboarding=403
+POST   /api/v1/requests/{request_id}:cancel                       decl=requests:cancel enforced=requests:cancel none=401 viewer=403 onboarding=404
+POST   /api/v1/requests/{request_id}:reject                       decl=requests:reject enforced=requests:reject none=401 viewer=403 onboarding=403
+POST   /api/v1/requests/{request_id}:retry                        decl=requests:retry enforced=requests:retry none=401 viewer=403 onboarding=403
+POST   /api/v1/requests/{request_id}:revert                       decl=requests:retry enforced=requests:retry none=401 viewer=403 onboarding=403
+GET    /api/v1/tiers                                              decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+HEAD   /api/v1/tiers                                              decl=objects:read enforced=objects:read none=401 viewer=200 onboarding=200
+GET    /api/v1/version                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /api/v1/version                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs                                                      decl=None enforced=None none=503 viewer=503 onboarding=503
+HEAD   /docs                                                      decl=None enforced=None none=503 viewer=503 onboarding=503
+GET    /docs/changelog                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/changelog                                            decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/oauth2-redirect                                      decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/oauth2-redirect                                      decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/redoc-start.js                                       decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/redoc-start.js                                       decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /docs/swagger.css                                          decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /docs/swagger.css                                          decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /healthz                                                   decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /healthz                                                   decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /openapi.json                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /openapi.json                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /openapi.yaml                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /openapi.yaml                                              decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /problems                                                  decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /problems                                                  decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /problems/{code}                                           decl=None enforced=None none=404 viewer=404 onboarding=404
+HEAD   /problems/{code}                                           decl=None enforced=None none=404 viewer=404 onboarding=404
+GET    /readyz                                                    decl=None enforced=None none=200 viewer=200 onboarding=200
+HEAD   /readyz                                                    decl=None enforced=None none=200 viewer=200 onboarding=200
+GET    /redoc                                                     decl=None enforced=None none=503 viewer=503 onboarding=503
+HEAD   /redoc                                                     decl=None enforced=None none=503 viewer=503 onboarding=503
+.......... [ 34%]
+........................................................................................................... [ 86%]
+...........................                                              [100%]
+206 passed, 37 subtests passed in 105.76s (0:01:45)
+exit 0

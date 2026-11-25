@@ -89,10 +89,18 @@ COPY --from=tools /tmp/tools/bin/kyverno /tmp/tools/bin/kubeconform /usr/local/b
 COPY --from=tools /tmp/tools/static /opt/app-root/static
 COPY --from=tools /tmp/tools/schemas /opt/app-root/schemas
 WORKDIR /opt/app-root/src
+# Every Python package comes from the hashed lock (#655): exact versions, each file checked against its SHA-256, wheels only,
+# so nothing floats at build time and a changed file fails the build. The lock holds pip too, which replaces the base image's
+# pip 24.2 (#657), and the build backend. cmapi itself then goes in with --no-deps and that backend, the pattern of pip's
+# "Secure installs" (https://pip.pypa.io/en/stable/topics/secure-installs/). pip check fails the build when the lock no longer
+# satisfies pyproject.toml (cmapi/lock.sh regenerates it). The backend is not needed at run time and leaves the image.
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --require-hashes --no-deps --only-binary :all: -r requirements.txt
 COPY pyproject.toml ./
 COPY src ./src
-RUN pip install --no-cache-dir . && \
-    rm -rf src build *.egg-info && \
+RUN pip install --no-cache-dir --no-deps --no-build-isolation --no-index . && \
+    pip check && pip uninstall --yes setuptools && \
+    rm -rf src build *.egg-info requirements.txt && \
     mkdir -p /etc/cmapi/config /etc/cmapi/policies /opt/app-root/src/.kube && \
     chown -R 1001:0 /opt/app-root && chmod -R g=u /opt/app-root
 COPY policies /etc/cmapi/policies

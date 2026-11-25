@@ -1,0 +1,13 @@
+# Before the check was added, each mutant below passed the guard (ci cases failed: 0).
+$ python deploy/tests/ci-guard.py .github/workflows/ci.yml
+  ok   every venv of the audit gets the lock's pip, by hash, before it is used
+ci cases failed: 0
+$ mutant of cmapi/audit.sh: /locked-pip.sh" "\$work\/\$1\/bin\/python" ||/d
+  FAIL every venv of the audit gets the lock's pip, by hash, before it is used
+ci cases failed: 1
+$ mutant of cmapi/audit.sh: s#^pip_install "\$examples" -r#"$python" -m venv "$work/examples2"; pip_install "$examples" -r#
+  FAIL every venv of the audit gets the lock's pip, by hash, before it is used
+ci cases failed: 1
+$ mutant of cmapi/locked-pip.sh: s#--require-hashes --no-deps -r "\$entry"#--upgrade pip#
+  FAIL every venv of the audit gets the lock's pip, by hash, before it is used
+ci cases failed: 1

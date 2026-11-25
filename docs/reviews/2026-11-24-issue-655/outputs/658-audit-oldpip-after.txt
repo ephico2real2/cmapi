@@ -1,0 +1,26 @@
+
+== pip-audit, from its hashed lock (cmapi/audit/requirements.txt)
+pip 26.3 from <work>/tools/lib/python3.12/site-packages/pip (python 3.12)
+pip-audit 2.10.1
+
+== 1. The image's set: cmapi/requirements.txt with --require-hashes, then cmapi with --no-deps
+pip 26.3 from <work>/image/lib/python3.12/site-packages/pip (python 3.12)
+No known vulnerabilities found
+osv_audit: 39 packages, 0 advisories, 0 not audited
+ok: the image's set (cmapi/requirements.txt) has no known advisory
+No broken requirements found.
+ok: the lock satisfies pyproject.toml
+
+== 2. The service tests' set: set 1 plus cmapi[test]
+No known vulnerabilities found
+osv_audit: 49 packages, 0 advisories, 0 not audited
+ok: the service tests' set (cmapi[test]) has no known advisory
+
+== 3. The reference code's set: examples/local/requirements.txt
+pip 26.3 from <work>/examples/lib/python3.12/site-packages/pip (python 3.12)
+No known vulnerabilities found
+osv_audit: 34 packages, 0 advisories, 0 not audited
+ok: the reference code's set (examples/local/requirements.txt) has no known advisory
+
+audit.sh: no known advisory in any set
+exit 0

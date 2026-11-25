@@ -1,0 +1,8 @@
+sh: line 1: which: command not found
+Python 3.12.15
+pip 24.2 from /opt/app-root/lib64/python3.12/site-packages/pip (python 3.12)
+Package Version
+------- -------
+pip     24.2
+VENV=
+x86_64

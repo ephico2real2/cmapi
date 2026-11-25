@@ -19,7 +19,7 @@ dependencies = [
     "psycopg[binary]==3.3.8",
     "alembic==1.20.1",
     "httpx==0.28.1",
-    "pyjwt[crypto]==2.10.1",
+    "pyjwt[crypto]==2.15.1",
     "pyyaml==6.0.2",
     "google-re2==1.1.20251105",
     "prometheus-client==0.24.1",
@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest==8.3.4", "jsonschema==4.26.0"]
+test = ["pytest==9.2.0", "jsonschema==4.26.0"]
 
 [project.scripts]
 cmapi-api = "cmapi.main:run"

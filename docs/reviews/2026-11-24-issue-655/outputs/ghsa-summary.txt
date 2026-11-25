@@ -1,0 +1,22 @@
+GHSA-2gx3-rcp4-g85q medium CVE-2026-101917 2026-09-29 [('pyjwt', '<= 2.13.0', '2.14.0')] | PyJWT: PyJWKClient still amplifies unauthenticated JWKS fetches on unknown kid values (incomplete fix of CVE-2026-48524)
+GHSA-42vr-xj54-vc7v medium CVE-2026-101918 2026-09-30 [('PyJWT', '>= 2.0.0a1, <= 2.14.0', '2.15.0')] | PyJWT: Unauthenticated RecursionError DoS in pre-verification payload parse (PyJWKClient.get_signing_key_from_jwt / verify_signature=False)
+GHSA-6w46-j5rx-g56g medium CVE-2025-71176 2026-01-22 [('pytest', '< 9.0.3', '9.0.3')] | pytest has vulnerable tmpdir handling
+GHSA-752w-5fwx-jx9f high CVE-2026-32597 2026-03-13 [('PyJWT', '<= 2.11.0', '2.12.0')] | PyJWT accepts unknown `crit` header extensions
+GHSA-8wjv-2p76-3863 medium CVE-2026-102265 2026-09-29 [('pyJWT', '>= 2.13.0, < 2.14.0', '2.14.0')] | PyJWT: Uncaught RecursionError in jwt.decode() on deeply nested token header
+GHSA-993g-76c3-p5m4 medium CVE-2026-48522 2026-06-15 [('PyJWT', '>= 2.0.0, <= 2.12.1', '2.13.0')] | PyJWKClient: missing scheme allowlist enables CVE-2024-21643-class SSRF + token forgery via file://, ftp://, data: schemes
+GHSA-9j54-fg26-wv3r high CVE-2026-102266 2026-09-29 [('PyJWT', '>= 2.13.0, < 2.14.0', '2.14.0')] | PyJWT: PyJWK accepts empty HMAC keys, bypassing PyJWT's empty-key validation
+GHSA-9v7f-9g4p-ffgj high CVE-2026-102267 2026-09-29 [('PyJWT', '<= 2.13.0', '2.14.0')] | PyJWT: PyJWKClient follows redirects when fetching JWKS
+GHSA-ffc3-869f-jxw9 critical CVE-2026-102268 2026-09-29 [('PyJWT', '<= 2.13.0', '2.14.0')] | PyJWT: Asymmetric-PEM detection bypass: whitespace/line-ending-mutated public keys skip the HS/asymmetric confusion guard
+GHSA-fhv5-28vv-h8m8 low CVE-2026-48524 2026-06-15 [('pyjwt', '>= 2.0.0, <= 2.12.1', '2.13.0')] | PyJWKClient unbounded JWKS endpoint requests via attacker-controlled kid values (DoS)
+GHSA-gvp8-978c-rx2q medium CVE-2026-103001 2026-09-30 [('PyJWT', '>= 2.11.0, <= 2.13.0', None)] | PyJWT.decode() reintroduces options-dict mutation, enabling silent claim-verification bypass on dict reuse
+GHSA-hxm8-2xgr-2p9m medium CVE-2026-102269 2026-09-29 [('PyJWT', '<= 2.13.0', '2.14.0')] | PyJWT: Non-canonical signature segments enable raw-token revocation bypass
+GHSA-jq35-7prp-9v3f medium CVE-2026-48523 2026-06-15 [('pyjwt', '>= 2.9.0, < 2.13.0', '2.13.0')] | PyJWT: Algorithm allow-list bypass when decoding with `PyJWK` / `PyJWKClient` keys
+GHSA-jwrc-g2q2-pq5p medium CVE-2026-102270 2026-09-30 [('pyjwt', '<= 2.13.0', '2.14.0')] | PyJWT: ReDoS vulnerability when calling the `is_pem_format` function.
+GHSA-p4g4-x82p-q773 high CVE-2026-102271 2026-09-29 [('pyjwt', '>= 2.4.0, < 2.14.0', '2.14.0')] | PyJWT: Public keys in DER form are accepted as HMAC secrets, bypassing the CVE-2022-29217 guard
+GHSA-pxh4-856f-4h89 high None 2026-10-22 [('pyjwt', '<= 2.13.0', '2.14.0')] | PyJWT: HS256/384/512 verify accepts empty HMAC key via oct JWK (PyJWK/PyJWKClient) enabling token forgery
+GHSA-r6x4-923q-g947 high CVE-2026-102272 2026-09-29 [('PyJWT', '= 2.13.0', '2.14.0')] | PyJWT BOM Bypass
+GHSA-w2cx-738m-mc7w high CVE-2026-102273 2026-09-29 [('PyJWT', '= 2.13.0', '2.14.0')] | PyJWT accepts public JWK containers as HMAC secrets
+GHSA-w6j9-cwv2-h6wq medium CVE-2026-102274 2026-09-29 [('PyJWT', '>= 2.9.0, <= 2.13.0', '2.14.0')] | PyJWT: Malformed RSA JWK aborts parsing of an entire JWK Set
+GHSA-w7vc-732c-9m39 medium CVE-2026-48525 2026-06-15 [('pyjwt', '>= 2.8.0, <= 2.12.1', '2.13.0')] | PyJWT: Unauthenticated DoS via unbounded Base64URL decoding of unused payload segment in b64=false detached JWS
+GHSA-x33g-cr3x-6449 medium CVE-2026-102275 2026-10-05 [('PyJWT', '>= 2.1.0, <= 2.14.0', '2.15.0')] | PyJWT accepts inconsistent OKP x/d JWKs, causing public/private key identity confusion
+GHSA-xgmm-8j9v-c9wx high CVE-2026-48526 2026-06-15 [('pyjwt', '< 2.13.0', '2.13.0')] | PyJWT: Public-key JWK accepted as HMAC secret enables forged HS256 tokens when mixed families are allowed

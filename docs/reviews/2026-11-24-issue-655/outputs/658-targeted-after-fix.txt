@@ -1,0 +1,4 @@
+$ the 656 file alone
+36 passed in 2.80s
+$ test_api_contract.py, then auth, JWKS, PyJWT and observability files, then the 656 file
+209 passed in 174.76s (0:02:54)
