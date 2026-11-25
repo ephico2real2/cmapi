@@ -352,6 +352,12 @@ export interface paths {
          *     A key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's
          *     environment. A body that changes nothing is 422 `no-change`.
          *
+         *     **Several ResourceQuotas.** cmapi changes only its own ResourceQuota (`<ns>-quota`) and LimitRanges (`<ns>-limits-*`);
+         *     every other one in the folder is kept as Git holds it, each in its own file (#250). When the folder holds several
+         *     ResourceQuotas, a change of `quota` or `tier` is 409 `several-resource-quotas`, which names them in `resourceQuotas`: the
+         *     request cannot say which one it changes. When none of them is `<ns>-quota`, a change of `limitRange` is refused too, and
+         *     a change of labels, annotations or the expiry keeps every ResourceQuota and LimitRange.
+         *
          *     **Requires** `namespaces:write`.
          */
         patch: operations["namespaces_update_namespace"];
@@ -6318,7 +6324,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `namespace-exists`, `namespace-exists-unmanaged`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`, `namespace-exists`, `namespace-exists-unmanaged`.
              */
             409: {
                 headers: {
@@ -6551,7 +6557,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `folder-not-utf8`.
+             *     Codes: `folder-not-utf8`, `folder-not-yaml`.
              */
             409: {
                 headers: {
@@ -6842,7 +6848,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-holds-submodule`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`, `folder-holds-submodule`.
              */
             409: {
                 headers: {
@@ -7175,7 +7181,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`, `several-resource-quotas`.
              */
             409: {
                 headers: {
@@ -7484,7 +7490,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`.
              */
             409: {
                 headers: {
@@ -7816,7 +7822,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`.
              */
             409: {
                 headers: {
@@ -8125,7 +8131,7 @@ export interface operations {
             /**
              * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
              *
-             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`.
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`.
              */
             409: {
                 headers: {

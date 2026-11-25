@@ -97,20 +97,19 @@ def watch_sync(ctx: AppContext, s: Session, job: JobRow) -> None:
             jobs.fence()
             n = d.apply_folder(files)
             if removed:
-                import yaml
+                from cmapi.core import kube_yaml
 
                 # A file rename removes a path, not the Kubernetes objects retained in another file.
                 def identity(doc):
                     meta = doc["metadata"]
                     return doc["kind"], meta.get("namespace", row.namespace), meta["name"]
 
-                retained = {identity(doc) for text in files.values()
-                            for doc in yaml.safe_load_all(text) if doc}
+                retained = {identity(doc) for text in files.values() for doc in kube_yaml.load_all(text)}
                 obsolete = {}
                 for path, text in removed.items():
-                    docs = [doc for doc in yaml.safe_load_all(text) if doc and identity(doc) not in retained]
+                    docs = [doc for doc in kube_yaml.load_all(text) if identity(doc) not in retained]
                     if docs:
-                        obsolete[path] = yaml.safe_dump_all(docs, sort_keys=False)
+                        obsolete[path] = kube_yaml.dump_all(docs, sort_keys=False)
                 d.prune_objects(row.namespace, obsolete)
             repo.event(row, "applied", "cmapi-deliverer", f"server-side applied {n} objects from Git {row.merge_sha[:8] if row.merge_sha else 'main'}")
         else:

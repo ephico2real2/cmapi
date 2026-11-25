@@ -1,4 +1,13 @@
-"""YAML text that every reader of a Kubernetes manifest takes back as the same data (#355).
+"""The YAML of the Kubernetes manifests cmapi writes and reads: one writer (dump, dump_all) and one reader (load_all).
+
+The reader (#250). A file of a namespace's folder is a YAML stream, and a stream may hold several documents separated by
+`---`. PyYAML's safe_load "Parse[s] the first YAML document in a stream" and raises ComposerError "expected a single
+document in the stream" when there is another (PyYAML 6.0.2, lib/yaml/__init__.py and lib/yaml/composer.py), so one
+manifest with a second object, or only a trailing `---`, made each change of its namespace answer 500. Every place that
+parses a folder file calls load_all, which reads every document, and finds the objects it needs by kind. The record is
+docs/reviews/2026-11-25-issue-250/README.md.
+
+The writer: YAML text that every reader of a Kubernetes manifest takes back as the same data (#355).
 
 PyYAML quotes a string only when its own resolver would read the plain form as something else, and that resolver is not
 the one the readers of cmapi's files use:
@@ -94,3 +103,10 @@ def dump(doc: Any, **kwargs: Any) -> str:
 
 def dump_all(docs: Iterable[Any], **kwargs: Any) -> str:
     return yaml.dump_all(docs, Dumper=KubeSafeDumper, **kwargs)
+
+
+def load_all(text: str | None) -> list[dict[str, Any]]:
+    """Every Kubernetes object of a YAML stream, in order: each document that is a mapping. A file may hold one object or
+    several. An empty document (a leading or trailing `---`, a comment alone) and a document that is not a mapping are no
+    object, so no reader is handed one. Safe loading: only YAML's standard tags. A stream that is not YAML raises yaml.YAMLError."""
+    return [d for d in yaml.safe_load_all(text or "") if isinstance(d, dict)]

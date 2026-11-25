@@ -22,9 +22,9 @@ through the merge job's post-merge check, never failed (the arbitration, row 16;
 from __future__ import annotations
 
 
-import yaml
 from sqlalchemy.orm import Session
 
+from cmapi.core import kube_yaml
 from cmapi.core.clients.kube import ClusterUnreachable, KubeError
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
@@ -109,12 +109,12 @@ def _apply(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) 
                     meta = doc["metadata"]
                     return doc["kind"], meta.get("namespace", row.namespace), meta["name"]
 
-                retained = {identity(doc) for text in files.values() for doc in yaml.safe_load_all(text) if doc}
+                retained = {identity(doc) for text in files.values() for doc in kube_yaml.load_all(text)}
                 obsolete = {}
                 for path, text in removed.items():
-                    docs = [doc for doc in yaml.safe_load_all(text) if doc and identity(doc) not in retained]
+                    docs = [doc for doc in kube_yaml.load_all(text) if identity(doc) not in retained]
                     if docs:
-                        obsolete[path] = yaml.safe_dump_all(docs, sort_keys=False)
+                        obsolete[path] = kube_yaml.dump_all(docs, sort_keys=False)
                 pruned = d.prune_objects(row.namespace, obsolete)
             cache = _reader_cache(ctx, row.cluster_id)
             ok, why = confirmed_by_read(lambda k, ns, nm: cache.get(k, ns, nm) or _direct(cache, k, ns, nm), row.namespace, files)

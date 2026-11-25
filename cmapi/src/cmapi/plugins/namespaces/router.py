@@ -34,7 +34,8 @@ router = DocumentedRouter("namespaces", prefix="/api/v1/clusters/{cluster_id}", 
 # Every write: the cluster, the caller, the Idempotency-Key, Git and the cluster's watch.
 WRITE_PROBLEMS = ["cluster-not-found", "cluster-not-writable", "environment-not-served", "environment-forbidden", "plugin-disabled",
                   "validation-failed", "change-pending", "identity-incomplete", "on-behalf-of-required",
-                  "idempotency-key-required", "idempotency-replay", "git-unavailable", "folder-not-utf8", "cluster-unreachable"]
+                  "idempotency-key-required", "idempotency-replay", "git-unavailable", "folder-not-utf8", "folder-not-yaml",
+                  "cluster-unreachable"]
 # A body with onBehalfOf: create and change (resolve_requester). A metadata refusal, team-dl too, is a policy-violation item.
 ON_BEHALF_PROBLEMS = ["unknown-user", "on-behalf-of-not-allowed"]
 # Rendering and checking the new files: every write but a delete, which renders no namespace (plan_delete).
@@ -212,7 +213,8 @@ NAMESPACE_ETAG_HEADER = {"ETag": {
              returns="The namespace's labels, annotations, tier and sync state as Git and the cluster hold them, with "
                      "the ETag that a change sends in If-Match.",
              permission="objects:read", response_model=NamespaceView,
-             problems=["cluster-not-found", "object-not-found", "git-unavailable", "folder-not-utf8", "environment-forbidden"],
+             problems=["cluster-not-found", "object-not-found", "git-unavailable", "folder-not-utf8", "folder-not-yaml",
+                       "environment-forbidden"],
              responses={"200": {"headers": NAMESPACE_ETAG_HEADER}})
 def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, who: Identity = Depends(require("objects:read")),
                   c: AppContext = Depends(ctx)) -> dict:
@@ -281,7 +283,7 @@ def create_namespace(cluster_id: ClusterId, body: NamespaceCreate,
 
 @router.write("/namespaces/{ns}", summary="Change a namespace", permission="namespaces:write", method="PATCH",
               response_model=ChangeRequest, dry_run_model=PlanView,
-              problems=WRITE_PROBLEMS + ON_BEHALF_PROBLEMS + RENDER_PROBLEMS + CHANGE_PROBLEMS + ["no-change"])
+              problems=WRITE_PROBLEMS + ON_BEHALF_PROBLEMS + RENDER_PROBLEMS + CHANGE_PROBLEMS + ["no-change", "several-resource-quotas"])
 def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePatch,
                      dry_run: DryRun = False,
                      key: str | None = Depends(idempotency_key), etag: str | None = Depends(if_match),
@@ -315,7 +317,13 @@ def update_namespace(cluster_id: ClusterId, ns: NamespaceName, body: NamespacePa
     **Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,
     `invalid_key`, `invalid_value`, `derived_key`, `missing_required_key`, `too_many_keys`, `annotations_too_large`).
     A key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's
-    environment. A body that changes nothing is 422 `no-change`."""
+    environment. A body that changes nothing is 422 `no-change`.
+
+    **Several ResourceQuotas.** cmapi changes only its own ResourceQuota (`<ns>-quota`) and LimitRanges (`<ns>-limits-*`);
+    every other one in the folder is kept as Git holds it, each in its own file (#250). When the folder holds several
+    ResourceQuotas, a change of `quota` or `tier` is 409 `several-resource-quotas`, which names them in `resourceQuotas`: the
+    request cannot say which one it changes. When none of them is `<ns>-quota`, a change of `limitRange` is refused too, and
+    a change of labels, annotations or the expiry keeps every ResourceQuota and LimitRange."""
     raw = {**body.model_dump(by_alias=True, exclude_none=True), "namespace": ns, "clusterId": cluster_id}
     # exclude_none also drops None inside dicts, and in a merge patch null is what removes a key
     for field in ("labels", "annotations"):

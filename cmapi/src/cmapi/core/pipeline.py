@@ -17,6 +17,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from cmapi.core import kube_yaml
 from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, Requirement
 from cmapi.core.capacity_backend import SimulatedCapacity
 from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeError
@@ -35,8 +36,9 @@ from cmapi.core.observability import AUTO_APPROVALS, AUTO_FALLBACKS, CHANGE_REQU
 from cmapi.core.ports import CapacityBackend, CapacityResult, Finding, Validator
 from cmapi.core.validate import ValidatorUnavailable
 from cmapi.core.registry import ClusterRegistry
-from cmapi.core.render.manifests import DELETED, ManifestRenderer, NamespaceSpec, diff_files, folder, objects_of, plan_hash
-from cmapi.core.tiers import EXPOSURE_KEYS, flatten_limits, qty
+from cmapi.core.render.manifests import (DELETED, ManifestRenderer, NamespaceSpec, diff_files, folder, objects_of, own_quota,
+                                         plan_hash, quotas_kept)
+from cmapi.core.tiers import EXPOSURE_KEYS, QuotaChange, flatten_limits, qty
 from cmapi.plugins.expiration.rules import ExpiryInfo
 
 SYSTEM_PREFIX = "cmapi.net/"
@@ -199,11 +201,21 @@ class Pipeline:
         if not is_label(ns):              # a path parameter such as "..": never a folder, never sent to the Git host
             raise Problem(404, "object-not-found", f"{ns!r} is not a namespace name")
         try:
-            return self.git.read_folder(folder(cluster_id, ns))
+            files, sha = self.git.read_folder(folder(cluster_id, ns))
         except GitUnavailable as exc:
             raise Problem(502, "git-unavailable", str(exc)[:300]) from exc
         except NotUtf8 as exc:
             raise folder_not_utf8(ns, exc) from exc
+        # Every reader of the folder parses it with kube_yaml.load_all; a file it cannot parse is refused once, here (#680).
+        errors = {}
+        for path in sorted(files):
+            try:
+                kube_yaml.load_all(files[path])
+            except yaml.YAMLError as exc:
+                errors[path] = exc
+        if errors:
+            raise folder_not_yaml(ns, errors)
+        return files, sha
 
     def removable_folder(self, cluster_id: str, ns: str, ref: str) -> dict[str, str]:
         """Every path a delete of the namespace removes: each file of its folder at ref, at any depth, whatever made it (#616).
@@ -296,10 +308,16 @@ class Pipeline:
         try:
             old_tier = (prev_ns or {}).get("metadata", {}).get("labels", {}).get("cmapi.net/tier")
             old_exp = (prev_ns or {}).get("metadata", {}).get("annotations", {}).get("cmapi.net/expires-at")
-            old_rq = _tier_quota(prev_files, ns)
+            quotas = objects_of(prev_files, "ResourceQuota")
+            old_rq = own_quota(quotas, ns)
             old_quota = _hard(old_rq)
             tier = body.get("tier") or old_tier or "small"
             quota, limits = body.get("quota"), body.get("limitRange")
+            # D9 (#250): with several ResourceQuotas the plan cannot tell which one a request means, and when none is cmapi's
+            # own it keeps them all with every LimitRange, so a change of the quota, the tier or (then) the limits is refused.
+            quotas_held = quotas_kept(quotas, ns)
+            if len(quotas) > 1 and (quota or (old_tier is not None and tier != old_tier) or (quotas_held and limits)):
+                raise several_quotas(ns, quotas, kept=quotas_held)
             # A change that sends no expiry keeps the date that Git holds, also where expiration is off now (#479).
             kept = date.fromisoformat(old_exp) if old_exp and action != "create" else None
             expires = _date(body["expiresAt"]) if body.get("expiresAt") else kept
@@ -338,8 +356,12 @@ class Pipeline:
             if resolved.custom and custom_before:
                 quota = {**{k: v for k, v in approved.items() if not k.startswith("limitRange.")}, **(quota or {})}
                 limits = _merge_limits(approved, limits)
-            hard = self.cfg.tiers.quota_for(env, tier, quota, approved)
-            limit_range = self.cfg.tiers.limits_for(env, tier, limits, hard, approved)
+            if quotas_held:
+                # Nothing of the tier is rendered (manifests.quotas_kept), so the plan has no quota or limits to size or check.
+                hard, limit_range = {}, {}
+            else:
+                hard = self.cfg.tiers.quota_for(env, tier, quota, approved)
+                limit_range = self.cfg.tiers.limits_for(env, tier, limits, hard, approved)
             spec = NamespaceSpec(namespace=ns, cluster_id=cluster_id, instance=self.cfg.name, env=env, tier=tier,
                                  request_id="(planned)", requested_by_user=requester.person.username.lower(),
                                  requested_by_email=requester.email, labels=labels, annotations=anns,
@@ -376,11 +398,11 @@ class Pipeline:
             # A PATCH, whose body can add a key: the expiry calls (reason expiration:...) cannot, so they get no finding.
             findings = [*findings, *self._held_key_findings(cluster_id, ns, labels, anns)]
         old_hard = {}
-        if old_tier:
+        if old_tier and not quotas_held:
             # A custom namespace: what Git holds, as it is. It was approved, so no bound is checked again (#214).
             old_hard = dict(old_quota or {}) if custom_before else self.cfg.tiers.quota_for(env, old_tier)
-        cpu_delta = float(qty(hard["requests.cpu"]) - qty(old_hard.get("requests.cpu", "0")))
-        mem_delta = float(qty(hard["requests.memory"]) - qty(old_hard.get("requests.memory", "0")))
+        cpu_delta = float(qty(hard.get("requests.cpu", "0")) - qty(old_hard.get("requests.cpu", "0")))
+        mem_delta = float(qty(hard.get("requests.memory", "0")) - qty(old_hard.get("requests.memory", "0")))
         cap = self.capacity.check(cluster_id, env, max(cpu_delta, 0), max(mem_delta, 0))
         if cap.status == "exceeded":
             raise Problem.unprocessable("capacity-exceeded", f"{cap.binding_resource} would exceed the cluster",
@@ -390,7 +412,10 @@ class Pipeline:
                  "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,
                  "clusterLabels": dict(st.policy.labels), "warnings": [f.message for f in findings], "reason": reason,
                  **exp_facts, **self.cfg.metadata.change_facts(cur_l, labels, cur_a, anns, existing=prev_ns is not None)}
-        if old_tier and action != "create":
+        if quotas_held:
+            # The tier is the one Git holds (a move is refused above) and no quota changes.
+            facts.update(QuotaChange("custom" if resolved.custom else "same", {}, {}).facts())
+        elif old_tier and action != "create":
             facts.update(self.cfg.tiers.compare(env, old_tier, old_hard or hard, tier, hard).facts())
         # Beyond the tier: each overridable value that differs from the tier and from the value that Git holds. A value that
         # was approved before is not beyond the tier again.
@@ -398,7 +423,7 @@ class Pipeline:
                   if k not in approved or qty(approved[k]) != qty(v["requested"])}
         # Network exposure: the new quota has more load balancers or NodePorts than Git holds (for a new namespace: than the
         # tier gives). It does not depend on the beyond-tier keys: a change to a tier with a higher value raises it too.
-        exposure_base = (old_quota or {}) if old_tier else resolved.quota
+        exposure_base = hard if quotas_held else (old_quota or {}) if old_tier else resolved.quota
         raised = [k for k in sorted(EXPOSURE_KEYS) if qty(hard.get(k, "0")) > qty(exposure_base.get(k, "0"))]
         facts.update({"beyondTier": bool(beyond), "beyondTierKeys": sorted(beyond), "networkExposure": bool(raised)})
         requirement = self._decide(facts)
@@ -564,6 +589,34 @@ def folder_not_utf8(ns: str, exc: NotUtf8) -> Problem:
                                                "again", paths=exc.paths)
 
 
+def folder_not_yaml(ns: str, errors: Mapping[str, yaml.YAMLError]) -> Problem:
+    """409: a manifest of the folder is not YAML (#680), so no plan can read the namespace. A conflict with the folder's state
+    that the caller resolves in Git and then sends again (RFC 9110, section 15.5.10), as folder-not-utf8 is. The detail names
+    the first file and where PyYAML stopped (a MarkedYAMLError's problem and mark); `paths` names each file."""
+    paths = sorted(errors)
+    first = errors[paths[0]]
+    mark = getattr(first, "problem_mark", None)
+    where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark is not None else ""
+    what = getattr(first, "problem", None) or type(first).__name__
+    more = f" and {len(paths) - 1} more" if len(paths) > 1 else ""
+    return Problem.conflict("folder-not-yaml", f"The folder of {ns} holds {paths[0]}{more}, which is not YAML: {what}{where}. "
+                                               "Correct it in Git, then send the request again", paths=paths)
+
+
+def several_quotas(ns: str, quotas: list[dict[str, Any]], *, kept: bool) -> Problem:
+    """409: the folder holds several ResourceQuotas, and the request changes the quota or the tier (or, when none of them is
+    cmapi's own, the limits) without naming the object it changes (the adoption design's D9, #250). A conflict with the
+    folder's state that the caller can resolve and send again (RFC 9110, section 15.5.10), as folder-holds-submodule is. The
+    problem names the objects. Nothing is planned."""
+    names = sorted(str((q.get("metadata") or {}).get("name")) for q in quotas)
+    what = (f"none is cmapi's own {ns}-quota, so a change of the quota, the tier or the limits" if kept
+            else "a change of the quota or the tier")
+    return Problem.conflict("several-resource-quotas",
+                            f"The folder of {ns} holds {len(names)} ResourceQuotas, {', '.join(names)}: {what} must name the "
+                            "object it changes, and a request cannot name one. Change only labels, annotations or the expiry, or "
+                            "leave one ResourceQuota in the folder in Git, then send the request again", resourceQuotas=names)
+
+
 def count_refusal(problem: Problem) -> None:
     """cmapi_validation_failures_total{source}: one for each error of a policy-violation, and one for each other refusal of
     CMAPI_REFUSALS. Before #302 only the validator's errors were counted, and cmapi's own refusals, raised first, were not."""
@@ -575,9 +628,9 @@ def count_refusal(problem: Problem) -> None:
 
 
 def namespace_doc(files: Mapping[str, str | None]) -> dict[str, Any] | None:
-    """The Namespace object of a folder's namespace.yaml, or None when the folder has none."""
+    """The Namespace object of a folder's namespace.yaml, from any document of it (#250), or None when the folder has none."""
     text = next((t for p, t in files.items() if p.endswith("/namespace.yaml") and t), None)
-    return yaml.safe_load(text) if text else None
+    return next((d for d in kube_yaml.load_all(text) if d.get("kind") == "Namespace"), None)
 
 
 def metadata_of(doc: Mapping[str, Any] | None) -> dict[str, dict[str, str]]:
@@ -599,13 +652,6 @@ def created_day(obj: Mapping[str, Any] | None) -> date | None:
         return None
 
 
-def _tier_quota(prev: Mapping[str, str], ns: str) -> dict[str, Any] | None:
-    """The namespace's own ResourceQuota in its folder, found by kind (#253): <ns>-quota, or the only one there is."""
-    quotas = objects_of(prev, "ResourceQuota")
-    named = [d for d in quotas if (d.get("metadata") or {}).get("name") == f"{ns}-quota"]
-    return named[0] if named else quotas[0] if len(quotas) == 1 else None
-
-
 def _hard(doc: Mapping[str, Any] | None) -> dict[str, str] | None:
     if not doc:
         return None
@@ -624,15 +670,13 @@ def _merge_limits(approved: Mapping[str, str], asked: Mapping[str, Any] | None) 
 
 def _service_accounts(prev: Mapping[str, str]) -> list[str]:
     text = next((t for p, t in prev.items() if p.endswith("serviceaccounts.yaml")), None)
-    return [d["metadata"]["name"] for d in yaml.safe_load_all(text) if d] if text else []
+    return [d["metadata"]["name"] for d in kube_yaml.load_all(text)]
 
 
 def _grants(prev: Mapping[str, str], *, scc: bool) -> list[tuple[str, str]]:
     text = next((t for p, t in prev.items() if p.endswith("/rolebindings.yaml")), None)
     out: list[tuple[str, str]] = []
-    for d in (yaml.safe_load_all(text) if text else []):
-        if not d:
-            continue
+    for d in kube_yaml.load_all(text):
         role = d["roleRef"]["name"]
         sa = d["subjects"][0]["name"]
         is_scc = role.startswith("system:openshift:scc:")
@@ -642,4 +686,4 @@ def _grants(prev: Mapping[str, str], *, scc: bool) -> list[tuple[str, str]]:
 
 
 __all__ = ["CMAPI_REFUSALS", "Pipeline", "Plan", "approval_view", "count_refusal", "folder_etag", "fingerprint", "metadata_of",
-           "namespace_doc"]
+           "folder_not_yaml", "namespace_doc", "several_quotas"]

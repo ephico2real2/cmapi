@@ -36,6 +36,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from cmapi.core import kube_yaml
 from cmapi.core.policy import PolicySettings
 from cmapi.core.policybundle import bundle_files
 from cmapi.core.policygen import environment_of, index_of, outside_keys
@@ -149,7 +150,7 @@ class CliValidator:
 
     def _kyverno(self, paths: Mapping[str, str], files: Mapping[str, str], environment: str,
                  previous: Mapping[str, str | None]) -> list[Finding]:
-        loaded = {p: [d for d in yaml.safe_load_all(files[p]) if d] for p in paths}
+        loaded = {p: kube_yaml.load_all(files[p]) for p in paths}
         checked = {p: f for p, f in paths.items() if any(isinstance(d, Mapping) and d.get("kind") in CHECKED for d in loaded[p])}
         policies = self.policies_for(environment)
         if not checked or not policies:
@@ -235,7 +236,7 @@ class CliValidator:
 
 def _previous_objects(previous: Mapping[str, str | None]) -> list[dict[str, Any]]:
     """Every object of the folder as Git holds it before this change, from any file and any document of it."""
-    return [d for text in previous.values() if text for d in yaml.safe_load_all(text) if isinstance(d, Mapping)]
+    return [d for text in previous.values() if text for d in kube_yaml.load_all(text)]
 
 
 def _previous_version(before: list[dict[str, Any]], doc: Mapping[str, Any],

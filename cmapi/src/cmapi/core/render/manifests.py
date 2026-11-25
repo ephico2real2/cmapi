@@ -5,9 +5,13 @@
         limitrange-<ns>-limits-cpu.yaml  limitrange-<ns>-limits-memory.yaml  [limitrange-<ns>-limits-storage.yaml]
         serviceaccounts.yaml  rolebindings.yaml  token-issuer-rolebinding.yaml
 
-One file for each ResourceQuota and each LimitRange, named after the object (the adoption design's D8, #253), so no
-reader takes several documents of those kinds. A folder written before that layout (resourcequota.yaml, limitrange.yaml)
-is read as it is, and its next change removes those files and writes the named ones in the same commit.
+One file for each ResourceQuota and each LimitRange, named after the object (the adoption design's D8, #253). A folder
+written before that layout (resourcequota.yaml, limitrange.yaml), or by hand, is read as a stream of documents
+(kube_yaml.load_all, #250), and its next change removes those files and writes the named ones in the same commit.
+
+cmapi changes only its own ResourceQuota and LimitRanges (D9, #250). Each other one in the folder is kept as Git holds
+it, in its own file; a request names none of them, so none is changed or removed. When the folder holds several
+ResourceQuotas and none is cmapi's own, cmapi renders no quota and no LimitRange of the tier beside them (quotas_kept).
 
 Nothing on the cluster expands these files, so the plan diff, Kyverno, kubeconform and the plan
 hash all cover exactly what Argo CD applies. Rules:
@@ -85,8 +89,32 @@ def objects_of(files: Mapping[str, str | None], kind: str) -> list[dict[str, Any
         text = files[path]
         if not text or not path.endswith(".yaml"):
             continue
-        out.extend(d for d in yaml.safe_load_all(text) if isinstance(d, Mapping) and d.get("kind") == kind)
+        out.extend(d for d in kube_yaml.load_all(text) if d.get("kind") == kind)
     return out
+
+
+def _name(doc: Mapping[str, Any]) -> str:
+    return str((doc.get("metadata") or {}).get("name") or "")
+
+
+def own_quota(quotas: list[dict[str, Any]], namespace: str) -> dict[str, Any] | None:
+    """cmapi's own ResourceQuota among a folder's: <ns>-quota, or the only one there is (#253). None when there are several
+    and none is <ns>-quota, or none at all."""
+    named = [d for d in quotas if _name(d) == f"{namespace}-quota"]
+    return named[0] if named else quotas[0] if len(quotas) == 1 else None
+
+
+def quotas_kept(quotas: list[dict[str, Any]], namespace: str) -> bool:
+    """True when the folder holds several ResourceQuotas and none is cmapi's own (D9): a change keeps every ResourceQuota and
+    LimitRange as Git holds them, and renders none of the tier's beside them. A second quota would bind with the others, and
+    a request cannot name which one it means."""
+    return len(quotas) > 1 and own_quota(quotas, namespace) is None
+
+
+def _own_limit_range(doc: Mapping[str, Any], namespace: str) -> bool:
+    """A LimitRange that cmapi names: <ns>-limits-<resource> (limit_object_name, #253), or the single <ns>-limits of before."""
+    name = _name(doc)
+    return name == f"{namespace}-limits" or name.startswith(f"{namespace}-limits-")
 
 
 # What plan_hash writes for a removed file, and for an empty one. Persisted plan hashes depend on it (jobs/delivery.py,
@@ -108,7 +136,7 @@ def _dump(docs: list[dict[str, Any]]) -> str:
 
 
 def _load(text: str | None) -> list[dict[str, Any]]:
-    return [d for d in yaml.safe_load_all(text)] if text else []
+    return kube_yaml.load_all(text)
 
 
 def _identity(doc: Mapping[str, Any]) -> tuple[str, str]:
@@ -132,6 +160,7 @@ class ManifestRenderer:
             raise Problem.unprocessable("expiration-not-allowed", "Production namespaces never expire")
         base = folder(spec.cluster_id, spec.namespace)
         prev = {p.removeprefix(base): _load(t) for p, t in (previous or {}).items()}
+        prev_objects = [d for name in sorted(prev) for d in prev[name]]
         common_labels = {"cmapi.net/cluster-id": spec.cluster_id, "cmapi.net/managed": "true"}
 
         def meta(name: str, ns: str | None, labels: dict[str, str], ann: dict[str, str]) -> dict[str, Any]:
@@ -144,7 +173,7 @@ class ManifestRenderer:
             return m
 
         # namespace.yaml
-        old_ns = next(iter(prev.get("namespace.yaml", [])), None)
+        old_ns = next((d for d in prev.get("namespace.yaml", []) if d.get("kind") == "Namespace"), None)
         old_ann = (old_ns or {}).get("metadata", {}).get("annotations", {})
         old_lab = (old_ns or {}).get("metadata", {}).get("labels", {})
         # caller keys first, then the keys that cmapi derives (value.from of metadata-keys.yaml), system keys last:
@@ -168,13 +197,22 @@ class ManifestRenderer:
         namespace_doc = {"apiVersion": "v1", "kind": "Namespace",
                          "metadata": meta(spec.namespace, None, labels, ann)}
 
-        # the ResourceQuota and the LimitRanges from the tier catalog, one file each
-        rq, lrs = self.catalog.render(namespace=spec.namespace, cluster_id=spec.cluster_id,
-                                     instance=spec.instance, env=spec.env, tier=spec.tier,
-                                     request_id=spec.request_id, hard=spec.quota, limits=spec.limit_range,
-                                     approved=spec.approved)
+        # the ResourceQuota and the LimitRanges from the tier catalog, one file each, unless the folder's quotas are kept
+        quotas = [d for d in prev_objects if d.get("kind") == "ResourceQuota"]
         files: dict[str, list[dict[str, Any]]] = {"namespace.yaml": [namespace_doc]}
-        for d in (rq, *lrs):
+        tier_objects: list[dict[str, Any]] = []
+        if quotas_kept(quotas, spec.namespace):
+            kept = [d for d in prev_objects if d.get("kind") in OBJECT_FILE_STEM]
+        else:
+            rq, lrs = self.catalog.render(namespace=spec.namespace, cluster_id=spec.cluster_id,
+                                         instance=spec.instance, env=spec.env, tier=spec.tier,
+                                         request_id=spec.request_id, hard=spec.quota, limits=spec.limit_range,
+                                         approved=spec.approved)
+            tier_objects = [rq, *lrs]
+            own = own_quota(quotas, spec.namespace)
+            kept = [d for d in quotas if d is not own]
+            kept += [d for d in prev_objects if d.get("kind") == "LimitRange" and not _own_limit_range(d, spec.namespace)]
+        for d in tier_objects:
             d["metadata"]["labels"] = self.keys.ordered(d["metadata"]["labels"])
             d["metadata"]["annotations"] = self.keys.ordered(d["metadata"]["annotations"])
             files[object_file(d["kind"], d["metadata"]["name"])] = [d]
@@ -211,8 +249,14 @@ class ManifestRenderer:
                     d["metadata"]["annotations"]["cmapi.net/request-id"] = \
                         o["metadata"]["annotations"]["cmapi.net/request-id"]
         out: dict[str, str | None] = {base + name: _dump(docs) for name, docs in files.items()}
+        for d in kept:
+            # As Git holds it: the same text where the object is already alone in its own file, else the same object
+            # written to that file (D8's move of an old-layout file).
+            name = object_file(d["kind"], _name(d))
+            text = (previous or {}).get(base + name)
+            out[base + name] = text if text is not None and prev.get(name) == [d] else _dump([d])
         for name in prev:                     # the last SA or grant removed, or a file of the old layout: the file goes
-            if name not in files:
+            if base + name not in out:
                 out[base + name] = None
         return out
 
