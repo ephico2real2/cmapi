@@ -145,3 +145,22 @@ Not tested: a CRC or kind run, and the Go decoders reading a manifest that cmapi
 
 Filed: #679 (Low, Backlog), a surrogate escape in a value Git already holds, read by PyYAML, would make a PATCH of that
 namespace answer 500 at the same `metadata.py:1279` (inferred, not reproduced).
+
+## Review and the coordinator's run (2026-11-25)
+
+- **Reviewers.** Two reviewers, because the fix sits at the parser edge. Reviewer 1 and reviewer 2 are both Opus 5.5 high, standing in for Codex, which is at its limit. Their reports are in `review/`.
+- **Reviewer 1:**
+  - **H1 (High):** the walk was O(size × depth), and the answer had no limit on errors. A 1 MB body got a 93 MB answer after 15 s. Fixed: one loop over a stack, and the first 20 places.
+  - **M1 (Medium, older than this PR):** a body nested about 600 deep gave 500 through RecursionError. Fixed by the same loop.
+  - **L1:** the RFC 7493 quote is fixed.
+  - **L2** (no limit on body size) is #683, security, fixed next.
+  - **L3** goes to #684 (Backlog).
+- **Reviewer 2** accepted H1, M1 and L1, with amendments:
+  - a test at depth 8000 and a NUL leaf;
+  - corrected docstrings, from CPython 3.12.14's recursion limits;
+  - a second misquoted character in the README;
+  - the test count;
+  - tests for a raw CESU-8 pair and for surrogate keys at depth.
+
+  Its Backlog items R2-B1 to R2-B3 go to #684.
+- **The coordinator** applied reviewer 2's final patch with `patch -p1 -F0`, and relocated 4 docs/14 citations, reading each one. Full service suite in database `cmapi_coord_681`, 16:22:51Z to 17:04:24Z: **2956 passed**, none failed (`coord-suite.txt`).
