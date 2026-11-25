@@ -208,3 +208,16 @@ Reviewer 2 checked review 1's findings and its patch, and ruled on each with a t
 - **Not tested:** no image was built with these changes. In CI, `image modes (#650): an arbitrary UID (54321) in group 0` in
   `images-pr` (both) and `front-door`, after a step header that holds `[ "$(id -G)" = 0 ]` and `find -H`, proves that the new
   `RUN` ran as 54321, that its premise held (group 0 alone, nothing owned) and that every link with a target passed.
+
+## Coordinator's rulings and the CI gate
+
+- **Rulings (Opus 5.5).** All findings of reviewer 1 (Fable 5.2) and of reviewer 2 (Opus 5.5 high) are accepted. Reviewer 2's patch was applied with `patch -p1 -F0`.
+- **CI gate**, run 45583165533 on head `5fbffb8`: every job is green.
+  - Each image build printed its success line:
+    - `images-pr (cmapi)`: `image modes (#650): an arbitrary UID (54321) in group 0 reads every file and searches every directory under /opt/app-root /etc/cmapi /usr/local/bin`.
+    - `images-pr (cmapi-portal)` and `front-door`: the same line, for `/usr/share/nginx/html /etc/nginx /docker-entrypoint.sh` and the rest of the portal's paths.
+  - The logs hold no real refusal. Lines that contain "cannot read" are the check's own source, which BuildKit echoes.
+  - `manifests` printed:
+    - `ok   the modes check's user (54321:0)`;
+    - `ok   …: the final stage keeps the default shell`, for both images;
+    - `ci cases failed: 0`.
