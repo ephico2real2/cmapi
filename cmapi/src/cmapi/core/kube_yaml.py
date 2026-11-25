@@ -105,8 +105,33 @@ def dump_all(docs: Iterable[Any], **kwargs: Any) -> str:
     return yaml.dump_all(docs, Dumper=KubeSafeDumper, **kwargs)
 
 
+class _KubeSafeLoader(yaml.SafeLoader):
+    """SafeLoader whose value that a standard tag cannot construct fails as a YAMLError at that value (#680).
+
+    SafeConstructor builds a scalar with Python's own types, and they raise their own errors: construct_yaml_timestamp calls
+    datetime.date(year, month, day), so a plain 2026-02-30 raises ValueError "day is out of range for month"; !!int abc
+    raises ValueError, !!bool maybe KeyError, !!timestamp nope AttributeError (PyYAML 6.0.2, lib/yaml/constructor.py).
+    None of them is a yaml.YAMLError, so no reader would refuse the file as one that PyYAML cannot read."""
+
+    def construct_object(self, node: yaml.Node, deep: bool = False) -> Any:
+        try:
+            return super().construct_object(node, deep=deep)
+        except yaml.YAMLError:
+            raise
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            # The tag's short name and the node's place only: never the value, which is the file's text.
+            raise yaml.constructor.ConstructorError(None, None, f"a value that is not a valid {node.tag.rsplit(':', 1)[-1]}",
+                                                    node.start_mark) from exc
+
+
 def load_all(text: str | None) -> list[dict[str, Any]]:
     """Every Kubernetes object of a YAML stream, in order: each document that is a mapping. A file may hold one object or
     several. An empty document (a leading or trailing `---`, a comment alone) and a document that is not a mapping are no
-    object, so no reader is handed one. Safe loading: only YAML's standard tags. A stream that is not YAML raises yaml.YAMLError."""
-    return [d for d in yaml.safe_load_all(text or "") if isinstance(d, dict)]
+    object, so no reader is handed one. Safe loading: only YAML's standard tags. A stream that is not YAML, or that holds a
+    value its tag cannot construct, or that is nested deeper than Python's stack allows, raises yaml.YAMLError."""
+    try:
+        return [d for d in yaml.load_all(text or "", Loader=_KubeSafeLoader) if isinstance(d, dict)]
+    except RecursionError as exc:
+        # PyYAML's parser and composer recurse once for each level of nesting, so a file some hundreds of levels deep
+        # (measured with PyYAML 6.0.2 on Python 3.12: 500) exhausts the stack. It is the file's state, as a parse error is.
+        raise yaml.MarkedYAMLError(problem="a document nested deeper than the reader can read") from exc

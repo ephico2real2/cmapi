@@ -15,6 +15,7 @@ import pytest
 import yaml
 
 from cmapi.core import kube_yaml
+from cmapi.jobs.delivery import spec_from
 from test_flow import NS, OLA, auth, run_jobs
 
 URL = "/api/v1/clusters/CRC/namespaces"
@@ -236,3 +237,187 @@ def test_680_a_folder_file_that_is_not_yaml_is_a_409_that_names_it(world, call):
     assert r.status_code == 409, r.text
     assert r.json()["code"] == "folder-not-yaml" and r.json()["paths"] == [BASE + "namespace.yaml"], r.text
     assert "line 4, column 1" in r.json()["detail"], r.text
+
+
+# Reviewer 1 of #682. A value that PyYAML's standard tags cannot construct: the resolver reads 2026-02-30 as a timestamp, and
+# datetime.date raises ValueError, which is no yaml.YAMLError (PyYAML 6.0.2, lib/yaml/constructor.py).
+BAD_VALUE = ("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: payments-dev\n  annotations:\n"
+             "    example.com/review-by: 2026-02-30\n")
+
+
+@pytest.mark.parametrize("call", ["get", "patch", "delete"])
+def test_680_a_value_that_yaml_cannot_construct_is_a_409_that_names_it(world, call):
+    client, ctx, git, kube, validator, keys = world
+    created(world)
+    tag = etag(world)
+    main = git.branches["main"]
+    main[BASE + "namespace.yaml"] = BAD_VALUE
+    git._sha("main")
+    headers = {**auth(keys, "ola", **OLA), "If-Match": tag}
+    r = {"get": lambda: client.get(ONE, headers=headers),
+         "patch": lambda: client.patch(ONE + "?dryRun=true", json=LABEL, headers=headers),
+         "delete": lambda: client.delete(ONE + "?dryRun=true", headers=headers)}[call]()
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "folder-not-yaml" and r.json()["paths"] == [BASE + "namespace.yaml"], r.text
+    assert "not a valid timestamp at line 6, column 28" in r.json()["detail"], r.text
+    assert "2026-02-30" not in r.json()["detail"]                  # the place, never the file's text
+
+
+@pytest.mark.parametrize("text, line", [("a: 2026-02-30\n", 1), ("kind: X\nv: !!int abc\n", 2), ("kind: X\nv: !!bool maybe\n", 2),
+                                        ("kind: X\nv: !!timestamp nope\n", 2)])
+def test_the_reader_refuses_a_value_its_tag_cannot_construct_as_yaml(text, line):
+    with pytest.raises(yaml.YAMLError) as caught:
+        kube_yaml.load_all(text)
+    assert caught.value.problem_mark.line + 1 == line
+
+
+def test_a_limitrange_named_like_cmapis_but_not_rendered_by_cmapi_is_kept_in_git_and_on_the_cluster(world):
+    """<ns>-limits-gpu with no cmapi.net/tier-hash is a team's object, not a rendering of a tier: a label change keeps it."""
+    client, ctx, git, kube, validator, keys = world
+    created(world)
+    gpu = {"apiVersion": "v1", "kind": "LimitRange", "metadata": {"name": f"{NAME}-limits-gpu", "namespace": NAME},
+           "spec": {"limits": [{"type": "Container", "default": {"nvidia.com/gpu": "1"}}]}}
+    path = BASE + f"limitrange-{NAME}-limits-gpu.yaml"
+    git.branches["main"][path] = kube_yaml.dump(gpu, sort_keys=False)
+    git._sha("main")
+    kube.apply(gpu)
+    plan = patch(world, LABEL)
+    assert plan.status_code == 200, plan.text
+    assert plan.json()["changes"] == {BASE + "namespace.yaml": "changed"}, plan.json()["changes"]
+    r = patch(world, LABEL, dry_run=False)
+    assert r.status_code == 202, r.text
+    run_jobs(ctx)
+    assert docs(git.branches["main"][path]) == [gpu]
+    assert ("LimitRange", NAME, f"{NAME}-limits-gpu") in kube.objects
+
+
+def test_a_limitrange_that_cmapi_rendered_and_no_longer_renders_is_removed(world):
+    """The other side: a <ns>-limits-storage that a tier rendered (it carries the tier hash) goes when the switch is off."""
+    client, ctx, git, kube, validator, keys = world
+    created(world)
+    main = git.branches["main"]
+    storage = yaml.safe_load(main[BASE + f"limitrange-{NAME}-limits-cpu.yaml"])
+    storage["metadata"]["name"] = f"{NAME}-limits-storage"
+    storage["spec"] = {"limits": [{"type": "PersistentVolumeClaim", "max": {"storage": "10Gi"}}]}
+    main[BASE + f"limitrange-{NAME}-limits-storage.yaml"] = kube_yaml.dump(storage, sort_keys=False)
+    git._sha("main")
+    plan = patch(world, LABEL)
+    assert plan.status_code == 200, plan.text
+    assert plan.json()["changes"][BASE + f"limitrange-{NAME}-limits-storage.yaml"] == "removed", plan.json()["changes"]
+
+
+def test_a_second_copy_of_cmapis_quota_is_not_written_over_the_rendered_one(world):
+    """A stale copy of <ns>-quota in resourcequota.yaml beside the named file: the plan renders the quota, and the copy goes."""
+    client, ctx, git, kube, validator, keys = world
+    created(world)
+    main = git.branches["main"]
+    own = yaml.safe_load(main[BASE + f"resourcequota-{OWN}.yaml"])
+    stale = yaml.safe_load(yaml.safe_dump(own))
+    stale["spec"]["hard"]["requests.cpu"] = "64"
+    main[BASE + "resourcequota.yaml"] = kube_yaml.dump(stale, sort_keys=False)
+    git._sha("main")
+    plan = patch(world, LABEL)
+    assert plan.status_code == 200, plan.text
+    # The named file may take this request's ID (the renderer keeps an ID only for an object equal to the one Git holds, and
+    # Git holds two); its spec is the one rendered, never the copy's.
+    assert plan.json()["changes"][BASE + "resourcequota.yaml"] == "removed", plan.json()["changes"]
+    assert quotas_in(plan.json()["files"])[OWN][1]["spec"] == own["spec"]
+
+
+def test_a_tier_sent_to_a_namespace_with_no_tier_label_and_two_quotas_is_refused(world):
+    client, ctx, git, kube, validator, keys = world
+    created(world)
+    main = git.branches["main"]
+    held = main[BASE + "namespace.yaml"]
+    main[BASE + "namespace.yaml"] = held.replace("    cmapi.net/tier: small\n", "")
+    assert main[BASE + "namespace.yaml"] != held
+    one_file(world, [COMPUTE, BEST_EFFORT], keep_own=False)
+    r = patch(world, {"tier": "medium"})
+    assert r.status_code == 409 and r.json()["code"] == "several-resource-quotas", r.text
+    assert patch(world, LABEL).status_code == 200                  # a change that sends no tier still passes
+
+
+def test_a_kept_object_whose_name_is_no_file_name_stays_in_the_folder(world):
+    """A name with "/" (the API server refuses it, a hand-written file can hold it) never makes a path outside the folder."""
+    client, ctx, git, kube, validator, keys = world
+    created(world)
+    odd = quota("../../other/x", {"pods": "1"})
+    one_file(world, [EXTRA, odd], keep_own=True)
+    plan = patch(world, LABEL)
+    assert plan.status_code == 200, plan.text
+    paths = list(plan.json()["changes"])
+    assert all(p.startswith(BASE) and "/" not in p.removeprefix(BASE) for p in paths), paths
+    assert any(name == "../../other/x" for name in quotas_in(plan.json()["files"])), plan.json()["files"].keys()
+
+
+# Reviewer 2 of #682 (B1). own_quota takes "the only one there is" as cmapi's (#253), so a folder whose only ResourceQuota
+# is a team's lost it on a change of labels: the plan removed it from Git, the sync pruned it from the cluster, and the tier's
+# <ns>-quota took its place (small: requests.cpu 3 -> 8) while the plan sized no change, so no capacity rule saw it. A scoped
+# quota became an unscoped one, and on tier custom the change answered 422. D9: "Any other request, a change of a label for
+# example, leaves every object unchanged."
+@pytest.mark.parametrize("tier, held", [("small", COMPUTE), ("custom", COMPUTE), ("small", BEST_EFFORT)])
+def test_a_label_change_keeps_a_lone_quota_that_is_not_cmapis_and_renders_no_tier_quota_over_it(world, tier, held):
+    client, ctx, git, kube, validator, keys = world
+    created(world)
+    main = git.branches["main"]
+    if tier == "custom":
+        main[BASE + "namespace.yaml"] = main[BASE + "namespace.yaml"].replace("cmapi.net/tier: small", "cmapi.net/tier: custom")
+        git._sha("main")
+    one_file(world, [held], keep_own=False)
+    before = dict(main)
+    name = held["metadata"]["name"]
+    plan = patch(world, LABEL)
+    assert plan.status_code == 200, plan.text
+    body = plan.json()
+    assert body["changes"] == {BASE + "namespace.yaml": "changed", BASE + "resourcequota.yaml": "removed",
+                               BASE + f"resourcequota-{name}.yaml": "added"}, body["changes"]
+    assert quotas_in(body["files"]) == {name: (f"resourcequota-{name}.yaml", held)}
+    assert body["capacity"]["cpu"] == 0 and body["capacity"]["memory"] == 0
+    r = patch(world, LABEL, dry_run=False)
+    assert r.status_code == 202, r.text
+    run_jobs(ctx)
+    assert client.get(f"/api/v1/requests/{r.json()['requestId']}", headers=auth(keys, "ola", **OLA)).json()["status"] == "synced"
+    assert kube.objects[("ResourceQuota", NAME, name)]["spec"] == held["spec"]
+    assert ("ResourceQuota", NAME, OWN) not in kube.objects
+    main = git.branches["main"]
+    assert docs(main[BASE + f"resourcequota-{name}.yaml"]) == [held] and BASE + f"resourcequota-{OWN}.yaml" not in main
+    assert {p: t for p, t in main.items() if "/limitrange-" in p} == {p: t for p, t in before.items() if "/limitrange-" in p}
+
+
+def test_a_tier_move_still_acts_on_a_lone_quota_that_is_not_cmapis(world):
+    """The other side, unchanged by B1's fix: with one ResourceQuota a change of the tier acts on it (#253; D9, "When the
+    namespace has exactly one object of the kind, the name may be left out, as today"). The in-place change is D9's B3."""
+    client, ctx, git, kube, validator, keys = world
+    created(world)
+    one_file(world, [COMPUTE], keep_own=False)
+    plan = patch(world, {"tier": "medium"})
+    assert plan.status_code == 200, plan.text
+    planned = quotas_in(plan.json()["files"])
+    assert list(planned) == [OWN] and planned[OWN][1]["spec"]["hard"]["requests.cpu"] == "16", planned
+    assert plan.json()["changes"][BASE + "resourcequota.yaml"] == "removed"
+
+
+def test_a_plan_stored_before_b1s_fix_renders_as_it_did(world):
+    """A stored spec has no changes_quota: it renders the tier's quota over a lone one, as its plan hash was taken (the
+    delivery renders the stored spec again and checks the hash, jobs/delivery.py `rendered`)."""
+    client, ctx, git, kube, validator, keys = world
+    created(world)
+    one_file(world, [COMPUTE], keep_own=False)
+    stored = {"namespace": NAME, "cluster_id": "CRC", "instance": "nonprod", "env": "dev", "tier": "small",
+              "request_id": "req-1", "requested_by_user": "ola", "requested_by_email": None}
+    files = ctx.pipeline.renderer.render(spec_from(stored), previous=dict(git.branches["main"]))
+    assert list(quotas_in(files)) == [OWN] and files[BASE + "resourcequota.yaml"] is None
+
+
+def test_680_a_folder_file_nested_deeper_than_the_reader_can_read_is_a_409(world):
+    """Reviewer 2 of #682: PyYAML recurses once for each level of nesting, so a file nested some hundreds deep raised
+    RecursionError, no yaml.YAMLError, and GET answered 500 internal-error."""
+    client, ctx, git, kube, validator, keys = world
+    created(world)
+    main = git.branches["main"]
+    main[BASE + "namespace.yaml"] += "---\nkind: X\nv: " + "[" * 5000 + "]" * 5000 + "\n"
+    git._sha("main")
+    r = client.get(ONE, headers=auth(keys, "ola", **OLA))
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "folder-not-yaml" and r.json()["paths"] == [BASE + "namespace.yaml"], r.text
+    assert "nested deeper than the reader can read" in r.json()["detail"], r.text

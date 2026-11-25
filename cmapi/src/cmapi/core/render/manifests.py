@@ -11,7 +11,8 @@ written before that layout (resourcequota.yaml, limitrange.yaml), or by hand, is
 
 cmapi changes only its own ResourceQuota and LimitRanges (D9, #250). Each other one in the folder is kept as Git holds
 it, in its own file; a request names none of them, so none is changed or removed. When the folder holds several
-ResourceQuotas and none is cmapi's own, cmapi renders no quota and no LimitRange of the tier beside them (quotas_kept).
+ResourceQuotas and none is cmapi's own, or a lone one that is not cmapi's and the request changes no quota, tier or limits,
+cmapi renders no quota and no LimitRange of the tier beside them (quotas_kept).
 
 Nothing on the cluster expands these files, so the plan diff, Kyverno, kubeconform and the plan
 hash all cover exactly what Argo CD applies. Rules:
@@ -60,6 +61,9 @@ class NamespaceSpec:
     service_accounts: list[str] = field(default_factory=list)
     grants: list[tuple[str, str]] = field(default_factory=list)        # (sa, ClusterRole)
     scc_grants: list[tuple[str, str]] = field(default_factory=list)    # (sa, scc)
+    # The request changes the quota, the tier or the limits, or creates the namespace. False keeps a folder's ResourceQuotas
+    # that hold no <ns>-quota, a lone one too (quotas_kept). True by default: a plan stored before #250 renders as it did.
+    changes_quota: bool = True
 
 
 def folder(cluster_id: str, namespace: str) -> str:
@@ -72,10 +76,12 @@ _NAME_MAX = 255                                  # bytes in a file name on the f
 
 def object_file(kind: str, name: str) -> str:
     """The file of one ResourceQuota or LimitRange: <kind>-<name>.yaml, or <kind>--<sha256 of the name>.yaml when that is
-    longer than a file name can be. Readers find the objects by kind (objects_of), never by this name."""
+    longer than a file name can be, or when the name is no file name of the folder: empty, "." or "..", or with a "/". The
+    API server refuses such a name, but a folder's file can hold one, and a kept object is written under its name (#250):
+    "a/../../x" would name a path outside the folder. Readers find the objects by kind (objects_of), never by this name."""
     stem = OBJECT_FILE_STEM[kind]
     file = f"{stem}-{name}.yaml"
-    if len(file.encode()) <= _NAME_MAX:
+    if len(file.encode()) <= _NAME_MAX and name not in ("", ".", "..") and "/" not in name:
         return file
     # Ordinary names start with an alphanumeric character. The extra '-' keeps the hash
     # namespace disjoint from their paths, without needing a cryptographic collision.
@@ -98,23 +104,34 @@ def _name(doc: Mapping[str, Any]) -> str:
 
 
 def own_quota(quotas: list[dict[str, Any]], namespace: str) -> dict[str, Any] | None:
-    """cmapi's own ResourceQuota among a folder's: <ns>-quota, or the only one there is (#253). None when there are several
-    and none is <ns>-quota, or none at all."""
+    """The ResourceQuota that a change of the quota, the tier or the limits acts on: <ns>-quota, or the only one there is
+    (#253; D9, "the name may be left out"). None when there are several and none is <ns>-quota, or none at all. A change that
+    sends none of them keeps a lone quota of another name (quotas_kept)."""
     named = [d for d in quotas if _name(d) == f"{namespace}-quota"]
     return named[0] if named else quotas[0] if len(quotas) == 1 else None
 
 
-def quotas_kept(quotas: list[dict[str, Any]], namespace: str) -> bool:
-    """True when the folder holds several ResourceQuotas and none is cmapi's own (D9): a change keeps every ResourceQuota and
-    LimitRange as Git holds them, and renders none of the tier's beside them. A second quota would bind with the others, and
-    a request cannot name which one it means."""
-    return len(quotas) > 1 and own_quota(quotas, namespace) is None
+def quotas_kept(quotas: list[dict[str, Any]], namespace: str, *, changes_quota: bool = True) -> bool:
+    """True when a change keeps every ResourceQuota and LimitRange as Git holds them, and renders none of the tier's beside
+    them (D9): the folder holds ResourceQuotas, none of them is cmapi's <ns>-quota, and either there are several (a second
+    quota would bind with the others, and a request cannot name which one it means) or the request changes no quota, tier
+    or limits. D9: "Any other request, a change of a label for example, leaves every object unchanged." A lone quota of
+    another name is still the one that a change of the quota, the tier or the limits acts on (own_quota, #253; D9: "When the
+    namespace has exactly one object of the kind, the name may be left out, as today")."""
+    if not quotas or any(_name(d) == f"{namespace}-quota" for d in quotas):
+        return False
+    return len(quotas) > 1 or not changes_quota
 
 
 def _own_limit_range(doc: Mapping[str, Any], namespace: str) -> bool:
-    """A LimitRange that cmapi names: <ns>-limits-<resource> (limit_object_name, #253), or the single <ns>-limits of before."""
+    """A LimitRange that cmapi rendered: named <ns>-limits-<resource> (limit_object_name, #253) or the single <ns>-limits of
+    before, and carrying the cmapi.net/tier-hash that every rendering of a tier writes (tiers.render; before #253 too). The
+    name alone is not enough: a team's own LimitRange may be called <ns>-limits-gpu, and a change would remove it from Git and
+    from the cluster. An adopted object carries no tier hash (the adoption design, D3). The object that cmapi renders under
+    the same name is the same Kubernetes object, and the renderer replaces it whatever it carries."""
     name = _name(doc)
-    return name == f"{namespace}-limits" or name.startswith(f"{namespace}-limits-")
+    annotations = (doc.get("metadata") or {}).get("annotations") or {}
+    return (name == f"{namespace}-limits" or name.startswith(f"{namespace}-limits-")) and "cmapi.net/tier-hash" in annotations
 
 
 # What plan_hash writes for a removed file, and for an empty one. Persisted plan hashes depend on it (jobs/delivery.py,
@@ -201,7 +218,7 @@ class ManifestRenderer:
         quotas = [d for d in prev_objects if d.get("kind") == "ResourceQuota"]
         files: dict[str, list[dict[str, Any]]] = {"namespace.yaml": [namespace_doc]}
         tier_objects: list[dict[str, Any]] = []
-        if quotas_kept(quotas, spec.namespace):
+        if quotas_kept(quotas, spec.namespace, changes_quota=spec.changes_quota):
             kept = [d for d in prev_objects if d.get("kind") in OBJECT_FILE_STEM]
         else:
             rq, lrs = self.catalog.render(namespace=spec.namespace, cluster_id=spec.cluster_id,
@@ -209,9 +226,13 @@ class ManifestRenderer:
                                          request_id=spec.request_id, hard=spec.quota, limits=spec.limit_range,
                                          approved=spec.approved)
             tier_objects = [rq, *lrs]
+            # An object that the tier renders now is replaced, whatever its file or its copy: a second copy of it, kept,
+            # would be written over the rendered one.
+            rendered = {(d["kind"], d["metadata"]["name"]) for d in tier_objects}
             own = own_quota(quotas, spec.namespace)
-            kept = [d for d in quotas if d is not own]
-            kept += [d for d in prev_objects if d.get("kind") == "LimitRange" and not _own_limit_range(d, spec.namespace)]
+            kept = [d for d in quotas if d is not own and ("ResourceQuota", _name(d)) not in rendered]
+            kept += [d for d in prev_objects if d.get("kind") == "LimitRange" and not _own_limit_range(d, spec.namespace)
+                     and ("LimitRange", _name(d)) not in rendered]
         for d in tier_objects:
             d["metadata"]["labels"] = self.keys.ordered(d["metadata"]["labels"])
             d["metadata"]["annotations"] = self.keys.ordered(d["metadata"]["annotations"])

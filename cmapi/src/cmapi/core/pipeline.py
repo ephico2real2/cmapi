@@ -313,10 +313,16 @@ class Pipeline:
             old_quota = _hard(old_rq)
             tier = body.get("tier") or old_tier or "small"
             quota, limits = body.get("quota"), body.get("limitRange")
-            # D9 (#250): with several ResourceQuotas the plan cannot tell which one a request means, and when none is cmapi's
-            # own it keeps them all with every LimitRange, so a change of the quota, the tier or (then) the limits is refused.
-            quotas_held = quotas_kept(quotas, ns)
-            if len(quotas) > 1 and (quota or (old_tier is not None and tier != old_tier) or (quotas_held and limits)):
+            # A change that sends a tier to a namespace whose Namespace has no tier label moves it too; only the default
+            # ("small", for a change that sends none) does not. A create is not a move (its documented answers have no such 409).
+            moved = action != "create" and tier != old_tier and (old_tier is not None or bool(body.get("tier")))
+            # D9 (#250): "Any other request, a change of a label for example, leaves every object unchanged", so a change that
+            # sends no quota, tier move or limits keeps every ResourceQuota and LimitRange when none of the quotas is cmapi's
+            # <ns>-quota, a lone one too. With several, the plan cannot tell which one a request means, and when none is
+            # cmapi's own it keeps them all, so a change of the quota, the tier or (then) the limits is refused.
+            changes_quota = action == "create" or bool(quota) or moved or bool(limits)
+            quotas_held = quotas_kept(quotas, ns, changes_quota=changes_quota)
+            if len(quotas) > 1 and (quota or moved or (quotas_held and limits)):
                 raise several_quotas(ns, quotas, kept=quotas_held)
             # A change that sends no expiry keeps the date that Git holds, also where expiration is off now (#479).
             kept = date.fromisoformat(old_exp) if old_exp and action != "create" else None
@@ -368,7 +374,7 @@ class Pipeline:
                                  quota=quota if resolved.custom else None, limit_range=limits if resolved.custom else None,
                                  approved=approved if resolved.custom else {}, expires_at=expires,
                                  service_accounts=_service_accounts(prev_files), grants=_grants(prev_files, scc=False),
-                                 scc_grants=_grants(prev_files, scc=True))
+                                 scc_grants=_grants(prev_files, scc=True), changes_quota=changes_quota)
             files = self.renderer.render(spec, previous=prev_files)
             changes = {p: s for p, s in diff_files(prev_files, files).items() if s != "unchanged"}
             if not changes:
