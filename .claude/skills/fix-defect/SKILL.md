@@ -67,6 +67,22 @@ Reports are claims until checked. Before accepting anything, the coordinator:
 - Merge once CI is green on the exact head and the review has passed (the owner, 2026-11-06). Merging does not authorize anything on CRC.
 - Close a defect only through its merged fix, with the proof cited. Stories close only on the owner's approval.
 
+## 6. Clean up after the merge
+
+The owner, 2026-11-25. Scratch from reviews had grown to 45 GB in the workbench and slowed the Mac.
+
+Once the pull request has merged and its review record is in `docs/reviews/`, the coordinator removes that pull request's scratch in the same session:
+
+- **Remove** the reviewers' export `workbench/cmapi/review-<PR>/`, the implementer's `workbench/cmapi/wt-<issue>-outputs/`, and its worktree (`git worktree remove`).
+- **First save** any uncommitted change in the worktree, with `git diff`, into `workbench/cmapi/worktree-archive-<date>/`.
+- **Keep:**
+  - the shared test environments (the venv built from `main`'s lock);
+  - the latest two CRC run folders;
+  - anything that belongs to a pull request or issue that is still open.
+- **Never remove** a path that another running agent named in its brief.
+
+`~/.claude/tools/sweep-stale.py --workbench` reports any folder whose pull request or issue is closed, as a safety net. It deletes only when told to.
+
 ## Report faithfully
 
 Tell the owner what was found, what was fixed and how it was proven, and what isn't proven yet. A defect that can't be fixed yet stays open and is named as open.
