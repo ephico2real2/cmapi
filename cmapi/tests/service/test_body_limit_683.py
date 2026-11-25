@@ -25,7 +25,7 @@ import uvicorn
 import yaml
 
 from cmapi.core import listquery
-from cmapi.core.bodylimit import DEFAULT_MAX_REQUEST_BODY_BYTES, parse_http
+from cmapi.core.http_settings import DEFAULT_MAX_REQUEST_BODY_BYTES, parse_http
 from cmapi.core.config import ConfigError, load_instance
 from conftest import build_world
 from test_custom_tier_change import URL
@@ -367,7 +367,7 @@ def test_a_body_of_exactly_the_limit_is_read_and_one_byte_more_is_not(small):
 
 
 def test_the_largest_real_create_fits_the_default_limit(world):
-    """The measurement the default rests on (core/bodylimit.py): 50 team labels and 50 team annotations of the reference
+    """The measurement the default rests on (core/http_settings.py): 50 team labels and 50 team annotations of the reference
     metadata-keys.yaml at their longest keys, and 64 KiB of annotation values, each byte a control character that json.dumps
     writes as a six-byte escape. The create is planned, and it is under half the default."""
     client, ctx, git, kube, validator, keys = world

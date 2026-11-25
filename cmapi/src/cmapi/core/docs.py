@@ -28,9 +28,9 @@ from fastapi.routing import APIRoute, RouteContext, iter_route_contexts
 from pydantic import BaseModel
 
 from cmapi import __version__
-from cmapi.core.bodylimit import DEFAULT_MAX_REQUEST_BODY_BYTES, too_large
 from cmapi.core.errors import BASE, Problem
 from cmapi.core.etag import STALE_READ
+from cmapi.core.http_settings import DEFAULT_MAX_REQUEST_BODY_BYTES, too_large
 from cmapi.core.models import ProblemDetail
 
 # Every problem code a route may declare, with its status and an example detail (docs/02, API contract).
@@ -183,7 +183,7 @@ PROBLEM_EXTRAS: dict[str, dict[str, Any]] = {
     "cluster-unreachable": {"retryAfter": 30},
     "validator-unavailable": {"retryAfter": 60},
     "folder-holds-submodule": {"paths": ["clusters/CRC/namespaces/payments-dev/vendor"]},
-    # instance.yaml http.maxRequestBodyBytes, here its default (core/bodylimit.py, #683)
+    # instance.yaml http.maxRequestBodyBytes, here its default (core/http_settings.py, #683)
     "content-too-large": {"maxBytes": DEFAULT_MAX_REQUEST_BODY_BYTES},
     "folder-not-utf8": {"paths": ["clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"]},
     "folder-not-yaml": {"paths": ["clusters/CRC/namespaces/payments-dev/namespace.yaml"]},

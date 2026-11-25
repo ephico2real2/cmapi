@@ -10,10 +10,12 @@ larger than the server is willing or able to process". The answer is the problem
 Why a middleware of cmapi's own, and not Starlette's: Starlette 1.10.0 has `Starlette(max_body_size=...)` and
 RequestBodyLimitMiddleware, but FastAPI 0.162.2 builds its own middleware stack (applications.py,
 build_middleware_stack) and never reads `max_body_size`, and Starlette's answer is text/plain "Content Too Large".
+
+The setting, its default and bounds, and the problem are in core/http_settings.py, which the config imports (#693).
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping
+from typing import Callable
 
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
@@ -21,48 +23,13 @@ from starlette.responses import Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from cmapi.core.errors import Problem
+from cmapi.core.http_settings import too_large
 from cmapi.core.observability import log
-
-# The default limit, 1 MiB. The largest create that the reference metadata-keys.yaml takes, at its maximums (50 team labels
-# and 50 team annotations with the longest keys, 64 KiB of annotation values), is 430,701 bytes when each value byte is a
-# control character that json.dumps writes as a six-byte \uXXXX escape, and 102,581 bytes in ASCII (measured, the review
-# record). So 1 MiB is 2.4 times the worst encoding, as Kubernetes allows twice its largest object (3 MiB for etcd's
-# 1.5 MiB, k8s.io/apiserver pkg/server/config.go). It is also the front door's limit (client_max_body_size 1m).
-DEFAULT_MAX_REQUEST_BODY_BYTES = 1024 * 1024
 
 # Content-Length is "a decimal non-negative integer number of octets", and "a recipient MUST anticipate potentially large
 # decimal numerals and prevent parsing errors due to integer conversion overflows" (RFC 9110, section 8.6). Python's int()
 # refuses more than 4300 digits, so a longer numeral is not converted: it is over any limit.
 _LONGEST_LENGTH = 19
-
-# The largest limit: the largest integer that JSON carries exactly, 2**53 - 1 (RFC 7493, section 2.2: a receiver cannot be
-# expected to treat a larger integer "as an exact value"). The chart passes the value through JSON (toJson), which writes
-# 1e21 or more as "1e+21", a string to PyYAML, and rounds a value above it (review 691, F2).
-MAX_LIMIT = 2**53 - 1
-
-
-def parse_http(raw: Any) -> tuple[int, list[str]]:
-    """instance.yaml `http`: the limit, and the problems that stop the start."""
-    if raw is None:
-        return DEFAULT_MAX_REQUEST_BODY_BYTES, []
-    if not isinstance(raw, Mapping):
-        return DEFAULT_MAX_REQUEST_BODY_BYTES, ["instance.yaml: http must be a mapping, such as {maxRequestBodyBytes: 1048576}"]
-    problems = []
-    unknown = set(raw) - {"maxRequestBodyBytes"}
-    if unknown:
-        problems.append(f"instance.yaml: http has unknown fields {sorted(unknown)}")
-    value = raw.get("maxRequestBodyBytes", DEFAULT_MAX_REQUEST_BODY_BYTES)
-    # bool is an int in Python; "maxRequestBodyBytes: yes" is not a limit
-    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_LIMIT:
-        problems.append(f"instance.yaml: http.maxRequestBodyBytes is a whole number of bytes, 1 to {MAX_LIMIT}, not {value!r}")
-        value = DEFAULT_MAX_REQUEST_BODY_BYTES
-    return value, problems
-
-
-def too_large(max_bytes: int) -> Problem:
-    """The problem of a request whose content is over the limit."""
-    return Problem(413, "content-too-large", f"The request content is larger than {max_bytes} bytes, the most that this "
-                                             "instance reads", extra={"maxBytes": max_bytes})
 
 
 class ContentTooLarge(HTTPException):

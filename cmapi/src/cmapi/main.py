@@ -28,7 +28,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from cmapi import __version__
 from cmapi.core.auth import caller_dependency, oauth2_scheme, unauthenticated_headers
-from cmapi.core.bodylimit import RequestBodyLimitMiddleware, too_large
+from cmapi.core.bodylimit import RequestBodyLimitMiddleware
 from cmapi.core.config import InstanceConfig
 from cmapi.core.context import AppContext, build_context
 from cmapi.core.changelog import changelog_html
@@ -36,6 +36,7 @@ from cmapi.core.cors import EXPOSED_HEADERS, MAX_AGE, METHODS, REQUEST_HEADERS, 
 from cmapi.core.docs import PROBLEMS, URL_VARIABLE, InstanceFacts, api_routes, build_openapi, check_documented, plugin_routers
 from cmapi.core.errors import Problem, type_base
 from cmapi.core.etag import etag_of, not_modified
+from cmapi.core.http_settings import too_large
 from cmapi.core.kpi import register_collectors
 from cmapi.core.models import NUL_REFUSED, SURROGATE_CODE
 from cmapi.core.problem_docs import problem_html, problems_index_html
