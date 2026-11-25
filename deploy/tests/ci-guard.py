@@ -122,4 +122,31 @@ check(len(pip_lines) == 2
       "the image installs the hashed lock from wheels, then cmapi with no index, and nothing else")
 check(re.search(r"--no-index \.\s*&&\s*\\\n\s*pip check &&", containerfile) is not None,
       "the image's build fails when the lock does not satisfy pyproject.toml (pip check)")
+# #663: BuildKit retries no 4xx when it pulls a FROM image, and a 401 from registry.redhat.io stopped images-pr. Every job that
+# builds an image first fetches its FROM images with deploy/base-images.py (retries with a doubling wait, each blob checked by
+# digest), and its build reads them from that layout. No job builds an image any other way.
+def base_step(steps):
+    return next((s for s in steps if "deploy/base-images.py" in s.get("run", "")), {})
+builders = sorted(n for n, j in ci["jobs"].items() if build_step(j.get("steps", [])))
+check(builders == ["front-door", "images", "images-pr"], f"the jobs that build an image: {builders}")
+other_builds = [n for n, j in ci["jobs"].items() for s in j.get("steps", [])
+                if re.search(r"\b(docker|podman|buildah)\s+(buildx\s+)?(build|bud)\b", s.get("run", ""))]
+check(not other_builds, f"no job builds an image outside docker/build-push-action: {other_builds}")
+for name in builders:
+    bsteps = ci["jobs"][name]["steps"]
+    base, build = base_step(bsteps), build_step(bsteps)
+    bwith = build.get("with") or {}
+    m = re.search(r'^contexts=\$\(python3 deploy/base-images\.py --containerfile "\$FILE" --layout "\$RUNNER_TEMP/base-images" '
+                  r'--platform (\S+) --attempts (\d+) --delay (\d+(?:\.\d+)?)\)\n'
+                  r"printf 'contexts<<CONTEXTS\\n%s\\nCONTEXTS\\n' \"\$contexts\" >>\"\$GITHUB_OUTPUT\"\n?$", base.get("run", ""))
+    check(bool(m) and base.get("id") == "base" and int(m[2]) >= 3 and float(m[3]) > 0 and bsteps.index(base) < bsteps.index(build),
+          f"{name}: the base images are fetched before the build, with at least 3 attempts and a growing wait")
+    check(bool(m) and m[1] == bwith.get("platforms") and (base.get("env") or {}).get("FILE") == bwith.get("file"),
+          f"{name}: they are fetched for the build's own Containerfile and platform")
+    check(bwith.get("build-contexts") == "${{ steps.base.outputs.contexts }}", f"{name}: the build reads its base images from that layout")
+# Its two skopeo commands, exactly: no flag that turns off TLS or a check, and the copy to dir: keeps the registry's bytes.
+skopeo_calls = re.findall(r"\bskopeo\((\"[^()\n]*)\)", code_of("deploy/base-images.py"))
+check(skopeo_calls == ['"inspect", "--raw", f"docker://{repo}@{pinned}"',
+                       '"copy", "--quiet", "--preserve-digests", f"docker://{repo}@{image}", f"dir:{work}"'],
+      f"base-images.py runs skopeo with its TLS and digest checks, and copies each image unchanged: {skopeo_calls}")
 print("ci cases failed:", len(fails)); sys.exit(1 if fails else 0)
