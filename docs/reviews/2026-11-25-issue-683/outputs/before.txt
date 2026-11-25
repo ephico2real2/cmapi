@@ -1,0 +1,28 @@
+body = b'{"type":"https://cmapi.ephico2real.com/problems/validation-failed","title":"validation failed","status":422,"detail"...e error","code":"validation-failed","errors":[{"field":"body.0","message":"JSON decode error","code":"json_invalid"}]}'
+E       AssertionError: b'{"type":"https://cmapi.ephico2real.com/problems/validation-failed","title":"validation failed","status":422,"detail"...e error","code":"validation-failed","errors":[{"field":"body.0","message":"JSON decode error","code":"json_invalid"}]}'
+body = b'{"type":"https://cmapi.ephico2real.com/problems/validation-failed","title":"validation failed","status":422,"detail"...rror","code":"validation-failed","errors":[{"field":"body.4197","message":"JSON decode error","code":"json_invalid"}]}'
+E       AssertionError: b'{"type":"https://cmapi.ephico2real.com/problems/validation-failed","title":"validation failed","status":422,"detail"...rror","code":"validation-failed","errors":[{"field":"body.4197","message":"JSON decode error","code":"json_invalid"}]}'
+        assert problem["code"] == "validation-failed"
+PASSED tests/service/test_zz_before_683.py::test_the_largest_real_create_fits_the_default_limit
+PASSED tests/service/test_zz_before_683.py::test_a_request_without_content_is_answered_as_before
+FAILED tests/service/test_zz_before_683.py::test_a_content_length_over_the_limit_is_refused_before_the_application_runs
+FAILED tests/service/test_zz_before_683.py::test_a_body_over_the_limit_with_its_length_is_refused_through_the_client
+FAILED tests/service/test_zz_before_683.py::test_the_default_limit_is_one_mebibyte
+FAILED tests/service/test_zz_before_683.py::test_chunked_content_over_the_limit_is_refused_at_the_message_that_passes_it
+FAILED tests/service/test_zz_before_683.py::test_content_longer_than_its_content_length_is_counted_as_it_arrives
+FAILED tests/service/test_zz_before_683.py::test_a_body_of_exactly_the_limit_is_read_and_one_byte_more_is_not
+FAILED tests/service/test_zz_before_683.py::test_a_validation_failure_names_at_most_twenty_errors
+FAILED tests/service/test_zz_before_683.py::test_a_limit_that_is_not_one_stops_the_start[1048576-http must be a mapping]
+FAILED tests/service/test_zz_before_683.py::test_a_limit_that_is_not_one_stops_the_start[http1-http.maxRequestBodyBytes is a whole number of bytes, 1 or more, not 0]
+FAILED tests/service/test_zz_before_683.py::test_a_limit_that_is_not_one_stops_the_start[http2-http.maxRequestBodyBytes is a whole number of bytes, 1 or more, not -1]
+FAILED tests/service/test_zz_before_683.py::test_a_limit_that_is_not_one_stops_the_start[http3-http.maxRequestBodyBytes is a whole number of bytes, 1 or more, not True]
+FAILED tests/service/test_zz_before_683.py::test_a_limit_that_is_not_one_stops_the_start[http4-http.maxRequestBodyBytes is a whole number of bytes, 1 or more, not '1m']
+FAILED tests/service/test_zz_before_683.py::test_a_limit_that_is_not_one_stops_the_start[http5-http.maxRequestBodyBytes is a whole number of bytes, 1 or more, not 1.5]
+FAILED tests/service/test_zz_before_683.py::test_a_limit_that_is_not_one_stops_the_start[http6-http has unknown fields ['maxBodyBytes']]
+FAILED tests/service/test_zz_before_683.py::test_the_limit_comes_from_instance_yaml[None-1048576]
+FAILED tests/service/test_zz_before_683.py::test_the_limit_comes_from_instance_yaml[http1-1048576]
+FAILED tests/service/test_zz_before_683.py::test_the_limit_comes_from_instance_yaml[http2-1]
+FAILED tests/service/test_zz_before_683.py::test_the_limit_comes_from_instance_yaml[http3-3145728]
+FAILED tests/service/test_zz_before_683.py::test_on_a_real_server[h11] - Time...
+FAILED tests/service/test_zz_before_683.py::test_on_a_real_server[httptools]
+20 failed, 2 passed in 35.79s

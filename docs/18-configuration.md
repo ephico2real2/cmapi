@@ -74,11 +74,30 @@ How to make the bot account, its token and its SSH key, and how to switch `insta
 | `instance.git.postStatus` | boolean | `false` | Post the worker's checks as commit statuses even with host CI off. Needs Commit statuses write |
 | `instance.directory` | mapping | none | Where to send a caller for the other environments. Each entry has `url`, `environments` and an optional `portalUrl`. cmapi puts them in every 422 answer `environment-not-served`, and leaves out a URL that the entry does not give (`environment_not_served`, `core/config.py`; #671). `environments` is a list, and `url` and `portalUrl` are absolute http(s) URLs: another shape stops the start (`_directory_problems`) |
 | `instance.cors.allowedOrigins` | list of origins | `[]` | The origins of other hosts that can call the API from a browser. With no key or an empty list, CORS is off. An origin is `https://host[:port]`, in lower case, or `http://localhost`, `http://127.0.0.1` or `http://[::1]`, with no path and no default port. A wildcard stops the start (`core/cors.py`) |
+| `instance.http.maxRequestBodyBytes` | integer (bytes) | `1048576` (1 MiB) | The most bytes of request content that the API reads (#683). A request whose `Content-Length` is larger answers 413 `content-too-large` before any of it is read, with no sign-in; content with no length (chunked) is counted as it arrives and refused at the limit. The answer's `maxBytes` gives the value. A whole number from 1 to 9007199254740991 (2^53 - 1, the largest integer that JSON carries exactly; RFC 7493, section 2.2); another value, or another key under `http`, stops the start (`core/http_settings.py`), and the chart's schema refuses it. See "The request body limit" |
 | `instance.problems.typeBase` | text (URL) | `https://cmapi.ephico2real.com/problems/` | The base of each problem `type` URI (RFC 9457). It is an absolute http or https URL with no query and no fragment (`core/errors.py`) |
 | `instance.docs.enabled` | boolean | `true` | `false` turns off `/docs`, `/redoc` and the OpenAPI documents (`main.py`) |
 | `instance.docs.public` | boolean | `true` | `false` makes each of those pages need a valid token (`main.py`, `_add_docs`) |
 | `instance.policy` | mapping | See "The policy engine" | The policy engine and a mode for each environment |
 | `instance.clusterTLS` | mapping | `{}` | Which environments may read a cluster with TLS verification off. See "Cluster trust" |
+
+### The request body limit
+
+`instance.http.maxRequestBodyBytes` bounds what one request makes the API read and parse (#683; OWASP API Security Top 10
+2023, API4). Its default, 1 MiB, comes from the largest create body that the reference `metadata-keys.yaml` takes at its
+maximums: 50 team labels and 50 team annotations with the longest keys (317 characters), and 64 KiB of annotation values
+(`allowOther.maxBytesTotal`). That body is 102,581 bytes in ASCII, and 430,701 bytes when each value byte is a control
+character, which `json.dumps` writes as a six-byte `\uXXXX` escape (measured; `docs/reviews/2026-11-25-issue-683`). So
+1 MiB is 2.4 times the worst encoding. Kubernetes sizes its own limit the same way: 3 MiB, twice etcd's 1.5 MiB request
+(`MaxRequestBodyBytes`, `k8s.io/apiserver/pkg/server/config.go`).
+
+- **Raise it** when an instance raises `allowOther.maxBytesTotal` or `max` in its `metadata-keys.yaml`: allow about six times
+  the annotation bytes, plus the keys.
+- **The front door** (`cmapi-portal-ui/nginx/templates/cmapi.conf.template`) refuses more than 1 MiB itself
+  (`client_max_body_size 1m`), before the API. A value above 1 MiB serves only callers that reach the API's port directly (#687).
+- **The OpenShift router** has no setting for the size of a request body: neither a Route annotation nor an
+  IngressController tuning option (the review record quotes both). The front door and the API set the limit.
+- A 422 `validation-failed` names at most 20 errors (`main.py`, `MAX_VALIDATION_ERRORS`), whatever the body holds.
 
 ### The policy engine
 

@@ -1,0 +1,9 @@
+Wed Nov 25 17:48:52 UTC 2026
+FAILED tests/service/test_api_standard.py::test_the_create_operation_answers_what_the_design_lists[metadata-keys.yaml]
+FAILED tests/service/test_api_standard.py::test_the_create_operation_answers_what_the_design_lists[metadata-keys.company.yaml]
+FAILED tests/service/test_api_standard.py::test_the_create_operation_answers_what_the_design_lists[design]
+3 failed, 623 passed in 370.31s (0:06:10)
+Wed Nov 25 17:55:12 UTC 2026
+== core
+750 passed, 113 skipped in 133.09s (0:02:13)
+Wed Nov 25 17:57:26 UTC 2026

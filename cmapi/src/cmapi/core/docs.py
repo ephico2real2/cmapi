@@ -30,6 +30,7 @@ from pydantic import BaseModel
 from cmapi import __version__
 from cmapi.core.errors import BASE, Problem
 from cmapi.core.etag import STALE_READ
+from cmapi.core.http_settings import DEFAULT_MAX_REQUEST_BODY_BYTES, too_large
 from cmapi.core.models import ProblemDetail
 
 # Every problem code a route may declare, with its status and an example detail (docs/02, API contract).
@@ -62,6 +63,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
                                      "in Git, then send the request again"),
     "idempotency-replay": (409, "Idempotency-Key was used for a different request"),
     "precondition-failed": (412, "The namespace changed in Git since you read it"),
+    "content-too-large": (413, too_large(DEFAULT_MAX_REQUEST_BODY_BYTES).detail),
     "validation-failed": (422, "Request body is not valid"),
     "policy-violation": (422, "Metadata refused"),
     "capacity-exceeded": (422, "memory would exceed the cluster"),
@@ -111,6 +113,7 @@ PROBLEM_STATUS_TEXT: dict[int, str] = {
     404: "What the path names is not known.",
     409: "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.",
     412: "No strong tag that If-Match lists is the object's ETag: it changed since it was read, or the value named none.",
+    413: "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.",
     422: "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.",
     428: "A change needs If-Match with the ETag of the object as it was read; `*` is not one.",
     429: "Too many requests. Wait for the seconds in `retryAfter`.",
@@ -180,6 +183,8 @@ PROBLEM_EXTRAS: dict[str, dict[str, Any]] = {
     "cluster-unreachable": {"retryAfter": 30},
     "validator-unavailable": {"retryAfter": 60},
     "folder-holds-submodule": {"paths": ["clusters/CRC/namespaces/payments-dev/vendor"]},
+    # instance.yaml http.maxRequestBodyBytes, here its default (core/http_settings.py, #683)
+    "content-too-large": {"maxBytes": DEFAULT_MAX_REQUEST_BODY_BYTES},
     "folder-not-utf8": {"paths": ["clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"]},
     "folder-not-yaml": {"paths": ["clusters/CRC/namespaces/payments-dev/namespace.yaml"]},
     "several-resource-quotas": {"resourceQuotas": ["payments-dev-objects", "payments-dev-quota"]},
@@ -609,6 +614,7 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
     if instance is not None:
         _document_expiry(spec, instance)
     _document_validation_problem(spec)
+    _document_body_limit_problem(spec)
     _document_token_problems(spec)
     _document_if_match_required(spec)
     # Before the curl samples, which send the recorded body of each write (#349).
@@ -918,6 +924,15 @@ def _document_validation_problem(spec: dict[str, Any]) -> None:
     schemas.setdefault("ProblemDetail", _without_none(ProblemDetail.model_json_schema()))
     for name in ("HTTPValidationError", "ValidationError"):
         schemas.pop(name, None)
+
+
+def _document_body_limit_problem(spec: dict[str, Any]) -> None:
+    """Each operation with a request body can answer 413 content-too-large (main.py, RequestBodyLimitMiddleware, #683). Any
+    request whose content passes the limit gets it, but only an operation that takes a body has content to send."""
+    for ops in spec["paths"].values():
+        for op in ops.values():
+            if isinstance(op, dict) and op.get("requestBody"):
+                add_problem(op, "content-too-large")
 
 
 def _document_token_problems(spec: dict[str, Any]) -> None:

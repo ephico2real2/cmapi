@@ -338,7 +338,7 @@
   "        return None",
   "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|322-327": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|327-332": [
   "            if permission:",
   "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
   "            op_id = f\"{self.plugin}_{fn.__name__}\"",
@@ -520,10 +520,10 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|564-564": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|73-73": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|77-77": [
   "    \"on-behalf-of-not-allowed\": \"Remove `onBehalfOf`. A person calls as themselves.\","
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|74-74": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|78-78": [
   "    \"on-behalf-of-required\": \"Name the person in `onBehalfOf`. A service client must say for whom it calls.\","
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/views.py|25-27": [
@@ -531,29 +531,29 @@
   "        # part of the public contract, so it stays in the row and out of the response.",
   "        \"approval\": approval_view(req, ledger), \"requester\": {k: v for k, v in row.requester.items() if k != \"submittedBySub\"},"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|194-195": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|200-201": [
   "    app.include_router(health.router)",
   "    app.include_router(health.version_router)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|197-199": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|203-205": [
   "    authed_routers = (me.router, requests.router, admin.router, *cfg.plugins.routers())",
   "    for r in authed_routers:",
   "        app.include_router(r, dependencies=[Depends(authed)])"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|232-233": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|238-239": [
   "        if s.metrics_port:",
   "            start_metrics(s.metrics_port, ctx.cfg.name, s.component)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|267-269": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|277-279": [
   "    @app.exception_handler(Problem)",
   "    async def problem_handler(_: Request, exc: Problem) -> Response:",
   "        return problem_response(exc, dict(unauthenticated_headers(exc)))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|360-361": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|379-380": [
   "    if docs_enabled:",
   "        _add_docs(app, ctx, docs_cfg, authed, problem_response)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|387-401": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|406-420": [
   "def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None:",
   "    \"\"\"/problems and /problems/{code}: what the `type` of a problem resolves to (RFC 9457, section 4; #182).",
   "",
@@ -570,10 +570,10 @@
   "            raise Problem(404, \"object-not-found\", \"No such problem type. /problems lists each one\")",
   "        return HTMLResponse(problem_html(code, problem_base, ctx.cfg.name))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|412-412": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|431-431": [
   "    guard = [] if docs_cfg.get(\"public\", True) else [Depends(authed)]"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|462-464": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|481-483": [
   "    @app.get(\"/docs/oauth2-redirect\", include_in_schema=False)",
   "    def docs_redirect() -> Response:",
   "        return get_swagger_ui_oauth2_redirect_html()"
@@ -890,7 +890,7 @@
  "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|66-66": [
   "            groups=frozenset(claims.get(\"groups\", [])),"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|192-193": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|198-199": [
   "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
   "                                         \"scopes\": \"openid\"})"
  ],

@@ -14,7 +14,8 @@ Each file is validated by its own module; this module adds the checks no single 
 - instance.yaml's git.url is a URL the Git layer may use, git.hostChecks is a boolean, git.username one line (#286);
 - instance.yaml's clusterTLS names only served environments, each with a boolean insecureSkipTLSVerify (core/clustertls.py, #434);
 - instance.yaml's directory maps each name to a list of environments, an http(s) url and an optional http(s) portalUrl, the
-  shape environment_not_served reads on every refusal (#674).
+  shape environment_not_served reads on every refusal (#674);
+- instance.yaml's http.maxRequestBodyBytes is a whole number of bytes, 1 to 2**53 - 1 (core/http_settings.py, #683).
 
 At startup any problem stops cmapi. On reload (ConfigMap watch, content hash) the running config is
 kept when the new one fails, and cmapi_config_reload_failed{file} is set.
@@ -35,6 +36,7 @@ from cmapi.core.cluster_tokens import TokenPolicy
 from cmapi.core.clustertls import ClusterTLSSettings
 from cmapi.core.errors import Problem
 from cmapi.core.giturl import GitConfigError, parse_remote
+from cmapi.core.http_settings import DEFAULT_MAX_REQUEST_BODY_BYTES, parse_http
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.plugins import PluginSwitch
 from cmapi.core.policy import PolicySettings
@@ -63,6 +65,7 @@ class InstanceConfig:
     policy: PolicySettings = field(default_factory=PolicySettings)   # instance.yaml `policy` (#213)
     cluster_tls: ClusterTLSSettings = field(default_factory=ClusterTLSSettings)   # instance.yaml `clusterTLS` (#434)
     cluster_tokens: TokenPolicy = field(default_factory=TokenPolicy)
+    max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES   # instance.yaml `http.maxRequestBodyBytes` (#683)
 
 
 def environment_not_served(cfg: InstanceConfig, env: str) -> Problem:
@@ -142,6 +145,8 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
     problems.extend(policy_problems)
     cluster_tls, tls_problems = ClusterTLSSettings.parse(me.get("clusterTLS"), allowed)
     problems.extend(tls_problems)
+    max_request_body_bytes, http_problems = parse_http(me.get("http"))
+    problems.extend(http_problems)
     try:
         cluster_tokens = TokenPolicy().override(me.get("clusterTokens", {}))
     except ValueError as exc:
@@ -149,7 +154,7 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
     if problems:
         raise ConfigError(problems)
     return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, plugins, hashes, policy,
-                          cluster_tls, cluster_tokens)
+                          cluster_tls, cluster_tokens, max_request_body_bytes)
 
 
 def _directory_problems(directory: Any) -> list[str]:

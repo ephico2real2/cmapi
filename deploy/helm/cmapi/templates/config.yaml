@@ -37,6 +37,7 @@ data:
       docs: {{ toJson $inst.docs }}
       problems: {{ toJson ($inst.problems | default dict) }}
       cors: {{ toJson ($inst.cors | default dict) }}
+      http: {{ toJson ($inst.http | default dict) }}
       policy: {{ toJson ($inst.policy | default dict) }}
       clusterTokens: {{ toJson $inst.clusterTokens }}
       clusterTLS: {{ toJson ($inst.clusterTLS | default dict) }}

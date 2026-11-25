@@ -48,7 +48,11 @@ ACTIONS: dict[str, str] = {
                                "send the request again.",
     "idempotency-replay": "Send a new `Idempotency-Key` for a new request. A key belongs to one request body.",
     "precondition-failed": "For a read, send it again without `If-Match` or `If-Unmodified-Since`. For a change, read the object again, and send the change with the new `ETag` in `If-Match`.",
-    "validation-failed": "Correct the fields that `errors` names, and send the request again.",
+    "content-too-large": "Send less content: at most the number of bytes in `maxBytes`. Nothing was done. A request that the "
+                         "limit refuses is one that no operation takes; the platform team sets the limit in instance.yaml "
+                         "(`http.maxRequestBodyBytes`).",
+    "validation-failed": "Correct the fields that `errors` names, and send the request again. `errors` names the first 20, so "
+                         "a request with more is refused again until each is corrected.",
     "policy-violation": "Correct the items that `errors` names. Each item has a code and the key or the field that the policy refused. "
                         "`findings`, when present, lists what the validator found on the same files beside them: a Kyverno "
                         "warning in audit says the cluster's policy reports the same value.",
