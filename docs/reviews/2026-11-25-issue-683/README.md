@@ -221,3 +221,5 @@ CI's `reference-code` job failed on `4b02394`: 18 test files could not collect, 
 - The reference suite, in a fresh venv built from `examples/local/requirements.txt`: 753 passed, 113 skipped.
 
 From now on, the coordinator's run before a merge includes the reference suite in its own venv.
+
+The coordinator reran on `7e5668d`, with #693: **3022 service passed**. The reference suite (`tests/core` in the venv built from `examples/local/requirements.txt`, as CI runs it): **753 passed, 113 skipped** (`coord-suite-2.txt`).
