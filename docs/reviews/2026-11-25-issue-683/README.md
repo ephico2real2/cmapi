@@ -209,3 +209,15 @@ Not tested: CRC and kind (no cluster was used), and the front door's own 413 (ng
   - merged main (#682), resolving the conflicts block by block (`test_api_standard.py` keeps both `folder-not-yaml` and 413);
   - relocated the docs/14 and docs/15 citations, reading each one.
 - **Full service suite,** database `cmapi_coord_691`, 18:43:04Z to 19:24:46Z: **3022 passed**, none failed. **Core:** 750 passed, 113 skipped (`coord-suite.txt`).
+
+## #693, found by CI after the review (2026-11-25)
+
+CI's `reference-code` job failed on `4b02394`: 18 test files could not collect, with `No module named 'structlog'`. The cause: `core/config.py` and `core/docs.py` imported `bodylimit`, which imports the logging module. The reference tools load the config without the service's dependencies. The coordinator's suites missed it, because the service venv has structlog installed.
+
+**The fix** (`b40b773`, Opus 5.5 high, one reviewer, a small change outside security code):
+- `DEFAULT_MAX_REQUEST_BODY_BYTES`, `MAX_LIMIT`, `parse_http` and `too_large` move to `core/http_settings.py`, which uses only the standard library.
+- The coordinator checked that the four definitions are identical to the old ones, by AST.
+- `test_config_import_693.py` imports `config`, `docs` and `http_settings` with structlog and prometheus_client made unimportable. It failed before the fix and passes after.
+- The reference suite, in a fresh venv built from `examples/local/requirements.txt`: 753 passed, 113 skipped.
+
+From now on, the coordinator's run before a merge includes the reference suite in its own venv.
