@@ -55,7 +55,7 @@ Each fetched 2026-11-25.
 - **RFC 7493 (I-JSON), section 2.1** (<https://www.rfc-editor.org/rfc/rfc7493.html>): "Object member names, and string values
   in arrays and object members, MUST NOT include code points that identify Surrogates or Noncharacters as defined by
   [UNICODE]. This applies both to characters encoded directly in UTF-8 and to those which are escaped; thus, "\uDEAD" is
-  invalid because it is an unpaired surrogate, while "𐊭" would be legal." Section 3: this "allows receivers to
+  invalid because it is an unpaired surrogate, while "\uD800\uDEAD" would be legal." Section 3: this "allows receivers to
   reject or otherwise disregard messages that do not conform".
 - **Go `encoding/json`** (<https://raw.githubusercontent.com/golang/go/master/src/encoding/json/decode.go>), the doc of
   `Unmarshal`: "When unmarshaling quoted strings, invalid UTF-8 or invalid UTF-16 surrogate pairs are not treated as an error.
@@ -82,9 +82,12 @@ Each fetched 2026-11-25.
 `core/models.py` `RequestBody`, the base of every request body, already refuses U+0000 in a before-mode model validator
 (#653), and `test_every_request_body_is_a_request_body` keeps every body model a RequestBody. The same validator now walks the
 parsed body and refuses any string or key that holds a code point from U+D800 to U+DFFF. `json.loads` joins an escaped pair
-into one character, so any such code point left is not a character, and a valid pair (`😀`, U+1F600) is taken.
+into one character, so any such code point left is not a character, and a valid pair (`\ud83d\ude00`, U+1F600) is taken.
+The walk is a loop over a stack, not recursion: `json.loads` parses a body nested about 10000 deep (CPython's C recursion
+limit), and a recursive walk raised RecursionError, which answered 500, from about depth 600.
 
-The answer is 422 validation-failed, the problem every refusal of a body is, with one error for each place, in document order:
+The answer is 422 validation-failed, the problem every refusal of a body is, with one error for each place, the first 20
+(`MAX_PLACES`) in document order, so that the answer stays small whatever the body holds:
 `{"field": "body.annotations.note", "message": "holds U+D800, a surrogate code point, which is not a Unicode character",
 "code": "string_surrogate"}`. A key's place ends in `[key]`, as pydantic names a key's error, and the key is shown with the
 surrogate escaped (`body.annotations.no\ud800te.[key]`), since the UTF-8 answer cannot carry it. The validator raises one
@@ -116,10 +119,17 @@ Rejected:
 
 ## Proof
 
-`cmapi/tests/service/test_lone_surrogate_353.py`, 13 tests, each body sent as raw JSON bytes: a create (submit and dry run) and a
+`cmapi/tests/service/test_lone_surrogate_353.py`, 19 tests, each body sent as raw JSON bytes: a create (submit and dry run) and a
 PATCH with the team annotation `note: "a\ud800"`, the same value as the bytes ED A0 80, a label value, the justification, an
 annotation key, an unknown member, a nested limit, two places named in order, a decision's comment, a valid pair still taken,
-and the query and the path (a guard, which passes before the fix too).
+and the query and the path (a guard, which passes before the fix too). The review added six: keys at depth, a pair sent as
+CESU-8 bytes (both pass before the review's fix too), a body nested 600, 5000 and 8000 deep (plain, NUL and surrogate leaves),
+and a refusal of 1,000 places that names the first 20.
+
+- The review's fixes (reviewer 1 and reviewer 2, `fix.diff` of the review): with the 19 tests on the PR's code, 4 failed (the
+  three depths answered 500, and the 1,000 places were all named) and 15 passed; on the fixed code, the new file,
+  `test_client_input_653.py`, `test_framework_problems_646.py`, `test_value_error_648.py` and `test_api_docs.py` passed 103 of
+  103. The fixed walk equals the PR's walk on 60,000 random bodies (the first 20 places, and every place with the cap lifted).
 
 - Before, `cmapi/src` stashed (`outputs/before.txt`): 11 failed, 2 passed (the valid pair and the query-and-path guard).
 - After (`outputs/after.txt`): 13 passed.

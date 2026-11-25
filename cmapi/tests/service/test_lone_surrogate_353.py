@@ -22,6 +22,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from test_client_input_653 import NUL_REFUSED
 from test_custom_tier_change import URL, custom, synced
 from test_flow import AMY, NS, OLA, auth
 
@@ -78,6 +79,19 @@ def test_a_surrogate_sent_as_bytes_not_as_an_escape_is_refused_too(world):
     assert recorded(world) == 0 and git.prs == {}
 
 
+def test_a_pair_sent_as_cesu_8_bytes_is_two_lone_surrogates_and_is_refused(world):
+    """U+1F600 as CESU-8, each half of its UTF-16 pair as three bytes (ED A0 BD, ED B8 80): not UTF-8 (RFC 3629, section 3,
+    "The definition of UTF-8 prohibits encoding character numbers between U+D800 and U+DFFF"). json.loads decodes the bytes
+    with "surrogatepass" and does not join the two halves, as it joins a `\\ud83d\\ude00` escape: the place is named once,
+    with the first."""
+    client, ctx, git, kube, validator, keys = world
+    content = raw({**NS, "justification": "a"}).replace(b'"justification": "a"', b'"justification": "a\xed\xa0\xbd\xed\xb8\x80"')
+    assert json.loads(content)["justification"] == "a\ud83d\ude00"
+    r = send(world, "POST", URL, content)
+    assert_refused(r, "body.justification", message="holds U+D83D, a surrogate code point, which is not a Unicode character")
+    assert recorded(world) == 0 and git.prs == {}
+
+
 def message(code_point: str) -> str:
     return f"holds {code_point}, a surrogate code point, which is not a Unicode character"
 
@@ -90,7 +104,11 @@ def message(code_point: str) -> str:
     (custom(limitRange={"container": {"max": {"cpu": "1\udfff"}}}), [("body.limitRange.container.max.cpu", "U+DFFF")]),
     ({**NS, "labels": {**NS["labels"], "team2": "\ud800"}, "justification": "\ude00\ud83d"},
      [("body.labels.team2", "U+D800"), ("body.justification", "U+DE00")]),
-], ids=["label-value", "justification", "annotation-key", "unknown-member", "nested-limit", "each-place-named"])
+    ({**NS, "x": {"a": [{"\udfff": {"b\ud800": "\udc00"}}]}},
+     [("body.x.a.0.\\udfff.[key]", "U+DFFF"), ("body.x.a.0.\\udfff.b\\ud800.[key]", "U+D800"),
+      ("body.x.a.0.\\udfff.b\\ud800", "U+DC00")]),
+], ids=["label-value", "justification", "annotation-key", "unknown-member", "nested-limit", "each-place-named",
+        "keys-at-depth"])
 def test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field(world, body, errors):
     """A key's place ends in `[key]`, as pydantic names a key's error. A key is shown with its surrogate escaped: the answer
     is UTF-8, which cannot carry one. A reversed pair is two lone surrogates: its place is named once, with the first."""
@@ -145,3 +163,37 @@ def test_a_surrogate_in_a_query_or_a_path_arrives_as_u_fffd(world):
     assert (listed.status_code, listed.json()["items"]) == (200, []), listed.text
     one = client.get(f"{URL}/a%ED%A0%80b", headers=auth(keys, "ola", **OLA))
     assert one.status_code == 404, one.text
+
+
+# ---- bounds: a deep body, and a body of many places
+
+def nested(depth: int, leaf: bytes) -> bytes:
+    """NS with a member `x` that holds the leaf `depth` lists deep, as bytes: json.dumps itself recurses."""
+    return raw(NS)[:-1] + b', "x": ' + b"[" * depth + leaf + b"]" * depth + b"}"
+
+
+@pytest.mark.parametrize("depth", [600, 5000, 8000])
+def test_a_body_nested_deeper_than_python_recurses_is_refused_with_422_not_500(world, depth):
+    """json.loads parses it: its decoder counts its depth against CPython's C recursion limit, 10000 on this platform
+    (CPython 3.12.14 Include/cpython/pystate.h C_RECURSION_LIMIT; Modules/_json.c _Py_EnterRecursiveCall), not against
+    sys.getrecursionlimit(), 1000 (measured: depth 9900 parses, 10100 is json_invalid). The recursive walks of RequestBody
+    raised RecursionError from about depth 600 here, which answered 500 internal-error; the walk is a loop now. A NUL leaf
+    is found at any depth too."""
+    plain = send(world, "POST", URL + "?dryRun=true", nested(depth, b'"a"'))
+    assert plain.status_code == 422, plain.text
+    assert plain.json()["errors"] == [{"field": "body.x", "message": "Extra inputs are not permitted", "code": "extra_forbidden"}]
+    nul = send(world, "POST", URL + "?dryRun=true", nested(depth, b'"a\\u0000"'))
+    assert nul.status_code == 422, nul.text
+    assert nul.json()["errors"] == [{"field": "body", "message": "Value error, " + NUL_REFUSED, "code": "value_error"}]
+    r = send(world, "POST", URL + "?dryRun=true", nested(depth, b'"a\\ud800"'))
+    assert r.status_code == 422, r.text
+    assert r.json()["errors"] == [{"field": "body.x" + ".0" * depth, "message": MESSAGE, "code": "string_surrogate"}]
+
+
+def test_a_refusal_names_the_first_twenty_places_only(world):
+    """One error for each place, the first 20 (MAX_PLACES of core/models.py): unbounded, a 1 MB body of 100,000 lone
+    surrogates nested 400 deep was answered with 93 MB in 15 s."""
+    client, ctx, git, kube, validator, keys = world
+    r = send(world, "POST", URL + "?dryRun=true", raw({**NS, "x": ["\ud800"] * 1000}))
+    assert r.status_code == 422, r.text[:400]
+    assert [e["field"] for e in r.json()["errors"]] == [f"body.x.{i}" for i in range(20)], r.text[:400]
