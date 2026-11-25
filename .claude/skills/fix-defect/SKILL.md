@@ -1,6 +1,6 @@
 ---
 name: fix-defect
-description: How every defect or bug found on cmapi gets handled - logged as a GitHub issue with a research mandate, linked to its parent issue, researched and fixed by a background agent, reviewed by reviewer 1 and reviewer 2, then validated and tested by the coordinator as arbiter before it merges. Use whenever a defect, bug, failing check or wrong behaviour is found, by anyone, at any stage, including in a review, in CI or on a pull request not merged yet.
+description: How every defect or bug found on cmapi gets handled - logged as a GitHub issue with a research mandate and a severity, linked to its parent issue; High, Medium and security defects are fixed in the session by a background agent and reviewed (reviewer 1 only for small non-security fixes, else reviewer 1 and reviewer 2), Low ones go to Backlog and are batched; then validated and tested by the coordinator as arbiter before it merges. Use whenever a defect, bug, failing check or wrong behaviour is found, by anyone, at any stage, including in a review, in CI or on a pull request not merged yet.
 ---
 
 # /fix-defect: every defect is logged, researched, reviewed and proven
@@ -20,6 +20,12 @@ File the issue as soon as the defect is seen, before fixing anything:
 
 Then comment on the parent with the new issue's number, so the parent shows everything found under it. Add the issue to `build-tracker.md`'s open bugs when the tracker is next updated.
 
+**Triage on filing.** This is the owner's rule from 2026-11-25; see `CLAUDE.md`, "File every defect; fix by severity; stories first".
+
+- **Fix now** when the defect is High or Medium, touches security (auth, tokens, crypto, supply chain, image builds, migrations), or blocks a story's proof. Label it `In-Progress` and go to step 2 in the same session.
+- **Fix later** when the defect is Low and not about security. Label it `sev:low` and `Backlog`. Fix it with other Low defects in one batched pull request when there is room, or at once if it sits in lines the current change already edits.
+- **Say the severity and why** in the issue.
+
 ## 2. Research and fix, in a background agent
 
 Start a fresh agent per `CLAUDE.md`, "Who does what", in the background. Related defects may share one agent, with one issue per defect. Its brief:
@@ -38,7 +44,12 @@ From `CLAUDE.md` and `adversarial-review`, on exports, never in a repository:
 1. **Reviewer 1** (Codex): a narrow brief of exact files and claims, returning the full code of each fix and test.
 2. **Reviewer 2** (a separate Opus 5.5 at `high`, not the author): checks each of reviewer 1's snippets against the design and the code, updates them, and reports with full code what reviewer 1 missed.
 
-Anything new a reviewer finds goes back to step 1 and gets its own issue.
+**Size the review by risk** (the owner, 2026-11-25):
+- **Reviewer 1 only** for a small fix: about 50 lines or fewer of code and manifests (tests and records not counted) that touches no security, auth, token, crypto, supply-chain, image-build or migration code.
+- **Both reviewers** for everything else.
+- **Say which in the brief and in the PR.**
+
+Anything new a reviewer finds goes back to step 1, gets its own issue, and is triaged there: Low and not about security goes to Backlog, unless it sits in the lines the pull request already changes.
 
 ## 4. Arbitrate: validate and test
 

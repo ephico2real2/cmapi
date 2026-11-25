@@ -25,12 +25,24 @@ fetch the primary sources and quote them, review our own evidence (the rules, wh
 recommend one option, then ask at most four self-contained questions with the recommended option first. Record the answer on
 the issue. The method is the diagram-kit skill `/decide`.
 
-**File it and fix it in the same session.** The owner, 2026-11-20: "any issues faced must be filed but implemented
-immediately in that session. This is a mandate for any of our agentic workflow and even in houston-mayday." A defect
-found by anyone, at any stage, is filed and fixed before the session moves on: in the current pull request when it is
-in scope, otherwise in a follow-up pull request started at once. A defect that predates the change is no exception, and
-nothing waits in Backlog. Every brief to an implementer, a reviewer or a houston-mayday job says so. A reviewer that
-cannot write to the repository returns the full fix and test, and the coordinator lands it in the same session.
+**File every defect; fix by severity; stories first.** The owner, 2026-11-20: "any issues faced must be filed but
+implemented immediately in that session. This is a mandate for any of our agentic workflow and even in houston-mayday."
+
+The owner amended this on 2026-11-25. Over the two days before, about 75 issues had been opened and 71 closed, with 0 of
+the 17 stories closed; the owner said "it seems we are in forever coding war with no movement of issues".
+
+- **File every defect**, found by anyone, at any stage, in the `fix-defect` format. Nothing found goes unfiled.
+- **Fix in the same session when the defect is High or Medium, or touches security.** That covers auth, tokens, crypto,
+  the supply chain, image builds and migrations. A defect that blocks a story's proof counts as High. Fix it in the
+  current pull request when it is in scope, otherwise in a follow-up started at once. A defect that predates the change
+  is no exception.
+- **A Low defect that is not about security** is filed `sev:low` and `Backlog`. It is fixed with other Low defects in one
+  batched pull request when there is room, or at once if it sits in lines the current change already edits. Never start
+  one pull request per Low finding in the middle of a session.
+- **Stories come first.** The aim is to move stories #13 to #29 to Done with the owner's approval.
+
+Every brief to an implementer, a reviewer or a houston-mayday job says so. A reviewer that cannot write to the repository
+returns the full fix and test, and the coordinator lands it.
 
 ## How to build: the delivery loop
 
@@ -41,7 +53,10 @@ The owner's required way of working, from `app-architect`, "Delivering the fixes
 3. The implementer builds it (see "Who does what"), and every line is read.
 4. A functional test on the running environment, its output saved, and a screenshot for a visible change.
 5. An adversarial review (`adversarial-review`): reviewer 1, then reviewer 2 checking reviewer 1's code, each returning the
-   full code of the fix and its test (see "Who does what"). Never the author.
+   full code of the fix and its test (see "Who does what"). Never the author. The owner, 2026-11-25: a small fix needs
+   **reviewer 1 only**. A small fix changes about 50 lines or fewer of code and manifests (tests and records not counted)
+   and touches no security, auth, token, crypto, supply-chain, image-build or migration code. Everything else keeps both
+   reviewers. The coordinator still runs the full suite before it merges any code change.
 6. The docs, the testing record and the diagrams updated from measured numbers.
 7. Merged only when CI is green and the review passed.
 
