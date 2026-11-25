@@ -146,3 +146,23 @@ The mutants ran on exports of the worktree with one change each to `cmapi/src/cm
 
 **Not tested:** the whole service suite; the front door (nginx) in front of `/static`; a browser loading `/docs` and
 `/redoc` after the change; CRC or kind. The suites ran on the development Mac only.
+
+## Review and the coordinator's run
+
+Codex reached its usage limit, so two separate Opus 5.5 agents reviewed this change. Neither one wrote it.
+
+- **Reviewer 1** (`review/reviewer-1-opus.md`) found three Low findings and nothing High or Medium:
+  - **F1:** the 304 had no `Accept-Ranges: none`.
+  - **F2:** no test guarded the scope copy. Mutant M4, which filters the headers in place, passed all 18 tests.
+  - **F3:** docs/04 and docs/08 had no `Range` row.
+
+  It also checked that all 9 relocated citations point at the right code.
+- **Reviewer 2** (`review/reviewer-2-opus.md`) accepted all three findings:
+  - **F1 stays as reviewer 1 wrote it.** RFC 9110 §15.4.5 limits *representation metadata* on a 304, and `Accept-Ranges` is not representation metadata (§14.3). RFC 9111 §3.2 has a cache update a stored response from a 304. Chromium's `CanResume` reads `Accept-Ranges: none`.
+  - **F2's test is rewritten to be smaller.** It still kills mutants M4, M1 and M8.
+  - **F3's two rows are corrected.**
+
+  Of the 8 mutants, 7 are killed. M5 is equivalent: uvicorn lowercases header names.
+- **The coordinator's run.** The coordinator ruled the findings accepted and applied the patch.
+  - The full service suite ran in its own database, `cmapi_coord_665`, in the venv installed from `main`'s lock: FastAPI 0.162.2, Starlette 1.10.0, PyJWT 2.15.1. It ran from 2026-11-25T02:05:59Z to 02:59:46Z: **2919 passed in 3201.80 s**, with nothing failed (`coord-suite.txt`).
+  - `doc-citations.py --check` reports 0 problems.
