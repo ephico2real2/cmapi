@@ -6,11 +6,13 @@ cluster-scoped resource: inherit ClusterScoped.
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from pydantic.alias_generators import to_camel
+from pydantic_core import PydanticCustomError
 
 ClusterId = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{1,62}$")]
 DnsLabel = Annotated[str, StringConstraints(pattern=r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")]
@@ -44,15 +46,55 @@ def holds_nul(value: Any) -> bool:
     return False
 
 
+# A string made of Unicode scalar values holds no code point from U+D800 to U+DFFF (#353). json.loads joins an escaped
+# surrogate pair into one character, so a code point of that range left in a parsed string is not a character: a lone
+# `\ud800`, a reversed pair, or the bytes ED A0 80, which json.loads decodes with "surrogatepass". RFC 7493, section 2.1:
+# names and string values "MUST NOT include code points that identify Surrogates", escaped or not. Kubernetes reads such a
+# value as U+FFFD or not at all, and PostgreSQL and the UTF-8 answer cannot hold it, so a body is refused at the edge
+# (docs/reviews/2026-11-25-issue-353/README.md).
+SURROGATE = re.compile(r"[\ud800-\udfff]")
+SURROGATE_CODE = "string_surrogate"
+SURROGATE_REFUSED = "A string of the request holds a surrogate code point, which is not a Unicode character"
+Place = tuple[str | int, ...]
+
+
+def _shown(key: str) -> str:
+    """A key as an error names it: each surrogate as its escape, since the UTF-8 answer cannot carry one."""
+    return key.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
+def surrogate_places(value: Any, place: Place = ()) -> list[tuple[Place, str]]:
+    """Each place of a parsed JSON value whose string, or key, holds a surrogate code point, in document order, with what
+    is wrong there (the first such code point). A key's place ends in "[key]", as pydantic names the error of a key."""
+    if isinstance(value, str):
+        if match := SURROGATE.search(value):
+            return [(place, f"holds U+{ord(match.group()):04X}, a surrogate code point, which is not a Unicode character")]
+        return []
+    found: list[tuple[Place, str]] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            found += [((*place, _shown(key), "[key]"), message) for _, message in surrogate_places(key)]
+            found += surrogate_places(item, (*place, _shown(key)))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            found += surrogate_places(item, (*place, index))
+    return found
+
+
 class RequestBody(Api):
     """The base of every request body. A body with U+0000 anywhere, in a label or an annotation too, is 422 validation-failed
-    before a route reads it; before #653 PostgreSQL refused it at the first write, and the caller got 500."""
+    before a route reads it; before #653 PostgreSQL refused it at the first write, and the caller got 500.
+
+    So is a body with a surrogate code point in any string or key (#353): one error of type string_surrogate whose context
+    `places` holds each place, which main.py's request_validation_handler names as one error each below the body."""
 
     @model_validator(mode="before")
     @classmethod
-    def refuse_nul(cls, data: Any) -> Any:
+    def refuse_what_is_not_text(cls, data: Any) -> Any:
         if holds_nul(data):
             raise ValueError(NUL_REFUSED)
+        if places := surrogate_places(data):
+            raise PydanticCustomError(SURROGATE_CODE, SURROGATE_REFUSED, {"places": places})
         return data
 
 

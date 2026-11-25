@@ -36,7 +36,7 @@ from cmapi.core.docs import PROBLEMS, URL_VARIABLE, InstanceFacts, api_routes, b
 from cmapi.core.errors import Problem, type_base
 from cmapi.core.etag import etag_of, not_modified
 from cmapi.core.kpi import register_collectors
-from cmapi.core.models import NUL_REFUSED
+from cmapi.core.models import NUL_REFUSED, SURROGATE_CODE
 from cmapi.core.problem_docs import problem_html, problems_index_html
 from cmapi.core.observability import configure_logging, instrument, log, start_metrics
 from cmapi.core.tiers import TierError
@@ -271,9 +271,14 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     @app.exception_handler(RequestValidationError)
     async def request_validation_handler(_: Request, exc: RequestValidationError) -> Response:
         # FastAPI's own refusal of a parameter or a body, as the same RFC 9457 problem as every other refusal. The input value is
-        # left out: it can hold what the caller did not mean to send back, and the field names it.
-        errors = [{"field": ".".join(str(part) for part in e.get("loc", ())), "message": e.get("msg", ""), "code": e.get("type", "")}
-                  for e in exc.errors()]
+        # left out: it can hold what the caller did not mean to send back, and the field names it. A string_surrogate error of
+        # RequestBody stands for each place its context names, below its own location (#353), so each field is named.
+        errors = []
+        for e in exc.errors():
+            loc = tuple(e.get("loc", ()))
+            places = e["ctx"]["places"] if e.get("type") == SURROGATE_CODE else [((), e.get("msg", ""))]
+            errors += [{"field": ".".join(str(part) for part in (*loc, *place)), "message": message, "code": e.get("type", "")}
+                       for place, message in places]
         return problem_response(validation_failed(errors))
 
     @app.exception_handler(TierError)

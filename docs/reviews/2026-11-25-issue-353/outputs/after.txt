@@ -1,0 +1,124 @@
+ cmapi/src/cmapi/core/models.py | 46 ++++++++++++++++++++++++++++++++++++++++--
+ cmapi/src/cmapi/main.py        | 13 ++++++++----
+ 2 files changed, 53 insertions(+), 6 deletions(-)
+== after: the fix
+.............                                                            [100%]
+==================================== PASSES ====================================
+_ test_a_create_with_a_team_annotation_holding_a_lone_surrogate_is_refused[submit] _
+---------------------------- Captured stdout setup -----------------------------
+{"direction": "upgrade", "target": "head", "from_revision": "0009", "revision": "0009", "applied": [], "lock_wait_seconds": 0.003, "transaction_seconds": 0.026, "total_seconds": 0.149, "event": "migrated", "level": "info", "timestamp": "2026-11-25T15:48:25.831909Z"}
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:27.012289Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:27.292868Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 8.6, "event": "http", "request_id": "b3838bc9dae64224", "level": "info", "timestamp": "2026-11-25T15:48:27.357833Z"}
+{"method": "GET", "route": "/api/v1/requests", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 75.0, "event": "http", "request_id": "2724a27cfac54884", "level": "info", "timestamp": "2026-11-25T15:48:27.485715Z"}
+_ test_a_create_with_a_team_annotation_holding_a_lone_surrogate_is_refused[dry-run] _
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:28.368759Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:28.497075Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 4.7, "event": "http", "request_id": "aa8b85ca0429400e", "level": "info", "timestamp": "2026-11-25T15:48:28.555003Z"}
+{"method": "GET", "route": "/api/v1/requests", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 62.8, "event": "http", "request_id": "a3508b4ab3944ffd", "level": "info", "timestamp": "2026-11-25T15:48:28.670959Z"}
+________ test_a_surrogate_sent_as_bytes_not_as_an_escape_is_refused_too ________
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:29.563959Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:29.694374Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 5.1, "event": "http", "request_id": "793fcea474f44544", "level": "info", "timestamp": "2026-11-25T15:48:29.753067Z"}
+{"method": "GET", "route": "/api/v1/requests", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 60.5, "event": "http", "request_id": "d7423f2e51d44038", "level": "info", "timestamp": "2026-11-25T15:48:29.866307Z"}
+_ test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field[label-value] _
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:30.811493Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:30.953179Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 5.2, "event": "http", "request_id": "6d30e844485c4874", "level": "info", "timestamp": "2026-11-25T15:48:31.014522Z"}
+{"method": "GET", "route": "/api/v1/requests", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 69.9, "event": "http", "request_id": "8cbeaf25b1bb43e8", "level": "info", "timestamp": "2026-11-25T15:48:31.137841Z"}
+_ test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field[justification] _
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:32.078016Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:32.205725Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 4.8, "event": "http", "request_id": "e6f4c26793284e8f", "level": "info", "timestamp": "2026-11-25T15:48:32.263814Z"}
+{"method": "GET", "route": "/api/v1/requests", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 62.7, "event": "http", "request_id": "c75151b2f0b84ad6", "level": "info", "timestamp": "2026-11-25T15:48:32.379160Z"}
+_ test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field[annotation-key] _
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:33.310211Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:33.440610Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 4.8, "event": "http", "request_id": "c7771aef346c4e48", "level": "info", "timestamp": "2026-11-25T15:48:33.498574Z"}
+{"method": "GET", "route": "/api/v1/requests", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 61.8, "event": "http", "request_id": "bc7e34f47e174c6f", "level": "info", "timestamp": "2026-11-25T15:48:33.613213Z"}
+_ test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field[unknown-member] _
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:34.567462Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:34.699321Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 4.9, "event": "http", "request_id": "b65bd02167a44e49", "level": "info", "timestamp": "2026-11-25T15:48:34.758148Z"}
+{"method": "GET", "route": "/api/v1/requests", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 61.4, "event": "http", "request_id": "5f4c5d0a8af248cb", "level": "info", "timestamp": "2026-11-25T15:48:34.872909Z"}
+_ test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field[nested-limit] _
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:36.001555Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:36.145413Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 5.2, "event": "http", "request_id": "ee5bac20bd3d461b", "level": "info", "timestamp": "2026-11-25T15:48:36.204792Z"}
+{"method": "GET", "route": "/api/v1/requests", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 62.4, "event": "http", "request_id": "febc51be19bd4461", "level": "info", "timestamp": "2026-11-25T15:48:36.321642Z"}
+_ test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field[each-place-named] _
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:37.770308Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:37.992573Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 6.1, "event": "http", "request_id": "df9c92acf73e4f65", "level": "info", "timestamp": "2026-11-25T15:48:38.073715Z"}
+{"method": "GET", "route": "/api/v1/requests", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 102.1, "event": "http", "request_id": "94d86e11758247f2", "level": "info", "timestamp": "2026-11-25T15:48:38.244057Z"}
+_____________ test_a_surrogate_pair_is_one_character_and_is_taken ______________
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:39.324069Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:39.513271Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 86.2, "event": "http", "request_id": "da8d931f42694347", "level": "info", "timestamp": "2026-11-25T15:48:39.669835Z"}
+___ test_a_patch_with_a_team_annotation_holding_a_lone_surrogate_is_refused ____
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:40.870021Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:41.046436Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 242.8, "event": "http", "request_id": "e04d491d90094131", "level": "info", "timestamp": "2026-11-25T15:48:41.362593Z"}
+{"method": "POST", "route": "/api/v1/requests/{request_id}:approve", "status": 200, "caller_sub": "sub-amy", "client": "cmapi-portal", "ms": 92.8, "event": "http", "request_id": "8365ac813e7743e3", "level": "info", "timestamp": "2026-11-25T15:48:41.522322Z"}
+{"request_id": "req-20261125-0001", "cluster": "CRC", "namespace": "payments-dev", "branch": "cmapi/CRC/req-20261125-0001", "attempt": 1, "job_id": null, "job_kind": null, "worker": null, "lease_generation": null, "platform": "host", "pr_number": 1, "head_sha": "8120acdeb44462c319551de4af953b0aa1568c08", "main_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "base_matches": true, "result_matches": true, "op": "merge_check", "outcome": "ok", "duration_ms": 0.0, "event": "git_op", "level": "info", "timestamp": "2026-11-25T15:48:41.748079Z"}
+{"request_id": "req-20261125-0001", "cluster": "CRC", "namespace": "payments-dev", "branch": "cmapi/CRC/req-20261125-0001", "attempt": 1, "job_id": null, "job_kind": null, "worker": null, "lease_generation": null, "platform": "host", "pr_number": 1, "head_sha": "8120acdeb44462c319551de4af953b0aa1568c08", "main_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "base_matches": true, "result_matches": true, "op": "merge_check", "outcome": "ok", "duration_ms": 0.0, "event": "git_op", "level": "info", "timestamp": "2026-11-25T15:48:41.798814Z"}
+{"request_id": "req-20261125-0001", "cluster": "CRC", "namespace": "payments-dev", "branch": "cmapi/CRC/req-20261125-0001", "attempt": 1, "job_id": null, "job_kind": null, "worker": null, "lease_generation": null, "platform": "host", "pr_number": 1, "head_sha": "8120acdeb44462c319551de4af953b0aa1568c08", "objects": 5, "pruned": 0, "confirmed": true, "reason": "quota matches the plan", "op": "apply", "outcome": "ok", "duration_ms": 21.8, "event": "git_op", "level": "info", "timestamp": "2026-11-25T15:48:41.838337Z"}
+{"request_id": "req-20261125-0001", "cluster": "CRC", "namespace": "payments-dev", "branch": "cmapi/CRC/req-20261125-0001", "attempt": 1, "job_id": null, "job_kind": null, "worker": null, "lease_generation": null, "platform": "host", "pr_number": 1, "head_sha": "8120acdeb44462c319551de4af953b0aa1568c08", "main_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "base_matches": true, "result_matches": true, "op": "merge_check", "outcome": "ok", "duration_ms": 0.0, "event": "git_op", "level": "info", "timestamp": "2026-11-25T15:48:41.889122Z"}
+{"method": "GET", "route": "/api/v1/requests/{request_id}", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 23.3, "event": "http", "request_id": "e24226c8b151497a", "level": "info", "timestamp": "2026-11-25T15:48:42.073541Z"}
+{"method": "GET", "route": "/api/v1/clusters/{cluster_id}/namespaces/{ns}", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 23.7, "event": "http", "request_id": "b41e4888f95a4468", "level": "info", "timestamp": "2026-11-25T15:48:42.157025Z"}
+{"method": "GET", "route": "/api/v1/requests", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 25.8, "event": "http", "request_id": "ec5d0a2016f3470a", "level": "info", "timestamp": "2026-11-25T15:48:42.251034Z"}
+{"method": "PATCH", "route": "/api/v1/clusters/{cluster_id}/namespaces/{ns}", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 7.1, "event": "http", "request_id": "3ce17d189e484b76", "level": "info", "timestamp": "2026-11-25T15:48:42.317679Z"}
+{"method": "PATCH", "route": "/api/v1/clusters/{cluster_id}/namespaces/{ns}", "status": 422, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 4.5, "event": "http", "request_id": "f88b1c3357384251", "level": "info", "timestamp": "2026-11-25T15:48:42.385591Z"}
+{"method": "GET", "route": "/api/v1/requests", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 27.3, "event": "http", "request_id": "a561919e1b1d4f3e", "level": "info", "timestamp": "2026-11-25T15:48:42.470681Z"}
+_________ test_a_decision_comment_holding_a_lone_surrogate_is_refused __________
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:43.599887Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:43.758456Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "POST", "route": "/api/v1/clusters/{cluster_id}/namespaces", "status": 202, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 241.5, "event": "http", "request_id": "2eb5e4db768f49fc", "level": "info", "timestamp": "2026-11-25T15:48:44.067797Z"}
+{"method": "POST", "route": "/api/v1/requests/{request_id}:approve", "status": 422, "caller_sub": "sub-amy", "client": "cmapi-portal", "ms": 3.7, "event": "http", "request_id": "09cef98d80244783", "level": "info", "timestamp": "2026-11-25T15:48:44.135509Z"}
+{"method": "GET", "route": "/api/v1/requests/{request_id}", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 35.8, "event": "http", "request_id": "96d6fe69c2024cbd", "level": "info", "timestamp": "2026-11-25T15:48:44.239810Z"}
+___________ test_a_surrogate_in_a_query_or_a_path_arrives_as_u_fffd ____________
+---------------------------- Captured stdout setup -----------------------------
+{"cluster_id": "CRC", "mode": "trusted", "previous": null, "server_name": null, "event": "cluster_tls_mode", "level": "info", "timestamp": "2026-11-25T15:48:45.391167Z"}
+{"instance": "nonprod", "issuer": "https://keycloak.test/realms/cmapi", "audience": "cmapi-nonprod", "version": "0.2.0", "commit": "unknown", "clusters": {"CRC": "connected"}, "plugins": ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"], "plugins_file": false, "event": "startup", "level": "info", "timestamp": "2026-11-25T15:48:45.556005Z"}
+----------------------------- Captured stdout call -----------------------------
+{"method": "GET", "route": "/api/v1/requests", "status": 200, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 71.5, "event": "http", "request_id": "6638acbc7306457e", "level": "info", "timestamp": "2026-11-25T15:48:45.695787Z"}
+{"method": "GET", "route": "/api/v1/clusters/{cluster_id}/namespaces/{ns}", "status": 404, "caller_sub": "sub-ola", "client": "cmapi-portal", "ms": 4.9, "event": "http", "request_id": "0d9ab8aa9d55420f", "level": "info", "timestamp": "2026-11-25T15:48:45.773144Z"}
+=========================== short test summary info ============================
+PASSED tests/service/test_lone_surrogate_353.py::test_a_create_with_a_team_annotation_holding_a_lone_surrogate_is_refused[submit]
+PASSED tests/service/test_lone_surrogate_353.py::test_a_create_with_a_team_annotation_holding_a_lone_surrogate_is_refused[dry-run]
+PASSED tests/service/test_lone_surrogate_353.py::test_a_surrogate_sent_as_bytes_not_as_an_escape_is_refused_too
+PASSED tests/service/test_lone_surrogate_353.py::test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field[label-value]
+PASSED tests/service/test_lone_surrogate_353.py::test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field[justification]
+PASSED tests/service/test_lone_surrogate_353.py::test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field[annotation-key]
+PASSED tests/service/test_lone_surrogate_353.py::test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field[unknown-member]
+PASSED tests/service/test_lone_surrogate_353.py::test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field[nested-limit]
+PASSED tests/service/test_lone_surrogate_353.py::test_a_surrogate_anywhere_in_a_create_is_refused_with_its_field[each-place-named]
+PASSED tests/service/test_lone_surrogate_353.py::test_a_surrogate_pair_is_one_character_and_is_taken
+PASSED tests/service/test_lone_surrogate_353.py::test_a_patch_with_a_team_annotation_holding_a_lone_surrogate_is_refused
+PASSED tests/service/test_lone_surrogate_353.py::test_a_decision_comment_holding_a_lone_surrogate_is_refused
+PASSED tests/service/test_lone_surrogate_353.py::test_a_surrogate_in_a_query_or_a_path_arrives_as_u_fffd
+13 passed in 20.28s
+exit=0
