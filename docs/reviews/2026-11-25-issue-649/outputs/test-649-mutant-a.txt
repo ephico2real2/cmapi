@@ -1,0 +1,37 @@
+FFFFFFFFFFFFFFFF..                                                       [100%]
+=================================== FAILURES ===================================
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+<export>/cmapi/tests/service/test_static_range_649.py:43: AssertionError: ('GET', 500, '{"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}')
+=========================== short test summary info ============================
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[one-range-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[one-range-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[suffix-range-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[suffix-range-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[unsatisfiable-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[unsatisfiable-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[malformed-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[malformed-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[reversed-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[reversed-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[other-unit-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[other-unit-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[two-ranges-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[two-ranges-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[long-header-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[long-header-/static/redoc/redoc.standalone.js]
+16 failed, 2 passed in 25.82s
+exit=1

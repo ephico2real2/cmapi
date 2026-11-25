@@ -1,0 +1,37 @@
+FFFFFFFFFFFFFFFF..                                                       [100%]
+=================================== FAILURES ===================================
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+<export>/cmapi/tests/service/test_static_range_649.py:56: AssertionError: a file that is always sent whole must not advertise byte ranges
+=========================== short test summary info ============================
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[one-range-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[one-range-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[suffix-range-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[suffix-range-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[unsatisfiable-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[unsatisfiable-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[malformed-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[malformed-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[reversed-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[reversed-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[other-unit-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[other-unit-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[two-ranges-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[two-ranges-/static/redoc/redoc.standalone.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[long-header-/static/swagger/swagger-ui-bundle.js]
+FAILED tests/service/test_static_range_649.py::test_a_static_file_is_sent_whole_whatever_its_range[long-header-/static/redoc/redoc.standalone.js]
+16 failed, 2 passed in 24.87s
+exit=1
