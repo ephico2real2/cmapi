@@ -108,7 +108,18 @@ Not changed: the Containerfiles (their `FROM` lines and digests stay; a local `p
 | `actionlint` 1.7.12 (with shellcheck on the `run` blocks) | exit 0 | exit 0 |
 | `base-images.py` against the real registries (this Mac, skopeo 1.24.1) | | exit 0: the UBI manifest kept as Docker v2s2 under `sha256:b99faa…` (4 blobs, 64 MB); node and nginx-unprivileged as their indexes plus the linux/amd64 image (19 blobs, 84 MB); every blob's SHA-256 matches its name |
 
+**On the runner (PR #666, run 45527698703).** `images-pr` for both images and `front-door` passed on the first push. The
+`manifests` job failed in this test: skopeo 1.13.3 (containers/image v5.26.2) reads no `CONTAINERS_REGISTRIES_CONF`
+(`pkg/sysregistriesv2`, `newConfigWrapperWithHomeDir`: the per-user `$HOME/.config/containers/registries.conf`, or the system
+file), so the stub's `insecure = true` was never applied and every call stopped at `tls: first record does not look like a
+TLS handshake`. Three refusal cases still passed, because they checked only the exit code. Fixed in the test: the stub's
+`registries.conf` is now the per-user file under a `HOME` of its own, which both versions read; the success case asserts
+the token endpoint was asked more than twice; and each refusal must name its reason (`unauthorized`, or `did not match` /
+`does not match`). Found on the way: skopeo 1.13.3's `inspect --raw` does not check the manifest against the pinned digest
+(1.24.1 does: "Manifest does not match provided manifest digest"), so on the runner it is `base-images.py`'s own check that
+refuses a wrong manifest.
+
 **Not tested here.** No image was built on this Mac (the owner's rule). That BuildKit v0.35.1 reads each base from the
-layout, the v2s2 manifest included, and builds the same image, is proved only by this PR's CI: `images-pr` for both images
-and `front-door`, whose logs should show `[context …] OCI load from client` and no `load metadata for
-registry.access.redhat.com`. The `images` job runs only on `main`, after the merge.
+layout, the v2s2 manifest included, is proved by this PR's CI: `images-pr` for both images and `front-door`, whose logs should
+show `[context …] OCI load from client` and no `load metadata for registry.access.redhat.com`. The `images` job runs only on
+`main`, after the merge.

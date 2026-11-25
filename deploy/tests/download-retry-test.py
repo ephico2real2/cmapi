@@ -221,14 +221,17 @@ def base_images_case() -> list:
     host = f"127.0.0.1:{server.server_port}"
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            # The stub speaks plain HTTP: skopeo is told so for this host alone, in its own registries.conf, as a test's
-            # setting. base-images.py has no TLS switch. No credentials are read from this machine.
-            conf, auth = os.path.join(tmp, "registries.conf"), os.path.join(tmp, "auth.json")
-            open(conf, "w").write(f'[[registry]]\nlocation = "{host}"\ninsecure = true\n')
+            # The stub speaks plain HTTP: skopeo is told so for this host alone, as a test's setting, in a per-user
+            # registries.conf under a HOME of its own. That file is the one both skopeo 1.13.3 (the runner's; containers/image
+            # v5.26.2 reads no CONTAINERS_REGISTRIES_CONF) and later versions read. base-images.py has no TLS switch. No
+            # credentials are read from this machine.
+            conf_dir, auth = os.path.join(tmp, "home", ".config", "containers"), os.path.join(tmp, "auth.json")
+            os.makedirs(conf_dir)
+            open(os.path.join(conf_dir, "registries.conf"), "w").write(f'[[registry]]\nlocation = "{host}"\ninsecure = true\n')
             open(auth, "w").write("{}")
             os.makedirs(os.path.join(tmp, "docker"))
-            env = {**os.environ, "CONTAINERS_REGISTRIES_CONF": conf, "REGISTRY_AUTH_FILE": auth,
-                   "DOCKER_CONFIG": os.path.join(tmp, "docker")}
+            env = {k: v for k, v in os.environ.items() if k != "CONTAINERS_REGISTRIES_CONF"}
+            env.update(HOME=os.path.join(tmp, "home"), REGISTRY_AUTH_FILE=auth, DOCKER_CONFIG=os.path.join(tmp, "docker"))
 
             def containerfile(name, *froms):
                 path = os.path.join(tmp, name)
@@ -237,6 +240,7 @@ def base_images_case() -> list:
 
             pinned = containerfile("Containerfile", f"{host}/ubi@{ubi} AS tools", f"{host}/node@{node} AS build",
                                    "tools", f"{host}/ubi@{ubi}")
+
             def fresh(served=None, failures=0):
                 StubRegistry.content = served or content
                 StubRegistry.token_failures, StubRegistry.token_requests, StubRegistry.requested = failures, 0, []
@@ -255,23 +259,25 @@ def base_images_case() -> list:
                 check(r.returncode == 0 and sorted(r.stdout.split()) == expect and layout_ok(layout)
                       and os.path.exists(os.path.join(layout, "blobs", "sha256", ubi.split(":")[1]))
                       and not os.path.exists(os.path.join(layout, "blobs", "sha256", arm64.split(":")[1]))
-                      and not [p for p in StubRegistry.requested if arm64 in p],
+                      and not [p for p in StubRegistry.requested if arm64 in p] and StubRegistry.token_requests > TOKEN_FAILURES,
                       f"{where}: {' '.join(f'{k} {v}' for k, v in flags.items() if k not in ('--containerfile', '--layout'))}: "
                       f"each FROM image in the layout after {TOKEN_FAILURES} refused token requests, every blob under its "
                       f"SHA-256, only the {flags['--platform']} image: exit {r.returncode} {last(r)}")
 
                 fresh(failures=attempts)
                 r = run_base(flags, pinned, os.path.join(tmp, f"refused-{i}"), env)
-                check(r.returncode == 1 and f"failed {attempts} times" in r.stderr and not r.stdout,
+                check(r.returncode == 1 and f"failed {attempts} times" in r.stderr and "unauthorized" in last(r)[0] and not r.stdout,
                       f"{where}: fails, with no build context, when all {attempts} attempts are refused: exit {r.returncode} {last(r)}")
 
-                # A layer that is not its digest, and a manifest that is not the pinned one: refused, one attempt each.
+                # A layer that is not its digest, and a manifest that is not the pinned one: refused, one attempt each, by
+                # skopeo ("Digest did not match"; newer versions also check the manifest) or by base-images.py's own check.
                 fresh({**content, ubi_layer: (content[ubi_layer][0], gzip.compress(b"other bytes", mtime=0))})
                 r = run_base(flags, pinned, os.path.join(tmp, f"blob-{i}"), env, **{"--attempts": "1"})
-                check(r.returncode == 1 and not r.stdout, f"{where}: refuses a layer that is not its digest: exit {r.returncode} {last(r)}")
+                check(r.returncode == 1 and not r.stdout and re.search(r"did not match|does not match", last(r)[0]) is not None,
+                      f"{where}: refuses a layer that is not its digest: exit {r.returncode} {last(r)}")
                 fresh({**content, ubi_manifest: (V2S2, content[ubi_manifest][1] + b" ")})
                 r = run_base(flags, pinned, os.path.join(tmp, f"manifest-{i}"), env, **{"--attempts": "1"})
-                check(r.returncode == 1 and not r.stdout,
+                check(r.returncode == 1 and not r.stdout and re.search(r"did not match|does not match", last(r)[0]) is not None,
                       f"{where}: refuses a manifest that is not the pinned digest: exit {r.returncode} {last(r)}")
 
                 fresh()
