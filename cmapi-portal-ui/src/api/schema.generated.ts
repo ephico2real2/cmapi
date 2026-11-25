@@ -4671,6 +4671,19 @@ export interface operations {
                 };
             };
             /**
+             * @description The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.
+             *
+             *     Codes: `content-too-large`.
+             */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
              *     Codes: `validation-failed`.
@@ -4765,6 +4778,19 @@ export interface operations {
              *     Codes: `forbidden`.
              */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.
+             *
+             *     Codes: `content-too-large`.
+             */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5492,6 +5518,19 @@ export interface operations {
              *     Codes: `nothing-to-prune`.
              */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.
+             *
+             *     Codes: `content-too-large`.
+             */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6321,6 +6360,19 @@ export interface operations {
              *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `namespace-exists`, `namespace-exists-unmanaged`.
              */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.
+             *
+             *     Codes: `content-too-large`.
+             */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7199,6 +7251,19 @@ export interface operations {
                 };
             };
             /**
+             * @description The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.
+             *
+             *     Codes: `content-too-large`.
+             */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
              *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `unknown-user`, `on-behalf-of-not-allowed`, `policy-violation`, `capacity-exceeded`, `unknown-serviceaccount`, `no-change`.
@@ -7500,6 +7565,19 @@ export interface operations {
              *     Codes: `precondition-failed`.
              */
             412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.
+             *
+             *     Codes: `content-too-large`.
+             */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7840,6 +7918,19 @@ export interface operations {
                 };
             };
             /**
+             * @description The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.
+             *
+             *     Codes: `content-too-large`.
+             */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
              *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `policy-violation`, `capacity-exceeded`, `unknown-serviceaccount`, `expiration-not-allowed`, `expiration-not-set`.
@@ -8141,6 +8232,19 @@ export interface operations {
              *     Codes: `precondition-failed`.
              */
             412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.
+             *
+             *     Codes: `content-too-large`.
+             */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11398,6 +11502,19 @@ export interface operations {
                 };
             };
             /**
+             * @description The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.
+             *
+             *     Codes: `content-too-large`.
+             */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
              *     Codes: `validation-failed`.
@@ -11803,6 +11920,19 @@ export interface operations {
              *     Codes: `not-pending`.
              */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.
+             *
+             *     Codes: `content-too-large`.
+             */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };

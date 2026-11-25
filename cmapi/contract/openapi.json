@@ -7776,6 +7776,28 @@
             },
             "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "content-too-large": {
+                    "value": {
+                      "code": "content-too-large",
+                      "detail": "The request content is larger than 1048576 bytes, the most that this instance reads",
+                      "maxBytes": 1048576,
+                      "status": 413,
+                      "title": "content too large",
+                      "type": "https://cmapi.ephico2real.com/problems/content-too-large"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.\n\nCodes: `content-too-large`."
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -7937,6 +7959,28 @@
               }
             },
             "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "content-too-large": {
+                    "value": {
+                      "code": "content-too-large",
+                      "detail": "The request content is larger than 1048576 bytes, the most that this instance reads",
+                      "maxBytes": 1048576,
+                      "status": 413,
+                      "title": "content too large",
+                      "type": "https://cmapi.ephico2real.com/problems/content-too-large"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.\n\nCodes: `content-too-large`."
           },
           "422": {
             "content": {
@@ -8909,6 +8953,28 @@
               }
             },
             "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `nothing-to-prune`."
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "content-too-large": {
+                    "value": {
+                      "code": "content-too-large",
+                      "detail": "The request content is larger than 1048576 bytes, the most that this instance reads",
+                      "maxBytes": 1048576,
+                      "status": 413,
+                      "title": "content too large",
+                      "type": "https://cmapi.ephico2real.com/problems/content-too-large"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.\n\nCodes: `content-too-large`."
           },
           "422": {
             "content": {
@@ -10295,6 +10361,28 @@
               }
             },
             "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `namespace-exists`, `namespace-exists-unmanaged`."
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "content-too-large": {
+                    "value": {
+                      "code": "content-too-large",
+                      "detail": "The request content is larger than 1048576 bytes, the most that this instance reads",
+                      "maxBytes": 1048576,
+                      "status": 413,
+                      "title": "content too large",
+                      "type": "https://cmapi.ephico2real.com/problems/content-too-large"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.\n\nCodes: `content-too-large`."
           },
           "422": {
             "content": {
@@ -11956,6 +12044,28 @@
             },
             "description": "No strong tag that If-Match lists is the object's ETag: it changed since it was read, or the value named none.\n\nCodes: `precondition-failed`."
           },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "content-too-large": {
+                    "value": {
+                      "code": "content-too-large",
+                      "detail": "The request content is larger than 1048576 bytes, the most that this instance reads",
+                      "maxBytes": 1048576,
+                      "status": 413,
+                      "title": "content too large",
+                      "type": "https://cmapi.ephico2real.com/problems/content-too-large"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.\n\nCodes: `content-too-large`."
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -12621,6 +12731,28 @@
               }
             },
             "description": "No strong tag that If-Match lists is the object's ETag: it changed since it was read, or the value named none.\n\nCodes: `precondition-failed`."
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "content-too-large": {
+                    "value": {
+                      "code": "content-too-large",
+                      "detail": "The request content is larger than 1048576 bytes, the most that this instance reads",
+                      "maxBytes": 1048576,
+                      "status": 413,
+                      "title": "content too large",
+                      "type": "https://cmapi.ephico2real.com/problems/content-too-large"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.\n\nCodes: `content-too-large`."
           },
           "422": {
             "content": {
@@ -13289,6 +13421,28 @@
             },
             "description": "No strong tag that If-Match lists is the object's ETag: it changed since it was read, or the value named none.\n\nCodes: `precondition-failed`."
           },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "content-too-large": {
+                    "value": {
+                      "code": "content-too-large",
+                      "detail": "The request content is larger than 1048576 bytes, the most that this instance reads",
+                      "maxBytes": 1048576,
+                      "status": 413,
+                      "title": "content too large",
+                      "type": "https://cmapi.ephico2real.com/problems/content-too-large"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.\n\nCodes: `content-too-large`."
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -13914,6 +14068,28 @@
               }
             },
             "description": "No strong tag that If-Match lists is the object's ETag: it changed since it was read, or the value named none.\n\nCodes: `precondition-failed`."
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "content-too-large": {
+                    "value": {
+                      "code": "content-too-large",
+                      "detail": "The request content is larger than 1048576 bytes, the most that this instance reads",
+                      "maxBytes": 1048576,
+                      "status": 413,
+                      "title": "content too large",
+                      "type": "https://cmapi.ephico2real.com/problems/content-too-large"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.\n\nCodes: `content-too-large`."
           },
           "422": {
             "content": {
@@ -19333,6 +19509,28 @@
             },
             "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `not-pending`, `already-approved`, `self-approval`."
           },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "content-too-large": {
+                    "value": {
+                      "code": "content-too-large",
+                      "detail": "The request content is larger than 1048576 bytes, the most that this instance reads",
+                      "maxBytes": 1048576,
+                      "status": 413,
+                      "title": "content too large",
+                      "type": "https://cmapi.ephico2real.com/problems/content-too-large"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.\n\nCodes: `content-too-large`."
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -19937,6 +20135,28 @@
               }
             },
             "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `not-pending`."
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "content-too-large": {
+                    "value": {
+                      "code": "content-too-large",
+                      "detail": "The request content is larger than 1048576 bytes, the most that this instance reads",
+                      "maxBytes": 1048576,
+                      "status": 413,
+                      "title": "content too large",
+                      "type": "https://cmapi.ephico2real.com/problems/content-too-large"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.\n\nCodes: `content-too-large`."
           },
           "422": {
             "content": {
