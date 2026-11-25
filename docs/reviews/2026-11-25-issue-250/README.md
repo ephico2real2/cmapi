@@ -130,3 +130,17 @@ checks and the related suites.
   file with the Namespace alone, so the other objects leave Git (a ResourceQuota or LimitRange among them is kept in its
   own file). That is what a change already does to a file of the folder that cmapi does not write, `networkpolicy.yaml`
   for example (measured by reviewer 1 on the PR head: the plan removes it).
+
+## Review and the coordinator's run (2026-11-25)
+
+- **Reviewers.** Two reviewers, both Opus 5.5 high, standing in for Codex, which is at its limit. Their reports are in `review/`.
+- **Reviewer 1.** All 13 tests fail on main, and all five mutants are killed. Its findings:
+  - **F1 (Medium):** a bad scalar such as `2026-02-30` gave 500. It is now `folder-not-yaml`.
+  - **F2 (Medium):** a team's `<ns>-limits-*` LimitRange was claimed by its name alone. Ownership now also needs `cmapi.net/tier-hash`.
+  - **F3 to F6 (Low):** fixed.
+- **Reviewer 2** accepted F1 to F6, and ruled reviewer 1's Backlog item B1 **High**, filed as **#685**: a label change on a namespace whose only quota is a team's replaced that quota with the tier quota (CPU 3 → 8), with no approval, and pruned it. The fix follows D9: "Any other request, a change of a label for example, leaves every object unchanged". Reviewer 2 also:
+  - fixed R2-F7, where a deep file gave 500;
+  - found the conftest `sys.path` trap, and retracted its own wrong head run.
+- **Backlog:** the Low items are #686.
+- **The coordinator** applied reviewer 2's final patch with `patch -p1 -F0` and merged main (#681). It relocated 9 docs/14 citations and corrected 2 (`router.py:194`, `:234`), reading each one.
+- **Full service suite,** database `cmapi_coord_682`, 17:27:52Z to 18:12:01Z: **2987 passed**, none failed. **Core:** 750 passed, 113 skipped (`coord-suite.txt`).
