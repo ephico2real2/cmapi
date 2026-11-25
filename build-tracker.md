@@ -19,7 +19,21 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-24, 12:40Z
+## Current: 2026-11-25, 00:55Z
+
+`main` is `39dd4a8` (PR #658). There are no open PRs. CRC runs `aceaded` (run 38), and run 39 is next. No core story is closed. The story audit's verdicts are in the handover's 2026-11-25 section.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| `design.md` of epic #481 matches the build | #628 | Merged #642 | Doc tests. CRC: none needed |
+| The framework's refusals are RFC 9457 problems | #644, #646 | Merged #645 | Full suite. CRC: run 38 found #644; the fix runs in run 39 |
+| A folder that is not UTF-8 is refused | #626 | Merged #647 | Full suite 2684; 13 mutants killed |
+| ValueError gives 500; NUL refused; bounds | #648, #653 | Merged #652 | Full suite 2725; 14 mutants killed |
+| FastAPI 0.162.2 and Starlette 1.10.0 | #651, #662 | Merged #654 | Full suite 2776 on the new pins; the CVE's Range parse went from 2.77 s to 0.00013 s |
+| Keycloak realm encoded once; issuer refusals | #640 | Merged #659 | Full suite 2826; a disposable Keycloak 26.6.4 before and after |
+| PyJWT 2.15.1, hashed lock, CI dependency audit, JWKS RS256 keys | #655, #656, #657, #660, #661 | Merged #658 | Full suite 2898; `audit.sh` clean on all three sets in CI |
+
+## Previous: 2026-11-24, 12:40Z
 
 `main` is `aceaded` (PR #639). CRC runs `365b4b9` (run 37), and **OB1 run 38 is deploying `aceaded`**, which carries
 migration `0009`. Open PRs: none. The handover's 2026-11-24 section lists the next steps.

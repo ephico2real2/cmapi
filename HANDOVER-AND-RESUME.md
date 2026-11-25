@@ -4,7 +4,66 @@
 every section below it, which is kept as history. The tracker is [`build-tracker.md`](build-tracker.md), the issues are
 [`issue-register.md`](issue-register.md), and the rules are [`CLAUDE.md`](CLAUDE.md).
 
-## Resume here: 2026-11-24, 12:40Z
+## Resume here: 2026-11-25, 00:55Z
+
+The coordinator (Opus 5.5) wrote this section from `gh`, `git`, the review folders and the story audit. It supersedes the
+2026-11-24 12:40Z section below. Every path under `workbench/` is `/Users/olasumbo/gitRepos/workbench/cmapi/`.
+
+### 1. Where it stands
+
+| Item | State |
+|---|---|
+| `main` | `39dd4a8` (PR #658). **No open PRs.** |
+| CRC | Runs `aceaded` (OB1 run 38, `workbench/ob1-run38/resume.md`): migration `0009` applied, and every change proven read-only. `main` is ahead by #642, #645, #647, #652, #654, #658 and #659. These include the FastAPI 0.162.2 and Starlette 1.10.0 upgrade, PyJWT 2.15.1 and the hashed image lock. CRC needs a deploy: run 39. |
+| Stories | None of the 17 core stories (#13 to #29) is closed. The story audit is in `workbench/story-audit/` (`audit.md`, `plan.md`, `close-13.md`): <ul><li>Need only a CRC proof: #13, #14, #15, #17, #18, #20.</li><li>Need build work: #16, #19, #21, #22, #25, #26, #27, #28.</li><li>Not started: #23, #24, #29.</li></ul>Across 60 criteria: 9 proven on CRC, 18 proven in part, 10 proven in CI only, 22 not built. |
+| Milestones | 111 of 181 issues closed, or 61%. Read on 2026-11-24, before today's later merges. |
+| Reviewers | Codex reached its usage limit until 2026-11-25 14:19 local. Until then reviewer 1 is a separate Opus agent. The owner chose Fable 5.2 as reviewer 1 for #655 and #640. |
+| Owner decisions | <ol><li>Run 39 with real writes on `cmap-live-g-dev`, to prove #17, #18 and #20.</li><li>Turn CRC monitoring back on (stage C, #16).</li><li>Auto-approval on CRC: it is on now, but the plan's phase 2 exit says off (#18).</li><li>#627, the lookup's sync state. #628's rows 4 and 8 and #643 wait on it.</li><li>Approve #481.</li><li>Share the live docs with this account, or apply `workbench/LIVE-DOCS-PENDING.md` from the old account.</li></ol> |
+| Housekeeping | 174 merged worktrees removed, which freed 18.6 GB. Their uncommitted scratch is in `workbench/worktree-archive-2026-11-24/`. The `workbench/review-*` export folders remain. |
+
+### 2. Merged since 12:40Z (8 PRs)
+
+Each PR was reviewed by reviewer 1 and reviewer 2. The coordinator then applied the patch, ran the full service suite on the merged head in its own database, and merged on green CI. The review records are in `docs/reviews/2026-11-24-issue-N/`.
+
+| PR | Merge | Closes | What | Suite |
+|---|---|---|---|---|
+| #642 | `a2a55f3` | #628 | `design.md` of epic #481 matches the build; a test checks it against `NamespaceView` and `undeclared_edits`. | doc tests |
+| #645 | `5962830` | #644, #646 | The framework's own 404, 405, 400 and other refusals are RFC 9457 problems, chosen by cause. | 2663 passed; the failures were PostgreSQL connection contention, and they passed when run alone. |
+| #647 | `0bba9ea` | #626 | A folder holding a name or a manifest that is not UTF-8 gets 409 `folder-not-utf8`. A merged PR is never recorded `failed`. | 2684 |
+| #652 | `b97ebb5` | #648, #653 | An internal ValueError is answered with 500 and no text. A NUL character is refused where it enters. Quantities and expiry dates are bounded. | 2725 |
+| #654 | `ff5a443` | #651, #662 | FastAPI 0.162.2 and Starlette 1.10.0: no advisory left. Each app's engine is disposed. | 2776, on the new pins |
+| #659 | `f906776` | #640 | The Keycloak realm is decoded once and encoded once. Non-issuers are refused, including a query or fragment that sent the client secret to another realm. | 2826 |
+| #658 | `39dd4a8` | #655, #656, #657, #660, #661 | PyJWT 2.15.1. A hashed lock for the image, and a `dependency-audit` CI job: OSV, three sets, every venv on the lock's pip. JWKS: RS256 public keys only. | 2898 |
+
+The open defects filed today and not yet fixed:
+- #643: the namespace read's served description; waits on #627.
+- #649: `/static` ignores Range. Its CVE is cleared by #654.
+- #650: a file that can be stat-ed but not opened answers 200.
+- #663: the CI base-image pull has no retry.
+
+### 3. Next, in order
+
+1. **#663, #649 and #650.** The defect loop, run as before.
+2. **Run 39**, by the audit's plan stage A. It deploys `main` and closes the cheap gaps on #13, #14, #15, #17, #18 and #20. It needs owner decision 1.
+3. **Each story to the owner** as soon as its criteria are proven, with a closing comment in the style of #483's.
+4. **Stages B to G of `story-audit/plan.md`**:
+   - B: Argo CD, on kind and then on CRC (W5).
+   - C: monitoring and telemetry.
+   - D: lifecycle.
+   - E: capacity and quotas.
+   - F: the rest of the product work.
+   - G: W9 and the final walk.
+
+### 4. Lessons of the second half of 2026-11-24
+
+- **Give each agent its own PostgreSQL database.** Shared ones caused lock waits and "too many clients" failures.
+- **Two gates do two jobs.** A whole-suite gate waits only for other whole-suite runs; a targeted run is kept apart by its own database instead.
+- **Keep every FAILED and ERROR line** in a suite script's output, and run failing files alone before you call a failure real.
+- **Never run `doc-citations --relocate` then `--write` unattended.** It put 8 citations on the wrong code (#662).
+- **When you merge docs, resolve each hunk, never a whole file.** `git checkout --theirs` dropped #658's citation updates; they were caught and redone.
+- **A new CI audit finds what a laptop hides.** The runner's bundled pip had six advisories.
+
+## Resume here: 2026-11-24, 12:40Z (superseded)
 
 The coordinator (Opus 5.5) wrote this section from `gh`, `git` and the review folders. It supersedes the 2026-11-23
 23:59Z section below. Every path under `workbench/` is `/Users/olasumbo/gitRepos/workbench/cmapi/`.
