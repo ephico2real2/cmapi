@@ -96,10 +96,13 @@
   ok   images-pr: the build names no frontend image to pull
   ok   base-images.py runs one command, skopeo with the arguments of its two calls and no other
   ok   base-images.py runs skopeo with its TLS and digest checks, and copies each image unchanged: ['"inspect", "--raw", f"docker://{repo}@{pinned}"', '"copy", "--quiet", "--preserve-digests", "--remove-signatures", f"docker://{repo}@{image}", f"oci:{layout}"']
-  FAIL cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['canary=$(mktemp); chmod 000 "$canary";', 'if [ -r "$canary" ]; then', 'rm -f "$canary";', 'find $paths ! -type l -exec sh -c \'for p; do [ -r "$p" ] || echo "cannot read $p"; done\' sh {} +;', 'find $paths \\( -type d -o -type f -perm -100 \\) -exec sh -c \'for p; do [ -x "$p" ] || echo "cannot search or run $p"; done\' sh {} +;', '} 2>&1 ) || true;', 'if [ -n "$bad" ]; then', 'exit 1; fi;']
+  ok   the modes check's user (54321:0) is in group 0, is not an image's own user, and is a UID that a rootless build maps
+  FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+  ok   cmapi/Containerfile: the final stage keeps the default shell, so the check runs as written: []
   FAIL cmapi/Containerfile: the check follows the last change to the image's files, and the image then runs as 1001: []
-  FAIL cmapi/Containerfile: every COPY of the final stage lands under a path the check reads ([]); outside it: ['/usr/local/bin', '/opt/app-root/static', '/opt/app-root/schemas', '/opt/app-root/src', '/opt/app-root/src', '/opt/app-root/src/src', '/etc/cmapi/policies']
-  FAIL cmapi-portal-ui/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['canary=$(mktemp); chmod 000 "$canary";', 'if [ -r "$canary" ]; then', 'rm -f "$canary";', 'find $paths ! -type l -exec sh -c \'for p; do [ -r "$p" ] || echo "cannot read $p"; done\' sh {} +;', 'find $paths \\( -type d -o -type f -perm -100 \\) -exec sh -c \'for p; do [ -x "$p" ] || echo "cannot search or run $p"; done\' sh {} +;', '} 2>&1 ) || true;', 'if [ -n "$bad" ]; then', 'exit 1; fi;']
+  ok   cmapi/Containerfile: every COPY of the final stage lands, by a literal path, under a path the check reads (['/opt/app-root', '/etc/cmapi', '/usr/local/bin']); outside it: []
+  FAIL cmapi-portal-ui/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /usr/share/nginx/html /etc/nginx /docker-entrypoint.sh /docker-entrypoint.d
+  ok   cmapi-portal-ui/Containerfile: the final stage keeps the default shell, so the check runs as written: []
   FAIL cmapi-portal-ui/Containerfile: the check follows the last change to the image's files, and the image then runs as 101: []
-  FAIL cmapi-portal-ui/Containerfile: every COPY of the final stage lands under a path the check reads ([]); outside it: ['/etc/nginx/nginx.conf', '/etc/nginx/cmapi', '/etc/nginx/templates', '/docker-entrypoint.d/16-cmapi-check-env.envsh', '/usr/share/nginx/html/portal', '/usr/share/nginx/html/mockup/portal.html']
-ci cases failed: 6
+  ok   cmapi-portal-ui/Containerfile: every COPY of the final stage lands, by a literal path, under a path the check reads (['/usr/share/nginx/html', '/etc/nginx', '/docker-entrypoint.sh', '/docker-entrypoint.d']); outside it: []
+ci cases failed: 4

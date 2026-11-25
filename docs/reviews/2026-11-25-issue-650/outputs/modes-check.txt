@@ -1,0 +1,56 @@
+program for the run case: /Library/Application Support/Apple/Spotlight/MailUsesCoreSpotlight
+ok   cmapi/Containerfile [/bin/sh] a clean tree: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /opt/app-root /etc/cmapi /usr/local/bin
+ok   cmapi/Containerfile [/bin/sh] a file of mode 000: exit 1 (want 1); cannot read /opt/app-root/file.txt
+ok   cmapi/Containerfile [/bin/sh] a directory of mode 000: exit 1 (want 1); find: /opt/app-root/sub: Permission denied
+ok   cmapi/Containerfile [/bin/sh] a directory of mode 0600: exit 1 (want 1); cannot search or run /opt/app-root/sub
+ok   cmapi/Containerfile [/bin/sh] a dangling link: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /opt/app-root /etc/cmapi /usr/local/bin
+ok   cmapi/Containerfile [/bin/sh] a link to a readable file of the tree: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /opt/app-root /etc/cmapi /usr/local/bin
+ok   cmapi/Containerfile [/bin/sh] a link to an unreadable file outside the checked paths: exit 1 (want 1); cannot read /opt/app-root/bundle.js (a link: its target)
+ok   cmapi/Containerfile [/bin/sh] r2 a link cycle (no loop, no finding): exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /opt/app-root /etc/cmapi /usr/local/bin
+ok   cmapi/Containerfile [/bin/sh] r2 a link to a searchable directory outside: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /opt/app-root /etc/cmapi /usr/local/bin
+ok   cmapi/Containerfile [/bin/sh] r2 a link to a directory outside that this user cannot search: exit 1 (want 1); cannot search or run /opt/app-root/modules (a link: its target)
+ok   cmapi/Containerfile [/bin/sh] r2 a link to a program outside that its owner may run and this user cannot: exit 1 (want 1); cannot search or run /opt/app-root/python3 (a link: its target)
+ok   cmapi/Containerfile [/bin/sh] r2 the check's UID owns the files it checks: exit 1 (want 1); owned by the check UID, so the kernel read its owner bits: /opt/app-root /opt/app-root/file.txt /opt/app-root/sub /opt/app-root/sub/run /etc/cmapi /et
+ok   cmapi/Containerfile [/bin/sh] r2 the check runs in groups other than 0: exit 1 (want 1); the check runs in groups 20 12 61 79 80 81 98 33 100 204 250 395 398 399 400 701, not in group 0 alone
+ok   cmapi/Containerfile [/bin/dash] a clean tree: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /opt/app-root /etc/cmapi /usr/local/bin
+ok   cmapi/Containerfile [/bin/dash] a file of mode 000: exit 1 (want 1); cannot read /opt/app-root/file.txt
+ok   cmapi/Containerfile [/bin/dash] a directory of mode 000: exit 1 (want 1); find: /opt/app-root/sub: Permission denied
+ok   cmapi/Containerfile [/bin/dash] a directory of mode 0600: exit 1 (want 1); cannot search or run /opt/app-root/sub
+ok   cmapi/Containerfile [/bin/dash] a dangling link: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /opt/app-root /etc/cmapi /usr/local/bin
+ok   cmapi/Containerfile [/bin/dash] a link to a readable file of the tree: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /opt/app-root /etc/cmapi /usr/local/bin
+ok   cmapi/Containerfile [/bin/dash] a link to an unreadable file outside the checked paths: exit 1 (want 1); cannot read /opt/app-root/bundle.js (a link: its target)
+ok   cmapi/Containerfile [/bin/dash] r2 a link cycle (no loop, no finding): exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /opt/app-root /etc/cmapi /usr/local/bin
+ok   cmapi/Containerfile [/bin/dash] r2 a link to a searchable directory outside: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /opt/app-root /etc/cmapi /usr/local/bin
+ok   cmapi/Containerfile [/bin/dash] r2 a link to a directory outside that this user cannot search: exit 1 (want 1); cannot search or run /opt/app-root/modules (a link: its target)
+ok   cmapi/Containerfile [/bin/dash] r2 a link to a program outside that its owner may run and this user cannot: exit 1 (want 1); cannot search or run /opt/app-root/python3 (a link: its target)
+ok   cmapi/Containerfile [/bin/dash] r2 the check's UID owns the files it checks: exit 1 (want 1); owned by the check UID, so the kernel read its owner bits: /opt/app-root /opt/app-root/file.txt /opt/app-root/sub /opt/app-root/sub/run /etc/cmapi /et
+ok   cmapi/Containerfile [/bin/dash] r2 the check runs in groups other than 0: exit 1 (want 1); the check runs in groups 20 12 61 79 80 81 98 33 100 204 250 395 398 399 400 701, not in group 0 alone
+ok   cmapi-portal-ui/Containerfile [/bin/sh] a clean tree: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /usr/share/nginx/html /etc/nginx /docker-ent
+ok   cmapi-portal-ui/Containerfile [/bin/sh] a file of mode 000: exit 1 (want 1); cannot read /usr/share/nginx/html/file.txt
+ok   cmapi-portal-ui/Containerfile [/bin/sh] a directory of mode 000: exit 1 (want 1); find: /usr/share/nginx/html/sub: Permission denied
+ok   cmapi-portal-ui/Containerfile [/bin/sh] a directory of mode 0600: exit 1 (want 1); cannot search or run /usr/share/nginx/html/sub
+ok   cmapi-portal-ui/Containerfile [/bin/sh] a dangling link: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /usr/share/nginx/html /etc/nginx /docker-ent
+ok   cmapi-portal-ui/Containerfile [/bin/sh] a link to a readable file of the tree: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /usr/share/nginx/html /etc/nginx /docker-ent
+ok   cmapi-portal-ui/Containerfile [/bin/sh] a link to an unreadable file outside the checked paths: exit 1 (want 1); cannot read /usr/share/nginx/html/bundle.js (a link: its target)
+ok   cmapi-portal-ui/Containerfile [/bin/sh] portal only: conf.d of mode 0555: exit 1 (want 1); cannot write /etc/nginx/conf.d
+ok   cmapi-portal-ui/Containerfile [/bin/sh] r2 a link cycle (no loop, no finding): exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /usr/share/nginx/html /etc/nginx /docker-ent
+ok   cmapi-portal-ui/Containerfile [/bin/sh] r2 a link to a searchable directory outside: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /usr/share/nginx/html /etc/nginx /docker-ent
+ok   cmapi-portal-ui/Containerfile [/bin/sh] r2 a link to a directory outside that this user cannot search: exit 1 (want 1); cannot search or run /usr/share/nginx/html/modules (a link: its target)
+ok   cmapi-portal-ui/Containerfile [/bin/sh] r2 a link to a program outside that its owner may run and this user cannot: exit 1 (want 1); cannot search or run /usr/share/nginx/html/python3 (a link: its target)
+ok   cmapi-portal-ui/Containerfile [/bin/sh] r2 the check's UID owns the files it checks: exit 1 (want 1); owned by the check UID, so the kernel read its owner bits: /usr/share/nginx/html /usr/share/nginx/html/file.txt /usr/share/nginx/html/sub /usr/share/n
+ok   cmapi-portal-ui/Containerfile [/bin/sh] r2 the check runs in groups other than 0: exit 1 (want 1); the check runs in groups 20 12 61 79 80 81 98 33 100 204 250 395 398 399 400 701, not in group 0 alone
+ok   cmapi-portal-ui/Containerfile [/bin/dash] a clean tree: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /usr/share/nginx/html /etc/nginx /docker-ent
+ok   cmapi-portal-ui/Containerfile [/bin/dash] a file of mode 000: exit 1 (want 1); cannot read /usr/share/nginx/html/file.txt
+ok   cmapi-portal-ui/Containerfile [/bin/dash] a directory of mode 000: exit 1 (want 1); find: /usr/share/nginx/html/sub: Permission denied
+ok   cmapi-portal-ui/Containerfile [/bin/dash] a directory of mode 0600: exit 1 (want 1); cannot search or run /usr/share/nginx/html/sub
+ok   cmapi-portal-ui/Containerfile [/bin/dash] a dangling link: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /usr/share/nginx/html /etc/nginx /docker-ent
+ok   cmapi-portal-ui/Containerfile [/bin/dash] a link to a readable file of the tree: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /usr/share/nginx/html /etc/nginx /docker-ent
+ok   cmapi-portal-ui/Containerfile [/bin/dash] a link to an unreadable file outside the checked paths: exit 1 (want 1); cannot read /usr/share/nginx/html/bundle.js (a link: its target)
+ok   cmapi-portal-ui/Containerfile [/bin/dash] portal only: conf.d of mode 0555: exit 1 (want 1); cannot write /etc/nginx/conf.d
+ok   cmapi-portal-ui/Containerfile [/bin/dash] r2 a link cycle (no loop, no finding): exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /usr/share/nginx/html /etc/nginx /docker-ent
+ok   cmapi-portal-ui/Containerfile [/bin/dash] r2 a link to a searchable directory outside: exit 0 (want 0); image modes (#650): an arbitrary UID (501) in group 0 reads every file and searches every directory under /usr/share/nginx/html /etc/nginx /docker-ent
+ok   cmapi-portal-ui/Containerfile [/bin/dash] r2 a link to a directory outside that this user cannot search: exit 1 (want 1); cannot search or run /usr/share/nginx/html/modules (a link: its target)
+ok   cmapi-portal-ui/Containerfile [/bin/dash] r2 a link to a program outside that its owner may run and this user cannot: exit 1 (want 1); cannot search or run /usr/share/nginx/html/python3 (a link: its target)
+ok   cmapi-portal-ui/Containerfile [/bin/dash] r2 the check's UID owns the files it checks: exit 1 (want 1); owned by the check UID, so the kernel read its owner bits: /usr/share/nginx/html /usr/share/nginx/html/file.txt /usr/share/nginx/html/sub /usr/share/n
+ok   cmapi-portal-ui/Containerfile [/bin/dash] r2 the check runs in groups other than 0: exit 1 (want 1); the check runs in groups 20 12 61 79 80 81 98 33 100 204 250 395 398 399 400 701, not in group 0 alone
+cases failed: 0

@@ -68,9 +68,13 @@ Each read 2026-11-25.
 ## The choice
 
 The cause is the image's modes, so the fix is in each Containerfile, where the modes are set. Its final stage, after the last
-change to its files, now runs as `USER 1000690000:0`, a UID that owns nothing in group 0, as OpenShift runs it, and fails the
-build on a path it cannot read, a directory it cannot search, or a file that its owner may run and it cannot. A canary of mode
-000 first proves that the check sees modes: a user with `CAP_DAC_OVERRIDE` reads it, and the check would then pass anything.
+change to its files, now runs as `USER 54321:0`, a UID that owns nothing in group 0, as OpenShift runs it, and fails the
+build on a path it cannot read, a directory it cannot search, or a file that its owner may run and it cannot. A link is
+followed to its target, which is read, and searched or run, as a file of the checked paths would be; a dangling link or a
+cycle passes, as the app cannot open either. Before it reads, the check asserts its own premise: its groups are 0 alone, and
+it owns no file under the checked paths. (The UID was `1000690000` until review 1, below; the CI runs under "Proof" used that
+one.) A canary of mode 000 first proves that the check sees modes: a user with `CAP_DAC_OVERRIDE` reads it, and the check
+would then pass anything.
 The image then goes back to its runtime user (1001, 101). It is a `RUN`, so every job that builds the image runs it:
 `images` (the published images), `images-pr` and `front-door`.
 
@@ -81,9 +85,9 @@ The image then goes back to its runtime user (1001, 101). It is a `RUN`, so ever
   `/etc/nginx/nginx.conf` and `/etc/nginx`, which 30-tune-worker-processes.sh edits with `sed -i`. That script exits 0 when
   it cannot write, so nginx would start with the stock worker count and no error.
 
-`deploy/tests/ci-guard.py` requires the check in both final stages, each clause whole, nothing but metadata after it, the
-runtime user restored, and every `COPY` of the final stage under a path the check reads, so a new `COPY` elsewhere fails CI
-until the check covers it.
+`deploy/tests/ci-guard.py` requires the check in both final stages, the `RUN` whole and nothing else in it, the default
+shell (no `SHELL` in the final stage), nothing but metadata after it, the runtime user restored, and every `COPY` of the
+final stage, by a literal path, under a path the check reads, so a new `COPY` elsewhere fails CI until the check covers it.
 
 Rejected:
 
@@ -100,14 +104,16 @@ Rejected:
 ## Proof
 
 - **The guard, before and after** (`outputs/guard-before.txt`, `outputs/guard-after.txt`): the new guard on `main`'s
-  Containerfiles fails 6 cases (the check missing, nothing after it, and the COPYs outside it, in both images); on this
-  branch it passes, `ci cases failed: 0`.
-- **The guard's mutants** (`outputs/guard-mutants.txt`, `probes/guard-mutants.py`): 14 mutants of the Containerfiles, all
-  killed: the check removed (each image), moved before `COPY policies`, run as root, a path dropped (each image), the canary
+  Containerfiles fails 4 cases (the check missing and nothing after it, in both images; 6 before review 1, when the guard
+  read the paths from the check and so counted the COPYs as outside); on this branch it passes, `ci cases failed: 0`.
+- **The guard's mutants** (`outputs/guard-mutants.txt`, `probes/guard-mutants.py`): 14 mutants of the Containerfiles (25
+  after review 1, 35 after review 2, below), all killed: the check removed (each image), moved before `COPY policies`, run as root, a path dropped (each image), the canary
   removed, the read test made `true`, a finding that does not fail the build, the search-or-run test removed, a COPY after
   the check, a COPY outside the checked paths, a RUN after the check, and the runtime user not restored.
 - **The check's logic on this Mac** (`/bin/sh`, as the owner): a tree with a file of mode 000, a write-only file, a
   directory of mode 0600 and one of mode 000 is refused with each path named; a clean tree with a dangling symlink passes.
+  After review 2, `probes/modes-check.py` runs each image's `RUN`, taken from its Containerfile, on 13 trees (14 for the
+  portal) under `/bin/sh` and `/bin/dash`: `cases failed: 0` (`outputs/modes-check.txt`).
 - **CI, the mutant: before.** Commit `6eca40b` added `RUN chmod 0600 /opt/app-root/static/redoc/redoc.standalone.js` to
   cmapi and `RUN chmod 0600 /usr/share/nginx/html/mockup/portal.html` to the portal, before the check. Run 45549565321: the
   three builds failed at the check, and each named only the mutated file, so nothing in the bases fails it
@@ -134,9 +140,71 @@ Rejected:
 
 ## Not tested
 
-- The images on CRC under `restricted-v2`. The check runs at build, in CI, as UID 1000690000 in group 0; no image was run on
-  this Mac (the owner's rule: CI builds the images for CRC).
-- Supplementary groups: the build's user has group 0 only. A pod's `fsGroup` or supplemental groups can only add access.
+- The images on CRC under `restricted-v2`. The check runs at build, in CI, as UID 54321 in group 0 (1000690000 in the CI
+  runs under "Proof"); no image was run on this Mac (the owner's rule: CI builds the images for CRC).
+- Supplementary groups: the build's user has group 0 only (Dockerfile reference, USER: "the user will have _only_ the
+  specified group membership"). Under `restricted-v2` a pod also gets the namespace's `fsGroup` as a supplementary group
+  ("Requires that a pod is run with a preallocated FSGroup"; for `cmapi` on CRC, 1000720000). A group can take access away
+  only from a file that it owns and that gives the group less than others; no file of either image has such a GID (the bases'
+  files have GIDs 0, 12 and 42), so here it adds nothing and removes nothing.
+- The image's own user (1001, 101), as kind and plain Docker run it. The check asks as a UID that owns nothing. The owner is
+  refused where the arbitrary UID is not only on a file whose owner bits are less than its group bits, which `chmod -R g=u`
+  (cmapi) and the bases' 644, 664, 755 and 775 (the portal) do not leave.
 - Files that the cluster mounts at run time (ConfigMaps, Secrets, the portal's `config.json`): their modes come from the
   manifests, not the image.
 - The Starlette report is a draft; nothing was filed upstream.
+
+## Review 1 (Fable 5.2), 2026-11-25
+
+Reviewer 1's findings and their fixes, applied to this branch; its report has the sources and the outputs.
+
+- **The guard compared clauses, not the RUN (R1-1, R1-2).** Nine mutants passed the guard at `5769429`: the portal's write
+  check removed, `bad="";` before the findings are read, `exit 0;` after `set -eu;`, the check inside `if false`,
+  `-maxdepth 0` in `paths`, `/etc/cmapi` narrowed to `/etc/cmapi/policies`, `/docker-entrypoint.sh` dropped, and a `COPY`
+  outside the checked paths in the JSON form or through an `ENV`. The guard now compares the whole `RUN` of each image, and a
+  `COPY` destination it cannot place counts as outside. `probes/guard-mutants.py` has 25 mutants, all killed
+  (`outputs/guard-mutants.txt`).
+- **UID 1000690000 is not mapped in a rootless build (R1-3).** Podman's troubleshooting guide, 10, "rootless setup user:
+  invalid argument": "A user, either via --user or through the default configured for the image, is not mapped inside the
+  namespace." (<https://github.com/containers/podman/blob/main/troubleshooting.md>, read 2026-11-25). Measured on this Mac:
+  `podman info` gives the map `[{0 501 1} {1 100000 1000000}]`, so UIDs above 1000000 do not exist in the build, and shadow's
+  default is 65536 (`SUB_UID_COUNT`). Not measured by a build (the owner's rule). No `cmapi` namespace on CRC has that UID in
+  its range either (measured: `cmapi` 1000720000/10000, `cmapi-system` 1000810000/10000, `cmap-live-g-dev` 1000830000/10000),
+  and none needs to: the kernel asks whether the UID owns the file and whether one of its groups is the file's, so any UID that
+  owns nothing answers alike. The bases' files belong to UIDs 0 and 1001 (cmapi) and 0 and 101 (the portal), read from their
+  layers. The check now runs as `54321:0`, and the guard holds the UID below 65534.
+- **Links were skipped (R1-4).** `! -type l` left a link's target unread when it lies outside the checked paths. The check now
+  reads each link whose target exists through to it. The bases' links under the checked paths all end at a readable target
+  (`/opt/app-root/bin/python3.12` to `/usr/bin/python3.12`, `lib64` to `lib`, `/etc/nginx/modules` to `/usr/lib/nginx/modules`).
+- **Not tested after these changes:** no image was built with them. CI on the new head is the proof; the lines to read are
+  `image modes (#650)` in `images-pr` (both) and `front-door`. The canary's refusal has never run: it needs a build as a user
+  with `CAP_DAC_OVERRIDE`, which the guard forbids.
+
+## Review 2 (Opus 5.5), 2026-11-25
+
+Reviewer 2 checked review 1's findings and its patch, and ruled on each with a test; its report has the sources and outputs.
+
+- **The whole-`RUN` comparison stays (R1-1).** Any edit to the check must change the guard in the same pull request; that is
+  the guarantee, as for the pinned `skopeo` calls above it in the guard. A behaviour test in CI would have to rewrite the
+  `RUN`'s paths and still pin them; `probes/modes-check.py` keeps the behaviour proof in the record instead.
+- **The fixed UID stays, and the check now proves its premise (R1-3).** `USER` cannot take a UID read from the image: the
+  Dockerfile reference lists `USER` among the instructions that take `ENV` and `ARG` values, nothing computed from files. So
+  the `RUN` asserts what makes 54321 a stand-in for OpenShift's UID: `[ "$(id -G)" = 0 ]` (Docker documents "_only_ the
+  specified group membership"; Buildah's `configureUIDGID` adds `user.AdditionalGids`, `run_common.go:289-291`), and no file under
+  the checked paths owned by `$(id -u)`. If a base one day gives 54321 a file, the build fails and names it. Measured: no file
+  of either pinned base belongs to 54321 (their layers, read by digest), and this Mac's rootless map is
+  `[{0 501 1} {1 100000 1000000}]` (`podman info`). `deploy/release-crc.sh:57,63` runs `podman build` with that map; CI's
+  BuildKit is rootful.
+- **Links are searched and run too (R1-4).** Review 1's clause read a link's target but did not search a linked directory or
+  run a linked program. `/opt/app-root/bin/python3.12` links to `/usr/bin/python3.12`, and `/etc/nginx/modules` to
+  `/usr/lib/nginx/modules`. The clause now applies the same tests as for a file of the checked paths. `find` does not follow
+  links, and `test -e` is false on a cycle, so a cycle neither loops nor fails (a case of `probes/modes-check.py`).
+- **Four mutants passed review 1's guard:** `SHELL ["/bin/true"]` or `SHELL ["/bin/sh", "-c", "exit 0"]` before the check (the
+  `RUN` becomes an argument and runs nothing), and a `COPY` to a relative path under `WORKDIR $OUT` or `${OUT}`. The guard now
+  refuses a `SHELL` in the final stage and counts a relative destination under a `WORKDIR` with a variable as outside. 35
+  mutants, all killed (`outputs/guard-mutants.txt`).
+- **The success line names the UID** (`an arbitrary UID ($(id -u)) in group 0`), so the build log shows which UID ran; BuildKit
+  does not print `USER`.
+- **Not tested:** no image was built with these changes. In CI, `image modes (#650): an arbitrary UID (54321) in group 0` in
+  `images-pr` (both) and `front-door`, after a step header that holds `[ "$(id -G)" = 0 ]` and `find -H`, proves that the new
+  `RUN` ran as 54321, that its premise held (group 0 alone, nothing owned) and that every link with a target passed.

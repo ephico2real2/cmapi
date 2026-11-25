@@ -96,10 +96,13 @@
   ok   images-pr: the build names no frontend image to pull
   ok   base-images.py runs one command, skopeo with the arguments of its two calls and no other
   ok   base-images.py runs skopeo with its TLS and digest checks, and copies each image unchanged: ['"inspect", "--raw", f"docker://{repo}@{pinned}"', '"copy", "--quiet", "--preserve-digests", "--remove-signatures", f"docker://{repo}@{image}", f"oci:{layout}"']
-  ok   cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing []
+  ok   the modes check's user (54321:0) is in group 0, is not an image's own user, and is a UID that a rootless build maps
+  ok   cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+  ok   cmapi/Containerfile: the final stage keeps the default shell, so the check runs as written: []
   ok   cmapi/Containerfile: the check follows the last change to the image's files, and the image then runs as 1001: [('USER', '1001'), ('EXPOSE', '8080 9090'), ('ENTRYPOINT', '["cmapi-api"]')]
-  ok   cmapi/Containerfile: every COPY of the final stage lands under a path the check reads (['/opt/app-root', '/etc/cmapi', '/usr/local/bin']); outside it: []
-  ok   cmapi-portal-ui/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing []
+  ok   cmapi/Containerfile: every COPY of the final stage lands, by a literal path, under a path the check reads (['/opt/app-root', '/etc/cmapi', '/usr/local/bin']); outside it: []
+  ok   cmapi-portal-ui/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /usr/share/nginx/html /etc/nginx /docker-entrypoint.sh /docker-entrypoint.d
+  ok   cmapi-portal-ui/Containerfile: the final stage keeps the default shell, so the check runs as written: []
   ok   cmapi-portal-ui/Containerfile: the check follows the last change to the image's files, and the image then runs as 101: [('USER', '101')]
-  ok   cmapi-portal-ui/Containerfile: every COPY of the final stage lands under a path the check reads (['/usr/share/nginx/html', '/etc/nginx', '/docker-entrypoint.sh', '/docker-entrypoint.d']); outside it: []
+  ok   cmapi-portal-ui/Containerfile: every COPY of the final stage lands, by a literal path, under a path the check reads (['/usr/share/nginx/html', '/etc/nginx', '/docker-entrypoint.sh', '/docker-entrypoint.d']); outside it: []
 ci cases failed: 0

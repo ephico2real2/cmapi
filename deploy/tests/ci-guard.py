@@ -175,37 +175,62 @@ def final_stage(path):
         logical.append((word.upper(), rest.strip())); buf = ""
     start = max((i for i, (w, _) in enumerate(logical) if w == "FROM"), default=-1)
     return logical[start + 1:]
-MODES_USER = "1000690000:0"
-# Each clause whole, so that a mutant which keeps the words and drops the failure (an exit 1, a test) is caught.
-MODES_RUN = ('canary=$(mktemp); chmod 000 "$canary";',
-             'if [ -r "$canary" ]; then echo "the modes check cannot see modes: this user reads a file of mode 000" >&2; exit 1; fi;',
-             'rm -f "$canary";',
-             """bad=$( { find $paths ! -type l -exec sh -c 'for p; do [ -r "$p" ] || echo "cannot read $p"; done' sh {} +;""",
-             """find $paths \\( -type d -o -type f -perm -100 \\) -exec sh -c 'for p; do [ -x "$p" ] || echo "cannot search or run $p"; done' sh {} +;""",
-             '} 2>&1 ) || true;',
-             """if [ -n "$bad" ]; then printf 'Not usable by an arbitrary UID in group 0 (#650):\\n%s\\n' "$bad" >&2; exit 1; fi;""")
+# The check's user: a UID that owns no file of either image, in group 0. A rootless build maps the container's UIDs 0 to 65536
+# with shadow's default SUB_UID_COUNT of 65536, and a UID outside the map stops the RUN at "setup user: invalid argument"
+# (Podman's troubleshooting guide, 10), so the UID stays below that; 65534 is the kernel's overflow UID, which an unmapped
+# owner shows as.
+MODES_USER = "54321:0"
+def modes_run(paths, more="", wrote=""):
+    """The RUN, whole. The guard compares all of it: a list of its clauses passes a check that also holds 'exit 0;' before
+    them, 'bad="";' after them, an 'if false' around them or a find option in paths, and none of those reads a mode."""
+    return " ".join(('''set -eu;
+        canary=$(mktemp); chmod 000 "$canary";
+        if [ -r "$canary" ]; then echo "the modes check cannot see modes: this user reads a file of mode 000" >&2; exit 1; fi;
+        rm -f "$canary";
+        paths="''' + paths + '''";
+        bad=$( { [ "$(id -G)" = 0 ] || echo "the check runs in groups $(id -G), not in group 0 alone";
+                 find $paths -user "$(id -u)" -exec echo "owned by the check UID, so the kernel read its owner bits:" {} +;
+                 find $paths ! -type l -exec sh -c 'for p; do [ -r "$p" ] || echo "cannot read $p"; done' sh {} +;
+                 find $paths -type l -exec sh -c 'for p; do [ -e "$p" ] || continue; [ -r "$p" ] || echo "cannot read $p (a link: its target)"; if [ -d "$p" ] || [ -n "$(find -H "$p" -maxdepth 0 -type f -perm -100)" ]; then [ -x "$p" ] || echo "cannot search or run $p (a link: its target)"; fi; done' sh {} +;
+                 find $paths \\( -type d -o -type f -perm -100 \\) -exec sh -c 'for p; do [ -x "$p" ] || echo "cannot search or run $p"; done' sh {} +;
+                 ''' + more + '''
+               } 2>&1 ) || true;
+        if [ -n "$bad" ]; then printf 'Not usable by an arbitrary UID in group 0 (#650):\\n%s\\n' "$bad" >&2; exit 1; fi;
+        echo "image modes (#650): an arbitrary UID ($(id -u)) in group 0 reads every file and searches every directory under $paths''' + wrote + '"').split())
 # After the check, only instructions that change no file of the image.
 METADATA = {"USER", "EXPOSE", "ENTRYPOINT", "CMD", "STOPSIGNAL", "HEALTHCHECK", "LABEL", "ENV"}
-for path, runtime_user in (("cmapi/Containerfile", "1001"), ("cmapi-portal-ui/Containerfile", "101")):
+uid, _, gid = MODES_USER.partition(":")
+check(gid == "0" and 0 < int(uid) < 65534 and uid not in ("1001", "101"),
+      f"the modes check's user ({MODES_USER}) is in group 0, is not an image's own user, and is a UID that a rootless build maps")
+for path, runtime_user, paths, more, wrote in (
+        ("cmapi/Containerfile", "1001", "/opt/app-root /etc/cmapi /usr/local/bin", "", ""),
+        ("cmapi-portal-ui/Containerfile", "101", "/usr/share/nginx/html /etc/nginx /docker-entrypoint.sh /docker-entrypoint.d",
+         'for p in /etc/nginx /etc/nginx/conf.d /etc/nginx/nginx.conf; do [ -w "$p" ] || echo "cannot write $p"; done;',
+         ", and writes the entrypoint's files")):
     stage = final_stage(path)
     at = next((i for i, (w, r) in enumerate(stage) if w == "USER" and r == MODES_USER), None)
     run = stage[at + 1][1] if at is not None and at + 1 < len(stage) and stage[at + 1][0] == "RUN" else ""
-    missing = [s for s in MODES_RUN if s not in run]
-    check(bool(run) and run.startswith("set -eu;") and not missing,
-          f"{path}: the build checks the image's modes as an arbitrary UID in group 0 (USER {MODES_USER}), canary first; missing {missing}")
+    check(" ".join(run.split()) == modes_run(paths, more, wrote),
+          f"{path}: as USER {MODES_USER}, the build runs the modes check and nothing else, canary first, over {paths}")
+    # SHELL ["/bin/true"] would run the RUN above as an argument of true, and pass it without reading a mode.
+    shells = [r for w, r in stage if w == "SHELL"]
+    check(not shells, f"{path}: the final stage keeps the default shell, so the check runs as written: {shells}")
     after = stage[at + 2:] if run else []
     users = [r for w, r in after if w == "USER"]
     check(bool(run) and all(w in METADATA for w, _ in after) and users == [runtime_user],
           f"{path}: the check follows the last change to the image's files, and the image then runs as {runtime_user}: {after}")
-    m = re.search(r'\bpaths="([^"]+)";', run)
-    checked = [p.rstrip("/") for p in m[1].split()] if m else []
+    checked = paths.split()
     workdir, landed = "/", []
     for w, r in stage:
         if w == "WORKDIR":
             workdir = os.path.normpath(os.path.join(workdir, r))
         elif w in ("COPY", "ADD"):
-            landed.append(os.path.normpath(os.path.join(workdir, r.split()[-1])))
+            # A destination that this guard cannot place counts as outside: a variable, in it or in the WORKDIR it is
+            # relative to, or the JSON form.
+            dest = r.split()[-1]
+            unplaced = "$" in dest or r.rstrip().endswith("]") or (not dest.startswith("/") and "$" in workdir)
+            landed.append(dest if unplaced else os.path.normpath(os.path.join(workdir, dest)))
     escaped = [d for d in landed if not any(d == p or d.startswith(p + "/") for p in checked)]
-    check(bool(checked) and bool(landed) and not escaped,
-          f"{path}: every COPY of the final stage lands under a path the check reads ({checked}); outside it: {escaped}")
+    check(bool(landed) and not escaped,
+          f"{path}: every COPY of the final stage lands, by a literal path, under a path the check reads ({checked}); outside it: {escaped}")
 print("ci cases failed:", len(fails)); sys.exit(1 if fails else 0)

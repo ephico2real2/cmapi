@@ -1,16 +1,37 @@
 unmutated: exit 0
-killed   cmapi: the check removed: FAIL cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['canary=$(mkte
-killed   portal: the check removed: FAIL cmapi-portal-ui/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['can
+killed   cmapi: the check removed: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   portal: the check removed: FAIL cmapi-portal-ui/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /usr/share/nginx/html /etc/ng
 killed   cmapi: the check moved before COPY policies: FAIL cmapi/Containerfile: the check follows the last change to the image's files, and the image then runs as 1001: [('COPY', 'policies /etc/cmapi/poli
-killed   cmapi: the check runs as root: FAIL cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['canary=$(mkte
-killed   cmapi: /opt/app-root not checked: FAIL cmapi/Containerfile: every COPY of the final stage lands under a path the check reads (['/etc/cmapi', '/usr/local/bin']); outside it: ['/opt/app-
-killed   portal: /usr/share/nginx/html not checked: FAIL cmapi-portal-ui/Containerfile: every COPY of the final stage lands under a path the check reads (['/etc/nginx', '/docker-entrypoint.sh', '/docker
-killed   cmapi: no canary: FAIL cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['canary=$(mkte
-killed   cmapi: the read test always passes: FAIL cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['bad=$( { find
-killed   cmapi: a finding does not fail the build: FAIL cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['if [ -n "$bad
-killed   portal: no search or run check: FAIL cmapi-portal-ui/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['fin
+killed   cmapi: the check runs as root: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   cmapi: /opt/app-root not checked: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   portal: /usr/share/nginx/html not checked: FAIL cmapi-portal-ui/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /usr/share/nginx/html /etc/ng
+killed   cmapi: no canary: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   cmapi: the read test always passes: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   cmapi: a finding does not fail the build: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   portal: no search or run check: FAIL cmapi-portal-ui/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /usr/share/nginx/html /etc/ng
 killed   cmapi: a COPY after the check: FAIL cmapi/Containerfile: the check follows the last change to the image's files, and the image then runs as 1001: [('COPY', 'policies /srv/policies')
-killed   cmapi: a COPY outside the checked paths: FAIL cmapi/Containerfile: every COPY of the final stage lands under a path the check reads (['/opt/app-root', '/etc/cmapi', '/usr/local/bin']); outsid
+killed   cmapi: a COPY outside the checked paths: FAIL cmapi/Containerfile: every COPY of the final stage lands, by a literal path, under a path the check reads (['/opt/app-root', '/etc/cmapi', '/usr/
 killed   portal: a RUN after the check: FAIL cmapi-portal-ui/Containerfile: the check follows the last change to the image's files, and the image then runs as 101: [('RUN', 'chmod 0600 /etc/
 killed   portal: the image runs as the check's user: FAIL cmapi-portal-ui/Containerfile: the check follows the last change to the image's files, and the image then runs as 101: []
+killed   portal: the write check removed: FAIL cmapi-portal-ui/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /usr/share/nginx/html /etc/ng
+killed   cmapi: the findings emptied before they are read: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   cmapi: exit 0 before the check: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   cmapi: the check inside 'if false': FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   cmapi: find stops at the top (-maxdepth 0 in paths): FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   cmapi: /etc/cmapi narrowed to /etc/cmapi/policies: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   portal: /docker-entrypoint.sh not checked: FAIL cmapi-portal-ui/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /usr/share/nginx/html /etc/ng
+killed   cmapi: a JSON-form COPY outside the checked paths: FAIL cmapi/Containerfile: every COPY of the final stage lands, by a literal path, under a path the check reads (['/opt/app-root', '/etc/cmapi', '/usr/
+killed   cmapi: a COPY to a variable outside the checked paths: FAIL cmapi/Containerfile: every COPY of the final stage lands, by a literal path, under a path the check reads (['/opt/app-root', '/etc/cmapi', '/usr/
+killed   cmapi: a UID that a rootless build does not map: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   portal: links not checked: FAIL cmapi-portal-ui/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /usr/share/nginx/html /etc/ng
+killed   cmapi: SHELL makes the check a no-op: FAIL cmapi/Containerfile: the final stage keeps the default shell, so the check runs as written: ['["/bin/true"]']
+killed   portal: SHELL makes the check a no-op: FAIL cmapi-portal-ui/Containerfile: the final stage keeps the default shell, so the check runs as written: ['["/bin/sh", "-c", "exit 0"]']
+killed   cmapi: a COPY outside through a WORKDIR variable: FAIL cmapi/Containerfile: every COPY of the final stage lands, by a literal path, under a path the check reads (['/opt/app-root', '/etc/cmapi', '/usr/
+killed   cmapi: a COPY outside through a WORKDIR ${variable}: FAIL cmapi/Containerfile: every COPY of the final stage lands, by a literal path, under a path the check reads (['/opt/app-root', '/etc/cmapi', '/usr/
+killed   cmapi: the group premise removed: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   portal: the owner premise removed: FAIL cmapi-portal-ui/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /usr/share/nginx/html /etc/ng
+killed   cmapi: the owner premise asks another UID: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   portal: links not searched or run: FAIL cmapi-portal-ui/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /usr/share/nginx/html /etc/ng
+killed   cmapi: links to directories not searched: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
+killed   cmapi: a dangling link refused too: FAIL cmapi/Containerfile: as USER 54321:0, the build runs the modes check and nothing else, canary first, over /opt/app-root /etc/cmapi /usr/local/bin
 survivors: 0
