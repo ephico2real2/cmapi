@@ -75,6 +75,7 @@ How to make the bot account, its token and its SSH key, and how to switch `insta
 | `instance.directory` | mapping | none | Where to send a caller for the other environments. Each entry has `url`, `environments` and an optional `portalUrl`. cmapi puts them in every 422 answer `environment-not-served`, and leaves out a URL that the entry does not give (`environment_not_served`, `core/config.py`; #671). `environments` is a list, and `url` and `portalUrl` are absolute http(s) URLs: another shape stops the start (`_directory_problems`) |
 | `instance.cors.allowedOrigins` | list of origins | `[]` | The origins of other hosts that can call the API from a browser. With no key or an empty list, CORS is off. An origin is `https://host[:port]`, in lower case, or `http://localhost`, `http://127.0.0.1` or `http://[::1]`, with no path and no default port. A wildcard stops the start (`core/cors.py`) |
 | `instance.http.maxRequestBodyBytes` | integer (bytes) | `1048576` (1 MiB) | The most bytes of request content that the API reads (#683). A request whose `Content-Length` is larger answers 413 `content-too-large` before any of it is read, with no sign-in; content with no length (chunked) is counted as it arrives and refused at the limit. The answer's `maxBytes` gives the value. A whole number from 1 to 9007199254740991 (2^53 - 1, the largest integer that JSON carries exactly; RFC 7493, section 2.2); another value, or another key under `http`, stops the start (`core/http_settings.py`), and the chart's schema refuses it. See "The request body limit" |
+| `instance.http.rateLimits` | mapping | See "Rate limits" | The token buckets of each API pod (#689): `read`, `write`, `place`, `suggest` and `export` per caller, and `team` per team, each `{perMinute, burst}`. A class or a field left out keeps its default. A call over a limit answers 429 `rate-limited` with `Retry-After`. An unknown class or field, a `perMinute` that is not a number more than 0, or a `burst` that is not a whole number from 1, stops the start (`core/ratelimit.py`, `parse_rate_limits`), and the chart's schema refuses it |
 | `instance.problems.typeBase` | text (URL) | `https://cmapi.ephico2real.com/problems/` | The base of each problem `type` URI (RFC 9457). It is an absolute http or https URL with no query and no fragment (`core/errors.py`) |
 | `instance.docs.enabled` | boolean | `true` | `false` turns off `/docs`, `/redoc` and the OpenAPI documents (`main.py`) |
 | `instance.docs.public` | boolean | `true` | `false` makes each of those pages need a valid token (`main.py`, `_add_docs`) |
@@ -98,6 +99,53 @@ character, which `json.dumps` writes as a six-byte `\uXXXX` escape (measured; `d
 - **The OpenShift router** has no setting for the size of a request body: neither a Route annotation nor an
   IngressController tuning option (the review record quotes both). The front door and the API set the limit.
 - A 422 `validation-failed` names at most 20 errors (`main.py`, `MAX_VALIDATION_ERRORS`), whatever the body holds.
+
+### Rate limits
+
+`instance.http.rateLimits` sets the token buckets of docs/01, "Operational safety": "Token buckets per caller and per team,
+separate for writes, :place, :suggest and :export" (#689; OWASP API Security Top 10 2023, API4: "Implement a limit on how
+often a client can interact with the API within a defined timeframe (rate limiting)"). A bucket holds at most `burst` calls
+and gains `perMinute` calls each minute.
+
+```yaml
+http:
+  rateLimits:                         # the defaults; set only what changes
+    read:    {perMinute: 120, burst: 60}    # per caller: every call that is not one of the others
+    write:   {perMinute: 60,  burst: 30}    # per caller: POST, PUT, PATCH and DELETE, dry runs too
+    place:   {perMinute: 10,  burst: 5}     # per caller: POST /api/v1/capacity:place (not built yet)
+    suggest: {perMinute: 240, burst: 40}    # per caller: GET /api/v1/quotas:suggest
+    export:  {perMinute: 4,   burst: 2}     # per caller: GET /api/v1/quotas:export
+    team:    {perMinute: 600, burst: 200}   # per team: each change request opened for the team
+```
+
+- **Who is a caller.** The subject (`sub`) of the access token: a person's tokens from the portal and the CLI share one bucket,
+  and a service that sends `onBehalfOf` spends its own. Each call that takes a token takes one token from exactly one of the
+  caller's five buckets, chosen by the route: `:place`, `:suggest` and `:export` by name, else `write` or `read` by the method
+  (`rate_class`). The operation's `x-cmapi-rate-limit` in the API document names it.
+- **Where it is checked.** After the sign-in and before anything else of the route: the permission, the parameters and the
+  body's validation (`cmapi/src/cmapi/routers/__init__.py`, `rate_limit`). FastAPI reads and decodes the JSON body before any
+  dependency, so a refused call costs the read and the decode of at most `maxRequestBodyBytes`. A call with no valid token is
+  401 and takes no token; the routes that need no token (`/api/v1/version`, health, `/problems`, the docs) have no caller and
+  are not limited by cmapi.
+- **The team.** A create, a change, a delete or an expiry write that opens a change request takes one token from the bucket of
+  the namespace's `cmapi.net/team`, whoever sends it, after its plan and before the request is recorded. A dry run, a replay of
+  an Idempotency-Key and a refused plan open no request and take no team token. Any caller with `namespaces:create` can name
+  any team (docs/14), so keep `team` well above `write`: a caller alone then cannot empty a team's bucket.
+- **The answer.** 429 `rate-limited` (RFC 6585, section 4) as `application/problem+json`, with `Retry-After` in whole seconds
+  (RFC 9110, section 10.2.3) and the same number as `retryAfter`; after that wait the bucket holds a token. A refused call takes
+  no token. The front door adds `Cache-Control: no-store` and sends a 429 to no other pod.
+- **Each pod has its own buckets**, in memory. The front door spreads a caller's calls over the API pods, so with N pods a caller
+  can reach about N times a limit; set the values for the replica count. A restart starts every bucket full. Shared buckets
+  (in PostgreSQL or a store such as Redis) would hold the limit across pods, at the cost of a round trip on every call,
+  including the calls they refuse; the review record weighs both (`docs/reviews/2026-11-25-issue-689/README.md`).
+- **What an operator sees.** `cmapi_rate_limited_total{limit}` counts each refusal by class, never by caller. The log line
+  `rate_limited` (warning) names the class, the caller's `sub`, the client, the team and `retry_after`, once for each run of
+  refusals of a bucket; the access log line `http` has each 429 with the caller's `sub`.
+- **No RateLimit header fields.** The IETF draft `draft-ietf-httpapi-ratelimit-headers` (version 12, 2026-11-20) is a work in
+  progress, so cmapi sends `Retry-After` only.
+- **The front door.** nginx's `limit_req` is not set. It keys on the client address, and behind the OpenShift router that address
+  is the router's for every caller, so it would be one bucket for everyone; a site whose front door sees client addresses can
+  add one at its edge.
 
 ### The policy engine
 
