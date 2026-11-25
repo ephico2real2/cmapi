@@ -549,11 +549,11 @@
   "    async def problem_handler(_: Request, exc: Problem) -> Response:",
   "        return problem_response(exc, dict(unauthenticated_headers(exc)))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|355-356": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|360-361": [
   "    if docs_enabled:",
   "        _add_docs(app, ctx, docs_cfg, authed, problem_response)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|382-396": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|387-401": [
   "def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None:",
   "    \"\"\"/problems and /problems/{code}: what the `type` of a problem resolves to (RFC 9457, section 4; #182).",
   "",
@@ -570,10 +570,10 @@
   "            raise Problem(404, \"object-not-found\", \"No such problem type. /problems lists each one\")",
   "        return HTMLResponse(problem_html(code, problem_base, ctx.cfg.name))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|407-407": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|412-412": [
   "    guard = [] if docs_cfg.get(\"public\", True) else [Depends(authed)]"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|457-459": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|462-464": [
   "    @app.get(\"/docs/oauth2-redirect\", include_in_schema=False)",
   "    def docs_redirect() -> Response:",
   "        return get_swagger_ui_oauth2_redirect_html()"
