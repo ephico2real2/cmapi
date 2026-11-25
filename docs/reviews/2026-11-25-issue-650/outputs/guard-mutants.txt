@@ -1,0 +1,16 @@
+unmutated: exit 0
+killed   cmapi: the check removed: FAIL cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['canary=$(mkte
+killed   portal: the check removed: FAIL cmapi-portal-ui/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['can
+killed   cmapi: the check moved before COPY policies: FAIL cmapi/Containerfile: the check follows the last change to the image's files, and the image then runs as 1001: [('COPY', 'policies /etc/cmapi/poli
+killed   cmapi: the check runs as root: FAIL cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['canary=$(mkte
+killed   cmapi: /opt/app-root not checked: FAIL cmapi/Containerfile: every COPY of the final stage lands under a path the check reads (['/etc/cmapi', '/usr/local/bin']); outside it: ['/opt/app-
+killed   portal: /usr/share/nginx/html not checked: FAIL cmapi-portal-ui/Containerfile: every COPY of the final stage lands under a path the check reads (['/etc/nginx', '/docker-entrypoint.sh', '/docker
+killed   cmapi: no canary: FAIL cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['canary=$(mkte
+killed   cmapi: the read test always passes: FAIL cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['bad=$( { find
+killed   cmapi: a finding does not fail the build: FAIL cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['if [ -n "$bad
+killed   portal: no search or run check: FAIL cmapi-portal-ui/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['fin
+killed   cmapi: a COPY after the check: FAIL cmapi/Containerfile: the check follows the last change to the image's files, and the image then runs as 1001: [('COPY', 'policies /srv/policies')
+killed   cmapi: a COPY outside the checked paths: FAIL cmapi/Containerfile: every COPY of the final stage lands under a path the check reads (['/opt/app-root', '/etc/cmapi', '/usr/local/bin']); outsid
+killed   portal: a RUN after the check: FAIL cmapi-portal-ui/Containerfile: the check follows the last change to the image's files, and the image then runs as 101: [('RUN', 'chmod 0600 /etc/
+killed   portal: the image runs as the check's user: FAIL cmapi-portal-ui/Containerfile: the check follows the last change to the image's files, and the image then runs as 101: []
+survivors: 0

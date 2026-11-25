@@ -1,0 +1,73 @@
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "<venv>/lib/python3.12/site-packages/uvicorn/protocols/http/httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<venv>/lib/python3.12/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<venv>/lib/python3.12/site-packages/starlette/applications.py", line 96, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "<venv>/lib/python3.12/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "<venv>/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "<venv>/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "<venv>/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "<venv>/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "<venv>/lib/python3.12/site-packages/starlette/routing.py", line 683, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "<venv>/lib/python3.12/site-packages/starlette/routing.py", line 704, in app
+    await route.handle(scope, receive, send)
+  File "<venv>/lib/python3.12/site-packages/starlette/routing.py", line 464, in handle
+    await self.app(scope, receive, send)
+  File "<venv>/lib/python3.12/site-packages/starlette/staticfiles.py", line 105, in __call__
+    await response(scope, receive, send)
+  File "<venv>/lib/python3.12/site-packages/starlette/responses.py", line 400, in __call__
+    async with create_collapsing_task_group() as task_group:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<python>/lib/python3.12/contextlib.py", line 231, in __aexit__
+    await self.gen.athrow(value)
+  File "<venv>/lib/python3.12/site-packages/starlette/_utils.py", line 112, in create_collapsing_task_group
+    raise exc from exc.__cause__ or context
+  File "<venv>/lib/python3.12/site-packages/anyio/_core/_tasks.py", line 327, in _run_coro
+    retval = await self._coro
+             ^^^^^^^^^^^^^^^^
+  File "<venv>/lib/python3.12/site-packages/starlette/responses.py", line 403, in stream_file
+    await send_file()
+  File "<venv>/lib/python3.12/site-packages/starlette/responses.py", line 433, in _handle_simple
+    async with self._open_file() as file:
+               ^^^^^^^^^^^^^^^^^
+  File "<python>/lib/python3.12/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "<venv>/lib/python3.12/site-packages/starlette/responses.py", line 418, in _open_file
+    file = await anyio.open_file(self.path, mode="rb")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<venv>/lib/python3.12/site-packages/anyio/_core/_fileio.py", line 231, in open_file
+    fp = await to_thread.run_sync(
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<venv>/lib/python3.12/site-packages/anyio/to_thread.py", line 65, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<venv>/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 2779, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "<venv>/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 1124, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: '<tmp>/tmpepqvtebv/bundle.js'
+starlette 1.10.0, uvicorn 0.32.1, euid 501, mode 0o0
+HTTP/1.1 200 OK
+date: Wed, 25 Nov 2026 04:42:21 GMT
+server: uvicorn
+content-type: text/javascript; charset=utf-8
+accept-ranges: bytes
+content-length: 100000
+last-modified: Wed, 25 Nov 2026 04:42:18 GMT
+etag: "3142b62ff9f8d7096aeb3b5c76ce2845"
+connection: close
+--- content-length 100000, body bytes received 0, then the connection closed

@@ -1,0 +1,105 @@
+  ok   the runner is a named release, not ubuntu-latest
+  ok   the schema URLs are pinned by commit, not master or main
+  ok   4 downloads
+  ok   kubeconform.tar.gz is verified by SHA-256
+  ok   shellcheck.tar.gz is verified by SHA-256
+  ok   kubectl is verified by SHA-256
+  ok   kind is verified by SHA-256
+  ok   contents: read, no widening in the job
+  ok   persist-credentials: false
+  ok   actions by full SHA
+  ok   kubectl is pinned too: the runner's floats with the runner image
+  ok   render.sh's result is checked, not only the absence of the placeholder
+  ok   the job runs deploy/tests/ldap-identities-test.sh
+  ok   the job runs deploy/secrets-test.sh
+  ok   the job runs deploy/tests/ci-guard.py
+  ok   the job runs deploy/tests/download-retry-test.py
+  ok   the job runs deploy/tests/doc12-test.py
+  ok   the job runs deploy/tests/kind-test-stubbed.sh
+  ok   the job runs deploy/tests/db-probe-test.py
+  ok   the job runs deploy/tests/mutate-secrets.py
+  ok   the job runs deploy/tests/np-reach-test.sh
+  ok   the job runs deploy/tests/crc-guard-test.py
+  ok   the job runs deploy/tests/crc-scripts-test.sh
+  ok   the job runs deploy/tests/crc-backup-test.sh
+  ok   the job runs deploy/tests/doc13-test.py
+  ok   the job runs deploy/tests/realm-test.py
+  ok   the job runs deploy/tests/oidc-login-test.py
+  ok   stat -c before stat -f: []
+  ok   shellcheck covers the kind-test stubs
+  ok   shellcheck covers the script that writes to the shared LDAP
+  ok   shellcheck covers deploy/crc-backup.sh
+  ok   shellcheck covers deploy/crc-image.sh
+  ok   shellcheck covers deploy/crc-proof.sh
+  ok   shellcheck covers deploy/crc-reader-import.sh
+  ok   shellcheck covers deploy/crc-rollback.sh
+  ok   shellcheck covers deploy/crc-trust.sh
+  ok   shellcheck covers deploy/kind-import/common.sh
+  ok   shellcheck covers deploy/kind-import/down.sh
+  ok   shellcheck covers deploy/kind-import/kyverno.sh
+  ok   shellcheck covers deploy/kind-import/up.sh
+  ok   shellcheck covers deploy/kind-import/write-import.sh
+  ok   shellcheck covers deploy/kind-test.sh
+  ok   shellcheck covers deploy/render-test.sh
+  ok   shellcheck covers deploy/render.sh
+  ok   shellcheck covers deploy/secrets-test.sh
+  ok   shellcheck covers deploy/secrets.sh
+  ok   shellcheck covers deploy/tests/crc-backup-test.sh
+  ok   shellcheck covers deploy/tests/crc-scripts-test.sh
+  ok   shellcheck covers deploy/tests/external-db-test.sh
+  ok   shellcheck covers deploy/tests/image-git-test.sh
+  ok   shellcheck covers deploy/tests/kind-import-test.sh
+  ok   shellcheck covers deploy/tests/kind-test-stubbed.sh
+  ok   shellcheck covers deploy/tests/ldap-identities-test.sh
+  ok   shellcheck covers deploy/tests/np-reach-test.sh
+  ok   shellcheck covers deploy/tests/secrets-stub/stub.sh
+  ok   images: the runner is a named release
+  ok   images: contents read; packages, id-token and attestations write; nothing else
+  ok   images is the only job that widens the token
+  ok   images: actions by full SHA
+  ok   images: persist-credentials: false
+  ok   only a main push in the upstream repository starts the write-enabled job
+  ok   PR builds inherit contents: read
+  ok   PR and publisher build both images
+  ok   PR builds have no registry export
+  ok   the build exports by digest before making a deployable tag
+  ok   images: no buildx attestations, so a tag is one manifest
+  ok   images: linux/amd64, CRC's platform
+  ok   images: the build args of the revision label and the version
+  ok   images: the commit is the 10-character one crc-image.sh and crc-proof.sh compare
+  ok   images: the attestation is of the pushed digest
+  ok   the descriptor and label are read from the same pushed digest
+  ok   only a verified, successfully attested digest becomes the deployment tag
+  ok   dependency-audit: a named runner, every pull request and push, contents: read, and its failure fails the workflow
+  ok   dependency-audit: actions by full SHA
+  ok   dependency-audit: runs cmapi/audit.sh, with no if, continue-on-error, env or shell on the step
+  ok   dependency-audit: no environment variable configures pip, pip-audit or the audit
+  ok   the audit asks OSV, strictly, with no ignore list
+  ok   audit.sh installs both locks by hash, and fails on an advisory (1) and on a set that was not audited (3)
+  ok   every venv of the audit gets the lock's pip, by hash, before it is used
+  ok   service: the tests run on the image's hashed lock
+  ok   the image installs the hashed lock from wheels, then cmapi with no index, and nothing else
+  ok   the image's build fails when the lock does not satisfy pyproject.toml (pip check)
+  ok   the jobs that build an image: ['front-door', 'images', 'images-pr']
+  ok   no job builds an image outside docker/build-push-action: []
+  ok   front-door: the base images are fetched before the build, with at least 3 attempts and a growing wait
+  ok   front-door: they are fetched for the build's own Containerfile and platform
+  ok   front-door: the build reads its base images from that layout
+  ok   front-door: the build names no frontend image to pull
+  ok   images: the base images are fetched before the build, with at least 3 attempts and a growing wait
+  ok   images: they are fetched for the build's own Containerfile and platform
+  ok   images: the build reads its base images from that layout
+  ok   images: the build names no frontend image to pull
+  ok   images-pr: the base images are fetched before the build, with at least 3 attempts and a growing wait
+  ok   images-pr: they are fetched for the build's own Containerfile and platform
+  ok   images-pr: the build reads its base images from that layout
+  ok   images-pr: the build names no frontend image to pull
+  ok   base-images.py runs one command, skopeo with the arguments of its two calls and no other
+  ok   base-images.py runs skopeo with its TLS and digest checks, and copies each image unchanged: ['"inspect", "--raw", f"docker://{repo}@{pinned}"', '"copy", "--quiet", "--preserve-digests", "--remove-signatures", f"docker://{repo}@{image}", f"oci:{layout}"']
+  FAIL cmapi/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['canary=$(mktemp); chmod 000 "$canary";', 'if [ -r "$canary" ]; then', 'rm -f "$canary";', 'find $paths ! -type l -exec sh -c \'for p; do [ -r "$p" ] || echo "cannot read $p"; done\' sh {} +;', 'find $paths \\( -type d -o -type f -perm -100 \\) -exec sh -c \'for p; do [ -x "$p" ] || echo "cannot search or run $p"; done\' sh {} +;', '} 2>&1 ) || true;', 'if [ -n "$bad" ]; then', 'exit 1; fi;']
+  FAIL cmapi/Containerfile: the check follows the last change to the image's files, and the image then runs as 1001: []
+  FAIL cmapi/Containerfile: every COPY of the final stage lands under a path the check reads ([]); outside it: ['/usr/local/bin', '/opt/app-root/static', '/opt/app-root/schemas', '/opt/app-root/src', '/opt/app-root/src', '/opt/app-root/src/src', '/etc/cmapi/policies']
+  FAIL cmapi-portal-ui/Containerfile: the build checks the image's modes as an arbitrary UID in group 0 (USER 1000690000:0), canary first; missing ['canary=$(mktemp); chmod 000 "$canary";', 'if [ -r "$canary" ]; then', 'rm -f "$canary";', 'find $paths ! -type l -exec sh -c \'for p; do [ -r "$p" ] || echo "cannot read $p"; done\' sh {} +;', 'find $paths \\( -type d -o -type f -perm -100 \\) -exec sh -c \'for p; do [ -x "$p" ] || echo "cannot search or run $p"; done\' sh {} +;', '} 2>&1 ) || true;', 'if [ -n "$bad" ]; then', 'exit 1; fi;']
+  FAIL cmapi-portal-ui/Containerfile: the check follows the last change to the image's files, and the image then runs as 101: []
+  FAIL cmapi-portal-ui/Containerfile: every COPY of the final stage lands under a path the check reads ([]); outside it: ['/etc/nginx/nginx.conf', '/etc/nginx/cmapi', '/etc/nginx/templates', '/docker-entrypoint.d/16-cmapi-check-env.envsh', '/usr/share/nginx/html/portal', '/usr/share/nginx/html/mockup/portal.html']
+ci cases failed: 6
