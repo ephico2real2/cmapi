@@ -190,3 +190,22 @@ Not tested: CRC and kind (no cluster was used), and the front door's own 413 (ng
 - #689 (Medium, security): rate limits are designed (docs/01, docs/02) but no route applies them; `core/ratelimit.py` is never
   called and no operation can answer 429. Out of this change's scope: it needs its own design and pull request.
 - #690 (Low, Backlog): pydantic refuses a body's items on the event loop: 0.365 s for 60,000 unknown members under the limit.
+
+## Review and the coordinator's run (2026-11-25)
+
+- **Reviewers.** Two reviewers, because this is security. Both are Opus 5.5 high, standing in for Codex, which is at its limit. Their reports are in `review/`.
+- **Reviewer 1** confirmed the control: the middleware order, all 5 mutants killed, and 413 on exactly the 10 body operations. Its findings:
+  - **F1 (Medium, from this PR):** content that passes the limit after a streamed 200 has started cut that 200 short, with an unhandled RuntimeError.
+  - **F2 (Low):** the Helm schema and the loader disagreed on huge limits. Both now stop at 2^53−1.
+  - **F3:** a comment.
+- **Reviewer 2** accepted F2 and F3, and amended F1:
+  - **M1 (Medium):** a refusal raised by a stream's disconnect listener just before its 200 starts still cut the 200 short.
+  - **`/static`:** `FileResponse` has the same defect, reachable with no token.
+  - **The fix:** the middleware sends the 413 itself, and drops what the app sends after a refusal.
+  - **M2 (Low):** content dropped after the start is now logged.
+- **Backlog:** the Low items are #692. Found by the implementer: #689 (the rate limiter is never called, security, Medium, fixed next), #687, #688 and #690.
+- **The coordinator:**
+  - applied reviewer 2's final patch with `patch -p1 -F0`;
+  - merged main (#682), resolving the conflicts block by block (`test_api_standard.py` keeps both `folder-not-yaml` and 413);
+  - relocated the docs/14 and docs/15 citations, reading each one.
+- **Full service suite,** database `cmapi_coord_691`, 18:43:04Z to 19:24:46Z: **3022 passed**, none failed. **Core:** 750 passed, 113 skipped (`coord-suite.txt`).
