@@ -1,14 +1,15 @@
 """Core routes: health, me, clusters, requests, admin. Plugins add theirs under cmapi.plugins."""
 from __future__ import annotations
 
-from typing import Annotated, Callable
+from typing import Annotated, Any, Callable
 
 from fastapi import Depends, Header, Path, Query, Request
 
 from cmapi.core.context import AppContext
 from cmapi.core.errors import Problem
 from cmapi.core.identity.claims import Identity
-from cmapi.core.observability import AUTHZ_DENIED
+from cmapi.core.observability import AUTHZ_DENIED, RATE_LIMITED, log
+from cmapi.core.ratelimit import TEAM, Refusal, rate_class
 
 
 # The parameters that more than one route takes, each described once. check_documented refuses a parameter with no description or example.
@@ -56,6 +57,49 @@ def require(permission: str, env_from: Callable[..., str | None] | None = None) 
         return who
 
     return dep
+
+
+def rate_limit(authed: Callable[..., Identity]) -> Callable[..., Any]:
+    """The 429 of the caller's bucket (core/ratelimit.py, #689), a dependency of each router that takes a token (main.py,
+    api_app), after the sign-in that it names.
+
+    FastAPI reads and decodes the body before it solves any dependency, then solves the dependencies in order, then checks
+    the path, query, header and body against the route (FastAPI 0.162.2, routing.py:450-499 and :511,
+    dependencies/utils.py:676-768). So a caller over the limit is refused before the route checks the body, the permission
+    or any parameter, and before any work of the route; the JSON decode of a body under the body limit is the cost left.
+    The sign-in comes first because the bucket is the caller's: a call with no valid token is 401 and takes no token.
+    `authed` is the same dependency as the router's, so FastAPI verifies the token once (its dependency cache)."""
+
+    async def limited(request: Request, who: Identity = Depends(authed)) -> None:
+        # The template of the APIRoute that matched, as the document writes it (`{request_id}`, without its convertor)
+        template = request.scope["route"].path_format
+        refusal = request.app.state.ctx.limiter.take(rate_class(request.method, template), who.sub)
+        if refusal is not None:
+            raise refused(refusal, who)
+
+    return limited
+
+
+def refused(refusal: Refusal, who: Identity) -> Problem:
+    """Count a rate limit refusal and answer it: 429 rate-limited with retryAfter, which main.py's problem_response also
+    sends as Retry-After. The log line `rate_limited` is written once for each run of refusals of a bucket, not for each
+    refusal, so a client that keeps retrying does not flood the log; the access log line `http` has every 429."""
+    RATE_LIMITED.labels(refusal.kind).inc()
+    if refusal.first:
+        log.warning("rate_limited", limit=refusal.kind, caller_sub=who.sub, client=who.client_id,
+                    team=refusal.key if refusal.kind == TEAM else None, retry_after=refusal.retry_after)
+    return refusal.problem()
+
+
+def take_team_request(c: AppContext, who: Identity, team: str | None) -> None:
+    """The team's bucket: one token for each change request that a write opens for the team (the namespace's
+    cmapi.net/team), whoever sends it. Called once the plan knows the team and before the request is recorded; a dry run,
+    a replay of an Idempotency-Key and a refused plan open no request and take no token."""
+    if not team:
+        return
+    refusal = c.limiter.take(TEAM, team)
+    if refusal is not None:
+        raise refused(refusal, who)
 
 
 def idempotency_key(idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",

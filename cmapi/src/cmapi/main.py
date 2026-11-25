@@ -42,7 +42,7 @@ from cmapi.core.models import NUL_REFUSED, SURROGATE_CODE
 from cmapi.core.problem_docs import problem_html, problems_index_html
 from cmapi.core.observability import configure_logging, instrument, log, start_metrics
 from cmapi.core.tiers import TierError
-from cmapi.routers import EXAMPLE_CLUSTER, admin, health, me, requests
+from cmapi.routers import EXAMPLE_CLUSTER, admin, health, me, rate_limit, requests
 from cmapi.settings import Settings, settings
 
 STATIC = Path(os.environ.get("CMAPI_STATIC_DIR", "/opt/app-root/static"))
@@ -190,6 +190,7 @@ def api_app(cfg: InstanceConfig, issuer: str, lifespan: Any = None,
     render` calls this alone, with no database, identity provider, cluster, Git host or Kyverno, so the document that CI
     reports on is built by the code that serves it."""
     authed = caller_dependency(oauth2_scheme(issuer))
+    limited = rate_limit(authed)
     # FastAPI's own /openapi.json is off: the route below serves the document with an ETag, and behind sign-in when docs.public is false.
     app = FastAPI(title=f"cmapi ({cfg.name})", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None,
                   openapi_url=None,
@@ -201,8 +202,10 @@ def api_app(cfg: InstanceConfig, issuer: str, lifespan: Any = None,
     app.include_router(health.version_router)
     # The core routers always, then the router of each plugin that plugins.yaml enables (core/plugins.py).
     authed_routers = (me.router, requests.router, admin.router, *cfg.plugins.routers())
+    # Each route that takes a token takes one from its caller's bucket, after the sign-in (routers/__init__.py, rate_limit;
+    # #689). The routes with no token (the version, health, the problem pages, the docs) have no caller to count.
     for r in authed_routers:
-        app.include_router(r, dependencies=[Depends(authed)])
+        app.include_router(r, dependencies=[Depends(authed), Depends(limited)])
     check_documented(app)
     _add_servers(app, cfg)
     plugins = plugin_routers((health.version_router, *authed_routers))
@@ -252,6 +255,11 @@ def create_app(s: Settings | None = None, ctx: AppContext | None = None) -> Fast
     problem_base = type_base(ctx.cfg.raw_instance["instance"])
 
     def problem_response(p: Problem, headers: dict[str, str] | None = None) -> Response:
+        # A problem that says when to try again says it in Retry-After too (RFC 9110, section 10.2.3): the 429
+        # rate-limited (RFC 6585, section 4) and the 503s with retryAfter, as docs/02 says (#689, #694).
+        retry_after = p.extra.get("retryAfter")
+        if isinstance(retry_after, int) and not isinstance(retry_after, bool):
+            headers = {**(headers or {}), "Retry-After": str(retry_after)}
         return JSONResponse(p.body(problem_base), status_code=p.status, media_type="application/problem+json", headers=headers)
 
     # The innermost, so nothing reads the body before it counts, and a refusal is answered by it before

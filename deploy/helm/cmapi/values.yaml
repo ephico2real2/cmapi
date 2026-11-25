@@ -49,7 +49,10 @@ instance:
   # when its Content-Length says so, else at the limit as it arrives. 1 to 9007199254740991 (2^53 - 1).
   # Empty: 1 MiB, 2.4 times the largest create of the reference metadata-keys.yaml (docs/18, "instance.http"). The front
   # door refuses more than 1 MiB on its own (client_max_body_size 1m), so a larger value serves direct callers only.
-  http: {}                 # {maxRequestBodyBytes: 1048576}
+  # The rate limits (#689): token buckets in each API pod's memory, by class: read, write, place, suggest and export per
+  # caller (the token's subject), team per team for each request it opens. Each class is {perMinute, burst}; a class or a
+  # field left out keeps its default, and with N pods a caller can reach N times a limit (docs/18, "Rate limits").
+  http: {}                 # {maxRequestBodyBytes: 1048576, rateLimits: {write: {perMinute: 60, burst: 30}}}
   # The policy engine and the mode of each environment (#213; docs/02, "Policy in one place"): engine kyverno or none,
   # mode audit, enforce or off, and environments: {prod: {mode: enforce}}. Empty: Kyverno audits in each environment
   # (#342): cmapi's own checks refuse a request, and the clusters admit and report what Kyverno finds. A change of mode is a

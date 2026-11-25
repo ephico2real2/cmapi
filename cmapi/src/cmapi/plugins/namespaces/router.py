@@ -22,7 +22,7 @@ from cmapi.core.render.manifests import folder
 from cmapi.core.views import request_view
 from cmapi.plugins.namespaces.state import sync_view
 from cmapi.routers import (ClusterId, DryRun, NamespaceName, caller, ctx, delete_idempotency_key, idempotency_key, if_match,
-                           require)
+                           require, take_team_request)
 from pydantic import Field
 
 router = DocumentedRouter("namespaces", prefix="/api/v1/clusters/{cluster_id}", version=__version__,
@@ -99,6 +99,7 @@ def _replay(c: AppContext, who: Identity, key: str | None, body: dict[str, Any])
 
 
 def _submit(c: AppContext, who: Identity, plan: Any, key: str | None, body: dict[str, Any], justification: str | None) -> dict:
+    take_team_request(c, who, plan.facts.get("team"))      # 429 rate-limited for the team, before the request is recorded (#689)
     try:
         with c.db.session() as s:
             repo, jobs = RequestRepo(s), JobRepo(s)
