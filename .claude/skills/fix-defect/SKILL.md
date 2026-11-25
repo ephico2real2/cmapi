@@ -81,7 +81,7 @@ Once the pull request has merged and its review record is in `docs/reviews/`, th
   - anything that belongs to a pull request or issue that is still open.
 - **Never remove** a path that another running agent named in its brief.
 
-`~/.claude/tools/sweep-stale.py --workbench` reports any folder whose pull request or issue is closed, as a safety net. It deletes only when told to.
+`~/.claude/skills/sweep-stale/sweep-stale.py --workbench <dir>` (diagram-kit's `sweep-stale` skill) reports any folder whose pull request or issue is closed, as a safety net. It deletes only when told to.
 
 ## Report faithfully
 
