@@ -174,3 +174,23 @@ one test sends hundreds of calls a second as one person.
 
 Not tested: CRC and kind (no cluster was used); `:place`, which is not built (its class and its placement cap are unit-tested
 only); a load test with several API pods.
+
+## Review and the coordinator's rulings (2026-11-25)
+
+**Reviewers.** Two, because this is security.
+- **Reviewer 1** was Codex, gpt-6.2-astra xhigh (`review/reviewer-1-codex.md`, with its brief). Its sandbox could not reach PostgreSQL, so its service runs used SQLite.
+- **Reviewer 2** was Opus 5.5 high, and ran everything on PostgreSQL 16 (`review/reviewer-2-opus.md`).
+
+| Codex finding | Ruling | Reason |
+|---|---|---|
+| 1. The bucket store has no bound (High) | **Fixed, as amended by reviewer 2 (Medium)** | Codex's cap failed closed: with 10,000 buckets that were not full, every new caller got 429, a lockout an attacker can renew. The fix is least-recently-used eviction at 10,000, as nginx `limit_req_zone` ("the least recently used state is removed") and Envoy's local rate limit LRU do. Eviction gives a victim a fresh, full bucket, never a smaller one. |
+| 2. Private docs take no token (Medium) | **Fixed** | `/openapi.json` (877 KB) was served with no limit when `docs.public: false`. |
+| 3. A team transfer charges the wrong team (Medium) | **Rejected** | The team charged is the request's team, `facts["team"]`, the team after the change. The row stores it, and the auto-approvals of the day and the KPIs count it (`pipeline.py:553`). That matches docs/02 "per team". A transfer already needs approver-platform. Charging both teams would charge one pull request twice. The guard test pins today's behaviour. |
+| 4. The team token is lost on a failed submit or a race (Medium) | **Fixed, as amended by reviewer 2 (Low)** | `RateLimiter.give_back`, the same as x/time/rate `Reservation.CancelAt`, inside a `team_request` context around the transaction, plus a replay on a team 429. Codex's version held a process-wide lock across the transaction, and on PostgreSQL it gave 500s under 8 concurrent creates. |
+| 5. An expired-key UPDATE (Low) | **Rejected** | This is #603's design, unchanged here. Noted in #697. |
+| 6. `OverflowError` for a rate near 0 (Low) | **Fixed, as amended** | The wait is clamped at 2^53−1. Codex's `Fraction` version returned a `retryAfter` with 326 digits. |
+| 7. The loader and the schema disagree (Low) | **Rejected for this PR** | It follows #683's `parse_http`. The `1.0` and `1e-7` corners are in #697. |
+| 8. An empty placement set is kept (Low) | **Fixed** | |
+
+- **Found by reviewer 2, older than this PR:** **#696, pool starvation** (Medium). It gets its own pull request next, with reviewer 2's patch.
+- **Concurrency proof on PostgreSQL:** 8 creates at once, with failures after the INSERT. The tokens left equalled the burst minus the rows recorded in 5 of 5 runs. Head failed it.
