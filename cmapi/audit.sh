@@ -30,8 +30,11 @@ binary=:none:
 [[ $(uname -s) == Linux ]] && binary=:all:
 
 step() { printf '\n== %s\n' "$*"; }
-venv() {    # venv <name>: a fresh virtual environment at $work/<name>
+# venv <name>: a fresh virtual environment at $work/<name>, with the lock's pip in place of the one its interpreter bundles,
+# which is audited too: CI's runner bundled pip 25.0.1, in six advisories (#658). Every set, the tools' included, starts so.
+venv() {
   "$python" -m venv "$work/$1" || { echo "audit.sh: $python cannot make a venv" >&2; exit 2; }
+  "$here/locked-pip.sh" "$work/$1/bin/python" || { echo "audit.sh: the lock's pip did not install in $1" >&2; exit 2; }
 }
 pip_install() {    # pip_install <python> <args...>: quiet unless it fails
   "$1" -m pip install --quiet --disable-pip-version-check "${@:2}"

@@ -99,6 +99,15 @@ check('"--vulnerability-service", "osv"' in osv_audit and '"--strict"' in osv_au
 check(len(re.findall(r"^pip_install [^\n]*--require-hashes --no-deps", audit_sh, re.M)) == 2 and "1) failed+=" in audit_sh and "*) unaudited+=" in audit_sh
       and "((${#failed[@]})) && exit 1" in audit_sh and "((${#unaudited[@]})) && exit 3" in audit_sh,
       "audit.sh installs both locks by hash, and fails on an advisory (1) and on a set that was not audited (3)")
+# #658: a new venv has the pip its interpreter bundles (25.0.1 on the runner, in six advisories). Every venv of the audit is
+# made by venv(), which puts the lock's pip in it by hash before anything is installed or audited.
+venv_body = re.search(r"^venv\(\) \{\n(.*?)^\}", audit_sh, re.M | re.S)
+locked_pip = code_of("cmapi/locked-pip.sh")
+check(bool(venv_body) and '"$here/locked-pip.sh" "$work/$1/bin/python" ||' in venv_body.group(1)
+      and len(re.findall(r"-m venv\b", audit_sh)) == 1 and "-m venv" in venv_body.group(1)
+      and re.search(r"pip install [^\n]*--require-hashes --no-deps -r \"\$entry\"", locked_pip) is not None
+      and "/requirements.txt\"" in locked_pip and "awk '/^pip==/" in locked_pip,
+      "every venv of the audit gets the lock's pip, by hash, before it is used")
 service_install = next((s.get("run", "") for s in ci["jobs"]["service"]["steps"] if s.get("name") == "Install"), "")
 check("pip install --require-hashes --no-deps --only-binary :all: -r cmapi/requirements.txt" in service_install,
       "service: the tests run on the image's hashed lock")

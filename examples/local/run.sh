@@ -108,6 +108,8 @@ install_tools() {
     mv "$STACK/keycloak-$KC_VER" "$STACK/keycloak"
   fi
   if [[ ! -x $STACK/venv/bin/python ]]; then python3 -m venv "$STACK/venv"; fi
+  # The image's pip, hashed, in place of the one python3 bundled (#658): the dependency audit checks this set with its pip.
+  "$HERE/../../cmapi/locked-pip.sh" "$STACK/venv/bin/python" >/dev/null
   "$STACK/venv/bin/pip" install -q -r "$HERE/requirements.txt"
 }
 

@@ -1,0 +1,30 @@
+
+== pip-audit, from its hashed lock (cmapi/audit/requirements.txt)
+pip-audit 2.10.1
+
+== 1. The image's set: cmapi/requirements.txt with --require-hashes, then cmapi with --no-deps
+No known vulnerabilities found
+osv_audit: 39 packages, 0 advisories, 0 not audited
+ok: the image's set (cmapi/requirements.txt) has no known advisory
+No broken requirements found.
+ok: the lock satisfies pyproject.toml
+
+== 2. The service tests' set: set 1 plus cmapi[test]
+No known vulnerabilities found
+osv_audit: 49 packages, 0 advisories, 0 not audited
+ok: the service tests' set (cmapi[test]) has no known advisory
+
+== 3. The reference code's set: examples/local/requirements.txt
+Found 12 known vulnerabilities in 1 package
+  ADVISORY  pip 25.0.1  PYSEC-2026-1795  fixed in: 25.3  (CVE-2025-8869, GHSA-4xh5-x5gv-qwph)
+  ADVISORY  pip 25.0.1  PYSEC-2026-1796  fixed in: 26.0  (CVE-2026-1703, GHSA-6vgw-5pg2-w6jp)
+  ADVISORY  pip 25.0.1  PYSEC-2026-196  fixed in: 26.1.2  (CVE-2026-8643, GHSA-wf93-45jw-7689)
+  ADVISORY  pip 25.0.1  PYSEC-2026-2875  fixed in: 26.1  (CVE-2026-3219, GHSA-58qw-9mgm-455v)
+  ADVISORY  pip 25.0.1  PYSEC-2026-2876  fixed in: 26.1  (CVE-2026-6357, GHSA-jp4c-xjxw-mgf9)
+  ADVISORY  pip 25.0.1  PYSEC-2026-3721  fixed in: 26.2  (CVE-2026-13346, GHSA-qwm4-qh6w-59xr)
+  ADVISORY  pip 25.0.1  PYSEC-2026-3721  fixed in: 26.2.0  (CVE-2026-13346, GHSA-qwm4-qh6w-59xr)
+osv_audit: 34 packages, 7 advisories, 0 not audited
+
+audit.sh: FAILED
+  - the reference code's set (examples/local/requirements.txt)
+exit 1

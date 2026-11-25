@@ -138,8 +138,14 @@ cd cmapi-design/examples/local
 
 ```bash
 python3 -m venv $CMAPI_STACK/venv
+../../cmapi/locked-pip.sh $CMAPI_STACK/venv/bin/python     # the image's pip, from cmapi's hashed lock (#658)
 $CMAPI_STACK/venv/bin/pip install -r requirements.txt
 ```
+
+A new venv has the pip that its Python bundles, which can be years old: pip 25.0.1, which CI's runner bundles, is in six
+published advisories. `locked-pip.sh` installs the pip that `cmapi/requirements.txt` pins, with its hashes, as the image does.
+The Python Packaging User Guide says the same, unpinned: "Ensure pip is up to date ... `python3 -m pip install --upgrade pip`"
+(https://packaging.python.org/en/latest/tutorials/installing-packages/).
 
 `requirements.txt` pins each package to one version, FastAPI and Starlette among them (#651); the file is the
 list, so this page names no version. The cmapi modules themselves are not installed. They are imported

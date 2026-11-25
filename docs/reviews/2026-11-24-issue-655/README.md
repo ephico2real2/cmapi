@@ -160,3 +160,30 @@ mutants fails it (`ci-guard.txt`).
    - The failure, `test_the_log_of_a_skipped_key_has_no_key_material`, depended on test order. The suite's first test configures logging again after `auth.py`'s logger is cached. structlog's testing docs say: `capture_logs()` "relies on changing the configuration".
    - The implementer fixed it with a `LogCapture` logger in place of `core.auth.log`. The assertion is unchanged, and production keeps the cache.
 5. **Final full suite.** It ran in database `cmapi_coord_658`, from 2026-11-24T23:01:39Z to 23:48:05Z, on the final head merged with `main` `f906776`: **2898 passed in 2768.28 s**, with no failures (`coord-suite.txt`).
+
+## The runner's pip in the reference code's set (CI run 45513030768)
+
+`dependency-audit` failed on set 3: pip 25.0.1, the pip that the runner's Python bundles into a new venv, is in six
+advisories (PYSEC-2026-1795, -1796, -196, -2875, -2876, -3721; all fixed by 26.2). Sets 1 and 2 were clean, because the lock
+installs pip 26.3 over the bundled one. Locally the run passed, because this Mac's Python bundles pip 26.2.1.
+
+- **Fix:** `cmapi/locked-pip.sh <python>` copies the pip entry, with its hashes, from `cmapi/requirements.txt` and installs
+  it with `--require-hashes --no-deps`. The version comes from the one lock; there is no second number. `audit.sh`'s
+  `venv()` runs it on every venv it makes (tools, image and therefore set 2, examples) before anything else.
+  `examples/local/run.sh` and INSTALL.md §4.1 run it too, so a developer's reference-code venv has the pip that the audit
+  checks.
+- **Rejected:**
+  - `python -m venv --upgrade-deps`: it takes "the latest version in PyPI" (https://docs.python.org/3/library/venv.html),
+    with no pin and no hash.
+  - Naming the hashed lock as a constraints file (`-c cmapi/requirements.txt pip`): pip 25.0.1 refused it ("all
+    requirements must have their versions pinned with ==").
+- **Guidance:** the Python Packaging User Guide, "Ensure pip is up to date: `python3 -m pip install --upgrade pip`"
+  (https://packaging.python.org/en/latest/tutorials/installing-packages/, read 2026-11-24). pip-audit audits every package of
+  the environment, pip included. Its README has no exception for pip, and its issue #8 is only about warning when the
+  underlying pip is too old for pip-audit to work. So the advisory-free pip goes into the environment rather than being
+  left out of the audit.
+- **Proof** (`probes/oldpip-python`, a python whose venvs get pip 25.0.1, as on the runner):
+  - Before the fix, `cmapi/audit.sh` failed on set 3 with the same six advisories as CI (`outputs/658-audit-oldpip-before.txt`).
+  - After the fix, every venv has pip 26.3 and every set passes (`outputs/658-audit-oldpip-after.txt`).
+  - `ci-guard.py` now checks that every venv of the audit gets the lock's pip by hash. Three mutants passed the guard before
+    that check; each fails it now (`outputs/658-ci-guard-pip.txt`).
