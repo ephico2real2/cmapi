@@ -433,10 +433,11 @@ def _add_docs(app: FastAPI, ctx: AppContext, docs_cfg: dict[str, Any], authed: A
     two pages: /docs/redoc-start.js and /docs/swagger.css.
 
     Public unless instance.yaml says docs.public: false; then each of the seven needs a valid bearer token and answers
-    401 with WWW-Authenticate without one. Swagger UI and ReDoc come from the image's bundles only, never a CDN: without
+    401 with WWW-Authenticate without one, and takes a token from the caller's read bucket as every route that takes a
+    token does (#689; #695 review): /openapi.json is 877 KB. Swagger UI and ReDoc come from the image's bundles only, never a CDN: without
     the bundles the two pages answer 503 and name the command that fetches them (cmapi-tools docs-assets).
     """
-    guard = [] if docs_cfg.get("public", True) else [Depends(authed)]
+    guard = [] if docs_cfg.get("public", True) else [Depends(authed), Depends(rate_limit(authed))]
     swagger_dir, redoc_dir = STATIC / "swagger-ui", STATIC / "redoc"
     if swagger_dir.exists():
         app.mount("/static/swagger", ConditionalStaticFiles(directory=str(swagger_dir)), name="swagger")

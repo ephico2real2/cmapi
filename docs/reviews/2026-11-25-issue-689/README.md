@@ -102,7 +102,9 @@ limit does, and Kubernetes's own limits are per API server. With N pods behind t
 a limit: docs/18 says so, and to set the values for the replica count. Shared buckets in PostgreSQL would cost a round trip
 on every call, the refused ones too, and put the flood on the database it protects; a store such as Redis is a new
 dependency that cmapi does not run. Envoy's own docs pair a global limit with a local one to spare the global service. A
-restart starts the buckets full. The memory is bounded: a bucket that has refilled is dropped once there are 10,000.
+restart starts the buckets full. The memory is bounded: past 10,000 buckets the least recently used
+one is dropped, as nginx's `limit_req_zone` does (the #695 review: before it, only the buckets that had refilled were dropped,
+so every bucket that had not was kept).
 
 **The configuration.** instance.yaml `http.rateLimits`, beside `http.maxRequestBodyBytes`, both API4 controls: `{class:
 {perMinute, burst}}`, each optional over the defaults. A wrong class or field, a `perMinute` that is not a number more than 0,

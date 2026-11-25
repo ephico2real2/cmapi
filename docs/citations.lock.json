@@ -572,27 +572,27 @@
   "            raise Problem(404, \"object-not-found\", \"No such problem type. /problems lists each one\")",
   "        return HTMLResponse(problem_html(code, problem_base, ctx.cfg.name))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|439-439": [
-  "    guard = [] if docs_cfg.get(\"public\", True) else [Depends(authed)]"
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|440-440": [
+  "    guard = [] if docs_cfg.get(\"public\", True) else [Depends(authed), Depends(rate_limit(authed))]"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|489-491": [
-  "    @app.get(\"/docs/oauth2-redirect\", include_in_schema=False)",
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|491-493": [
   "    def docs_redirect() -> Response:",
-  "        return get_swagger_ui_oauth2_redirect_html()"
+  "        return get_swagger_ui_oauth2_redirect_html()",
+  ""
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|117-117": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|195-195": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|196-196": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|235-235": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|236-236": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|47-59": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|48-60": [
   "def require(permission: str, env_from: Callable[..., str | None] | None = None) -> Callable[..., Identity]:",
   "    \"\"\"A dependency that checks one permission (the route's x-cmapi-permission).\"\"\"",
   "",
@@ -607,7 +607,7 @@
   "",
   "    return dep"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|52-56": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|53-57": [
   "        try:",
   "            c.cfg.roles.require(who, permission)",
   "        except Problem:",

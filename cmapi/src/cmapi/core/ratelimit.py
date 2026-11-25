@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
@@ -48,8 +49,11 @@ DEFAULTS: dict[str, Limit] = {
 
 # The active placements that a team may hold in one environment (docs/01). No route takes them yet: :place is not built.
 MAX_ACTIVE_PLACEMENTS = 3
-# The buckets kept before the full ones are dropped. A full bucket is the same as no bucket: a new one starts full.
-SWEEP_AT = 10_000
+# The most buckets that one process keeps. Past it the least recently used bucket is dropped, as nginx's limit_req_zone
+# does when its zone is full ("the least recently used state is removed") and Envoy's local rate limit keeps its dynamic
+# descriptors in an LRU cache. A dropped bucket starts full again when its key returns, so a full table never refuses a
+# new caller (#695 review): refusing would let whoever fills the table lock every new caller out.
+MAX_BUCKETS = 10_000
 
 
 def rate_class(method: str, path: str) -> str:
@@ -130,10 +134,11 @@ class RateLimiter:
     limits: dict[str, Limit] = field(default_factory=lambda: dict(DEFAULTS))
     clock: Callable[[], float] = time.monotonic
     max_active_placements: int = MAX_ACTIVE_PLACEMENTS
-    _buckets: dict[tuple[str, str], _Bucket] = field(default_factory=dict)
+    # Least recently used first: take moves a bucket to the end, and a new key past max_buckets drops the first.
+    _buckets: OrderedDict[tuple[str, str], _Bucket] = field(default_factory=OrderedDict)
     _placements: dict[tuple[str, str], set[str]] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
-    _sweep_at: int = SWEEP_AT
+    max_buckets: int = MAX_BUCKETS
 
     def take(self, kind: str, key: str) -> Refusal | None:
         """Take one token from the bucket (kind, key): None when it had one, else the refusal. A refused call takes
@@ -141,12 +146,15 @@ class RateLimiter:
         limit = self.limits[kind]
         with self._lock:
             now = self.clock()
-            if len(self._buckets) >= self._sweep_at:
-                self._sweep(now)
-            bucket = self._buckets.get((kind, key)) or _Bucket(float(limit.burst), now)
+            bucket = self._buckets.get((kind, key))
+            if bucket is None:
+                if len(self._buckets) >= self.max_buckets:
+                    self._buckets.popitem(last=False)
+                bucket = self._buckets[(kind, key)] = _Bucket(float(limit.burst), now)
+            else:
+                self._buckets.move_to_end((kind, key))
             bucket.tokens = min(float(limit.burst), bucket.tokens + max(0.0, now - bucket.at) * limit.rate_per_minute / 60)
             bucket.at = now
-            self._buckets[(kind, key)] = bucket
             if bucket.tokens >= 1:
                 bucket.tokens -= 1
                 bucket.refusing = False
@@ -154,17 +162,22 @@ class RateLimiter:
             first = not bucket.refusing
             bucket.refusing = True
             # Retry-After is delay-seconds, a whole number (RFC 9110, section 10.2.3); after it the bucket holds a token.
-            wait = max(1, math.ceil((1 - bucket.tokens) * 60 / limit.rate_per_minute))
+            # A rate near 0 (any number more than 0 is valid) makes the wait overflow a float: math.ceil(inf) raises, so the
+            # wait stops at the largest setting, the largest integer JSON carries exactly.
+            seconds = (1 - bucket.tokens) * 60 / limit.rate_per_minute
+            wait = MAX_SETTING if seconds >= MAX_SETTING else max(1, math.ceil(seconds))
             return Refusal(kind, key, wait, first)
 
-    def _sweep(self, now: float) -> None:
-        """Drop the buckets that have refilled, each the same as a new one. The keys are signed-in subjects and teams, so
-        this bounds the memory to the callers of the last minutes."""
-        for k, b in list(self._buckets.items()):
-            limit = self.limits[k[0]]
-            if b.tokens + max(0.0, now - b.at) * limit.rate_per_minute / 60 >= limit.burst:
-                del self._buckets[k]
-        self._sweep_at = max(SWEEP_AT, 2 * len(self._buckets))
+    def give_back(self, kind: str, key: str) -> None:
+        """Return the token of a take whose work did not happen: a change request that was not recorded. As
+        golang.org/x/time/rate's Reservation.CancelAt, it "reverses the effects of this Reservation on the rate limit as
+        much as possible, considering that other reservations may have already been made": a call refused meanwhile
+        stays refused. A bucket dropped meanwhile starts full when its key returns, so there is nothing to give back."""
+        limit = self.limits[kind]
+        with self._lock:
+            bucket = self._buckets.get((kind, key))
+            if bucket is not None:
+                bucket.tokens = min(float(limit.burst), bucket.tokens + 1)
 
     def start_placement(self, team: str, environment: str, placement_id: str) -> None:
         with self._lock:
@@ -176,4 +189,8 @@ class RateLimiter:
 
     def end_placement(self, team: str, environment: str, placement_id: str) -> None:
         with self._lock:
-            self._placements.get((team, environment), set()).discard(placement_id)
+            active = self._placements.get((team, environment))
+            if active is not None:
+                active.discard(placement_id)
+                if not active:                    # the last one: keep no empty set for the team and environment
+                    del self._placements[(team, environment)]

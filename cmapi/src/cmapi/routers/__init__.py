@@ -1,7 +1,8 @@
 """Core routes: health, me, clusters, requests, admin. Plugins add theirs under cmapi.plugins."""
 from __future__ import annotations
 
-from typing import Annotated, Any, Callable
+from contextlib import contextmanager
+from typing import Annotated, Any, Callable, Iterator
 
 from fastapi import Depends, Header, Path, Query, Request
 
@@ -91,15 +92,24 @@ def refused(refusal: Refusal, who: Identity) -> Problem:
     return refusal.problem()
 
 
-def take_team_request(c: AppContext, who: Identity, team: str | None) -> None:
+@contextmanager
+def team_request(c: AppContext, who: Identity, team: str | None) -> Iterator[None]:
     """The team's bucket: one token for each change request that a write opens for the team (the namespace's
-    cmapi.net/team), whoever sends it. Called once the plan knows the team and before the request is recorded; a dry run,
-    a replay of an Idempotency-Key and a refused plan open no request and take no token."""
+    cmapi.net/team, as the request records it), whoever sends it. Entered once the plan knows the team and before the
+    request is recorded, around the transaction that records it; a dry run, a replay of an Idempotency-Key and a refused
+    plan open no request and take no token. A transaction that ends in an error records no request, so its token is given
+    back (#695 review)."""
     if not team:
+        yield
         return
     refusal = c.limiter.take(TEAM, team)
     if refusal is not None:
         raise refused(refusal, who)
+    try:
+        yield
+    except BaseException:
+        c.limiter.give_back(TEAM, team)
+        raise
 
 
 def idempotency_key(idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",

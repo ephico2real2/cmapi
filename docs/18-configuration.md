@@ -125,17 +125,22 @@ http:
 - **Where it is checked.** After the sign-in and before anything else of the route: the permission, the parameters and the
   body's validation (`cmapi/src/cmapi/routers/__init__.py`, `rate_limit`). FastAPI reads and decodes the JSON body before any
   dependency, so a refused call costs the read and the decode of at most `maxRequestBodyBytes`. A call with no valid token is
-  401 and takes no token; the routes that need no token (`/api/v1/version`, health, `/problems`, the docs) have no caller and
-  are not limited by cmapi.
+  401 and takes no token; the routes that need no token (`/api/v1/version`, health, `/problems`, the docs when
+  `docs.public` is true) have no caller and are not limited by cmapi. With `docs.public: false` the seven docs paths take a
+  token from the caller's `read` bucket.
 - **The team.** A create, a change, a delete or an expiry write that opens a change request takes one token from the bucket of
-  the namespace's `cmapi.net/team`, whoever sends it, after its plan and before the request is recorded. A dry run, a replay of
-  an Idempotency-Key and a refused plan open no request and take no team token. Any caller with `namespaces:create` can name
+  the namespace's `cmapi.net/team` after the write (the team that the request records: a change that moves a namespace to
+  another team takes from the new team's), whoever sends it, after its plan and before the request is recorded. A dry run, a
+  replay of an Idempotency-Key and a refused plan open no request and take no team token, and a write whose request is not
+  recorded (a lost race to its key, a conflict, an error) gives its token back. Any caller with `namespaces:create` can name
   any team (docs/14), so keep `team` well above `write`: a caller alone then cannot empty a team's bucket.
 - **The answer.** 429 `rate-limited` (RFC 6585, section 4) as `application/problem+json`, with `Retry-After` in whole seconds
   (RFC 9110, section 10.2.3) and the same number as `retryAfter`; after that wait the bucket holds a token. A refused call takes
   no token. The front door adds `Cache-Control: no-store` and sends a 429 to no other pod.
 - **Each pod has its own buckets**, in memory. The front door spreads a caller's calls over the API pods, so with N pods a caller
-  can reach about N times a limit; set the values for the replica count. A restart starts every bucket full. Shared buckets
+  can reach about N times a limit; set the values for the replica count. A restart starts every bucket full. A pod keeps at
+  most 10,000 buckets: past that it drops the least recently used one, which starts full when its caller or team comes back,
+  as nginx's `limit_req_zone` does when its zone is full. Shared buckets
   (in PostgreSQL or a store such as Redis) would hold the limit across pods, at the cost of a round trip on every call,
   including the calls they refuse; the review record weighs both (`docs/reviews/2026-11-25-issue-689/README.md`).
 - **What an operator sees.** `cmapi_rate_limited_total{limit}` counts each refusal by class, never by caller. The log line

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from cmapi.core.errors import Problem
-from cmapi.core.ratelimit import DEFAULTS, SWEEP_AT, Limit, RateLimiter, parse_rate_limits, rate_class
+from cmapi.core.ratelimit import DEFAULTS, MAX_BUCKETS, Limit, RateLimiter, parse_rate_limits, rate_class
 
 
 class Clock:
@@ -46,16 +46,17 @@ def test_the_problem_says_who_is_limited_and_when_to_try_again():
     assert p.detail == "Too many new requests for team payments; try again in 60 s"
 
 
-def test_full_buckets_are_dropped_once_there_are_many():
+def test_the_buckets_stay_at_most_max_buckets_and_the_least_recently_used_goes_first():
     clock = Clock()
     rl = RateLimiter(limits={"read": Limit(60, 2)}, clock=clock)
-    for i in range(SWEEP_AT):
-        rl.take("read", f"caller-{i}")
-    clock.now += 1                                    # each refilled to its burst of 2
     rl.take("read", "ola")
-    rl.take("read", "ola")
-    assert list(rl._buckets) == [("read", "ola")]
-    assert rl.take("read", "ola") is not None         # the one that is not full kept its state
+    rl.take("read", "ola")                            # ola's bucket is empty
+    for i in range(MAX_BUCKETS - 1):
+        assert rl.take("read", f"caller-{i}") is None
+    assert len(rl._buckets) == MAX_BUCKETS
+    assert rl.take("read", "ola") is not None         # used last of all but the newest: it keeps its state
+    assert rl.take("read", "new") is None             # a full table drops the least recently used, never refuses
+    assert len(rl._buckets) == MAX_BUCKETS and ("read", "caller-0") not in rl._buckets
 
 
 def test_rate_class_follows_the_custom_method_then_the_http_method():
