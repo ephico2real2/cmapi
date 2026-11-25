@@ -3,7 +3,10 @@
   "$comment": "Helm validates the merged values against this file on install, upgrade, lint and template. Draft-07, which both of Helm 3's validators read: xeipuuv/gojsonschema to 3.18 and santhosh-tekuri/jsonschema v6 from 3.19 and in Helm 4 (measured on 3.19.0 and 4.3.1). Patterns stay in the subset that Go's RE2 and ECMA-262 share. It describes metadata and configFiles; the other values are not described yet. The loader, MetadataKeys in cmapi/src/cmapi/core/metadata.py, stays the final check at start. docs/18-configuration.md, \"Setting the keys through the Helm values\" (#335).",
   "type": "object",
   "properties": {
-    "instance": {"type": "object", "properties": {"clusterTokens": {"$ref": "#/definitions/clusterTokens"}}},
+    "instance": {"type": "object", "properties": {"clusterTokens": {"$ref": "#/definitions/clusterTokens"},
+      "http": {"type": "object", "additionalProperties": false,
+               "description": "instance.yaml http (#683): maxRequestBodyBytes, the most bytes of request content the API reads. Empty: 1 MiB",
+               "properties": {"maxRequestBodyBytes": {"type": "integer", "minimum": 1}}}}},
     "clusters": {
       "oneOf": [
         {"type": "object", "additionalProperties": {"$ref": "#/definitions/cluster"}},
