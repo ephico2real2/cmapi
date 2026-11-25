@@ -22,7 +22,9 @@ from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
 from starlette.requests import ClientDisconnect
+from starlette.responses import FileResponse
 from starlette.routing import Match
+from starlette.staticfiles import PathLike
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from cmapi import __version__
@@ -53,7 +55,28 @@ class ConditionalStaticFiles(StaticFiles):
     304 (#620).
 
     StaticFiles calls is_not_modified for an existing file only, from file_response, so a missing one stays 404 whatever
-    the preconditions (section 13.2.1). The 412 that not_modified raises is the RFC 9457 problem of create_app's handler."""
+    the preconditions (section 13.2.1). The 412 that not_modified raises is the RFC 9457 problem of create_app's handler.
+
+    Each file is sent whole, with 200 or 304 (#649). RFC 9110, section 14.2: "A server MAY ignore the Range header field."
+    The browser fetches each bundle whole. Starlette 1.10.0's range code answers a unit other than bytes with a plain-text
+    400, where section 14.2 says "An origin server MUST ignore a Range header field that contains a range unit it does not
+    understand"; it applies Range to HEAD, where "GET is the only method for which range handling is defined"; and it answers
+    a malformed or unsatisfiable Range in plain text, not as an RFC 9457 problem. Ignoring Range removes all three, and any
+    later defect of that code, from a path that needs no token."""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # Starlette reads Range from the scope it is given; the copy leaves the request's own scope as it was received.
+        scope = {**scope, "headers": [(k, v) for k, v in scope["headers"] if k.lower() != b"range"]}
+        await super().__call__(scope, receive, send)
+
+    def file_response(self, full_path: PathLike, stat_result: os.stat_result, scope: Scope,
+                      status_code: int = 200) -> Response:
+        """FileResponse says `Accept-Ranges: bytes`. Section 14.3: "A server that does not support any kind of range request
+        for the target resource MAY send Accept-Ranges: none to advise the client not to attempt a range request"."""
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        if isinstance(response, FileResponse):
+            response.headers["accept-ranges"] = "none"
+        return response
 
     def is_not_modified(self, response_headers: Headers, request_headers: Headers) -> bool:
         return not_modified(request_headers, response_headers["etag"], response_headers.get("last-modified"))
