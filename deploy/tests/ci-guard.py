@@ -144,9 +144,16 @@ for name in builders:
     check(bool(m) and m[1] == bwith.get("platforms") and (base.get("env") or {}).get("FILE") == bwith.get("file"),
           f"{name}: they are fetched for the build's own Containerfile and platform")
     check(bwith.get("build-contexts") == "${{ steps.base.outputs.contexts }}", f"{name}: the build reads its base images from that layout")
-# Its two skopeo commands, exactly: no flag that turns off TLS or a check, and the copy to dir: keeps the registry's bytes.
-skopeo_calls = re.findall(r"\bskopeo\((\"[^()\n]*)\)", code_of("deploy/base-images.py"))
+    # BUILDKIT_SYNTAX, like a `# syntax=` line (which base-images.py refuses), makes BuildKit pull a frontend image itself.
+    check("BUILDKIT_SYNTAX" not in str(bwith.get("build-args", "")), f"{name}: the build names no frontend image to pull")
+# Its two skopeo commands, exactly: no flag that turns off TLS or a check, and the copy to oci: keeps the registry's bytes.
+# And the one place that runs them adds nothing to them.
+base_code = code_of("deploy/base-images.py")
+check(re.findall(r"subprocess\.\w+\(([^\n]*)\)\.stdout", base_code) == ['["skopeo", *args], check=True, capture_output=True, timeout=SKOPEO_TIMEOUT']
+      and len(re.findall(r"\b(?:subprocess\.(?:run|Popen|call|check_\w+)|os\.(?:system|popen|exec\w+|spawn\w+))\(", base_code)) == 1,
+      "base-images.py runs one command, skopeo with the arguments of its two calls and no other")
+skopeo_calls = re.findall(r"\bskopeo\((\"[^()\n]*)\)", base_code)
 check(skopeo_calls == ['"inspect", "--raw", f"docker://{repo}@{pinned}"',
-                       '"copy", "--quiet", "--preserve-digests", f"docker://{repo}@{image}", f"dir:{work}"'],
+                       '"copy", "--quiet", "--preserve-digests", "--remove-signatures", f"docker://{repo}@{image}", f"oci:{layout}"'],
       f"base-images.py runs skopeo with its TLS and digest checks, and copies each image unchanged: {skopeo_calls}")
 print("ci cases failed:", len(fails)); sys.exit(1 if fails else 0)

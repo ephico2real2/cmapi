@@ -10,31 +10,35 @@ passed. A `docker pull` beforehand would not help: that driver "can't load an im
 
 What. Each image a FROM names is fetched with skopeo: the manifest the FROM pins, and for an index the one manifest of
 --platform, with that manifest's config and layers. Each fetch is tried --attempts times, waiting --delay seconds and then
-twice as long each time, whatever the error: skopeo's own --retry-times does not retry an unauthorized answer
-(containers/common pkg/retry, IsErrorRetryable). skopeo checks the manifest against the pinned digest and each blob against
-its digest as it fetches them, and fails the attempt when one does not match. This script then checks every manifest and blob
-against its SHA-256 again before it goes in the layout, and a mismatch there is final. So a retry can only add verified bytes.
+twice as long each time: skopeo's own --retry-times does not retry an unauthorized answer (containers/common pkg/retry,
+IsErrorRetryable). One failure is never tried again: a manifest or blob that is not its digest, because another attempt cannot
+make wrong bytes right. skopeo checks each blob against its digest as it copies it, and the manifest of a copy against the
+digest asked for; `inspect --raw` checks the manifest in skopeo 1.24.1 and not in 1.13.3, the runner's, so this script checks
+the pinned manifest against its SHA-256 itself. So a retry can only add verified bytes. BuildKit checks each again as it
+reads it from the layout (containerd content.Copy, with the digest it expects).
 
 The script prints one build context per image, `<FROM ref>=oci-layout://<layout>@<digest>`, for build-push-action's
 build-contexts. BuildKit then reads that image from the layout, through the build's session, and does not ask a registry for
 it (`docker buildx build --build-context`, "Source an image from a local OCI layout compliant directory").
 
-The layout holds the registry's own bytes. skopeo writes the manifest it fetched unchanged to a dir: directory
-(--preserve-digests makes it fail rather than change one), and this script files each blob under its digest. A copy to an
-oci: layout instead would convert a Docker v2s2 manifest, as the UBI base is, to OCI and change its digest
-(containers/image oci/layout: an OCI layout destination takes only OCI manifest types). An index keeps only the --platform
-manifest's blobs; the OCI image layout allows a layout to miss referenced blobs (image-spec v1.1.1, image-layout.md).
+The layout holds the registry's own bytes. skopeo copies each image straight into it (oci:), and --preserve-digests makes
+it keep the manifest it fetched, a Docker v2s2 one too, or fail. For an index this script adds the index itself, and the
+layout holds only the --platform manifest's blobs; the OCI image layout allows a layout to miss referenced blobs (image-spec
+v1.1.1, image-layout.md). BuildKit finds each image by its digest and does not read the layout's index.json.
+
+Only a FROM image is fetched. An image named by COPY --from= or RUN --mount=from= would be pulled by BuildKit itself, with
+no retry and no check here, so the script refuses one: make it a FROM stage. It refuses a `# syntax=` parser directive for
+the same reason: BuildKit pulls that frontend image itself (frontend/dockerfile/builder, forwardGateway).
 
 Python standard library and the skopeo on PATH. TLS stays as skopeo's defaults: this script has no switch to turn it off.
 usage: base-images.py --containerfile FILE --layout DIR --platform OS/ARCH[/VARIANT] --attempts N --delay SECONDS
-Exit 1 on any failure, naming the image and the check that failed.
+Exit 1 on any failure, naming the image and the check that failed; 2 on a wrong argument.
 """
 import argparse
 import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -44,6 +48,14 @@ MANIFEST_TYPES = {"application/vnd.oci.image.manifest.v1+json", "application/vnd
 SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 FROM = re.compile(r"\s*FROM\s+(?:--platform=\S+\s+)?(?P<ref>\S+)(?:\s+AS\s+(?P<stage>\S+))?\s*", re.IGNORECASE)
 SKOPEO_TIMEOUT = 600  # seconds for one skopeo command; a hung transfer counts as a failed attempt
+# An image another instruction names: COPY --from=, RUN --mount=...,from=. BuildKit pulls it unless it is a stage.
+OTHER_FROM = re.compile(r"(?:--from=|--mount=(?:\S*,)?from=)([^\s,]+)", re.IGNORECASE)
+# A parser directive, as BuildKit reads one: `# syntax=` (or `// syntax=`) sends the build to that frontend image.
+DIRECTIVE = re.compile(r"(?:#|//)\s*(syntax|escape|check)\s*=\s*\S", re.IGNORECASE)
+# skopeo's own digest checks, as it words them: a blob (containers/image copy/digesting_reader.go), a manifest
+# (internal/image/unparsed.go), a config (internal/image/docker_schema2.go and oci.go: "Download config.json digest … does not
+# match expected …" in v5.26.2, "config validation failed: blob digest … does not match expected …" in v5.41.2).
+MISMATCH = re.compile(r"Digest did not match|does not match provided manifest digest|does not match expected")
 
 
 class Refused(Exception):
@@ -53,34 +65,43 @@ class Refused(Exception):
 def base_images(containerfile: str) -> list[str]:
     """Each registry image the Containerfile's FROM lines name, in order, once. A stage name or scratch is not one."""
     stages, refs = set(), []
-    with open(containerfile) as f:
-        for n, line in enumerate(f, 1):
-            if not re.match(r"\s*FROM\b", line, re.IGNORECASE):
-                continue
-            m = FROM.fullmatch(line.rstrip("\n"))
-            if not m:
-                raise Refused(f"{containerfile}:{n}: a FROM line this script cannot read: {line.strip()}")
-            ref = m["ref"]
-            if ref.lower() not in stages and ref.lower() != "scratch":
-                if "$" in ref:
-                    raise Refused(f"{containerfile}:{n}: FROM {ref} is set by an ARG, so its digest cannot be checked here")
-                if not SHA256.fullmatch(ref.partition("@")[2]):
-                    raise Refused(f"{containerfile}:{n}: FROM {ref} is not pinned by a sha256 digest")
-                if ref not in refs:
-                    refs.append(ref)
-            if m["stage"]:
-                stages.add(m["stage"].lower())
+    # utf-8-sig: BuildKit drops a byte-order mark before it reads the first line (parser.go, discardBOM), so a FROM behind
+    # one is still a FROM to the build.
+    with open(containerfile, encoding="utf-8-sig") as f:
+        lines = f.readlines()
+    # The parser directives lead the file, after a #! line if there is one (parser/directives.go, parseDirective).
+    start = 1 if lines and lines[0].startswith("#!") else 0
+    for n, line in enumerate(lines[start:], start + 1):
+        directive = DIRECTIVE.match(line)
+        if not directive:
+            break
+        if directive[1].lower() == "syntax":
+            raise Refused(f"{containerfile}:{n}: a syntax directive makes BuildKit pull that frontend image itself, with no "
+                          "retry and no check here; remove it")
+    for n, line in enumerate(lines, 1):
+        if not re.match(r"\s*FROM\b", line, re.IGNORECASE):
+            if not line.lstrip().startswith("#"):
+                for other in OTHER_FROM.findall(line):
+                    if not other.isdigit() and other.lower() not in stages:
+                        raise Refused(f"{containerfile}:{n}: from={other} names an image, not a stage; only a FROM image "
+                                      "is fetched and checked here, so make it a FROM stage")
+            continue
+        m = FROM.fullmatch(line.rstrip("\n"))
+        if not m:
+            raise Refused(f"{containerfile}:{n}: a FROM line this script cannot read: {line.strip()}")
+        ref = m["ref"]
+        if ref.lower() not in stages and ref.lower() != "scratch":
+            if "$" in ref:
+                raise Refused(f"{containerfile}:{n}: FROM {ref} is set by an ARG, so its digest cannot be checked here")
+            if not SHA256.fullmatch(ref.partition("@")[2]):
+                raise Refused(f"{containerfile}:{n}: FROM {ref} is not pinned by a sha256 digest")
+            if ref not in refs:
+                refs.append(ref)
+        if m["stage"]:
+            stages.add(m["stage"].lower())
     if not refs:
         raise Refused(f"{containerfile}: no FROM line names a registry image")
     return refs
-
-
-def sha256_file(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return "sha256:" + h.hexdigest()
 
 
 def skopeo(*args: str) -> bytes:
@@ -88,13 +109,16 @@ def skopeo(*args: str) -> bytes:
 
 
 def retried(what: str, attempts: int, delay: float, action):
-    """action(), tried up to attempts times with a doubling wait; a Refused from it is final and not retried."""
+    """action(), tried up to attempts times with a doubling wait. A Refused from it is final, and so is a digest that
+    skopeo found wrong: the same bytes would come again."""
     for attempt in range(1, attempts + 1):
         try:
             return action()
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             stderr = e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
             why = (stderr.strip().splitlines() or [f"timed out after {SKOPEO_TIMEOUT} s"])[-1]
+            if MISMATCH.search(stderr):
+                raise Refused(f"{what}: not tried again: {why}") from e
             if attempt == attempts:
                 raise Refused(f"{what}: failed {attempts} times; the last: {why}") from e
             wait = delay * 2 ** (attempt - 1)
@@ -125,16 +149,8 @@ def checked_digest(ref: str, digest) -> str:
     return digest
 
 
-def put_blob(layout: str, digest: str, src: str) -> None:
-    dest = os.path.join(layout, "blobs", "sha256", digest.split(":", 1)[1])
-    if os.path.exists(dest):
-        os.remove(src)  # the same digest was filed by an earlier image, and was checked then
-    else:
-        os.replace(src, dest)
-
-
-def fetch(ref: str, layout: str, platform: str, attempts: int, delay: float) -> tuple[str, int, str]:
-    """Files the image that ref pins into the layout; returns the pinned manifest's (media type, size, digest)."""
+def fetch(ref: str, layout: str, platform: str, attempts: int, delay: float) -> None:
+    """Copies the image that ref pins into the layout: the pinned manifest, and for an index its one image for platform."""
     name, _, pinned = ref.partition("@")
     repo = re.sub(r":[^/]*$", "", name)  # containers/image takes a tag or a digest, not both; the digest is what is checked
     raw = retried(f"{ref}: the manifest", attempts, delay, lambda: skopeo("inspect", "--raw", f"docker://{repo}@{pinned}"))
@@ -148,33 +164,17 @@ def fetch(ref: str, layout: str, platform: str, attempts: int, delay: float) -> 
         image = pinned
     else:
         raise Refused(f"{ref}: the manifest is a {kind}, not an image or an index")
-
-    work = os.path.join(layout, "work")
-
-    def copy():
-        shutil.rmtree(work, ignore_errors=True)  # each attempt starts from nothing
-        skopeo("copy", "--quiet", "--preserve-digests", f"docker://{repo}@{image}", f"dir:{work}")
-
-    retried(f"{ref}: the {platform} image {image}", attempts, delay, copy)
-    manifest_path = os.path.join(work, "manifest.json")
-    if sha256_file(manifest_path) != image:
-        raise Refused(f"{ref}: the copied manifest is not {image}")
-    with open(manifest_path, "rb") as f:
-        manifest = json.load(f)
-    for blob in [manifest["config"], *manifest["layers"]]:
-        path = os.path.join(work, checked_digest(ref, blob["digest"]).split(":", 1)[1])
-        if not os.path.isfile(path) or os.path.getsize(path) != blob["size"] or sha256_file(path) != blob["digest"]:
-            raise Refused(f"{ref}: the blob {blob['digest']} is missing, or its size or SHA-256 does not match")
-        put_blob(layout, blob["digest"], path)
-    put_blob(layout, image, manifest_path)
-    if image != pinned:
-        index_path = os.path.join(work, "index.json")
-        with open(index_path, "wb") as f:
+    # skopeo checks the manifest against the digest asked for and each blob against its own, and files them under their
+    # digests; --preserve-digests makes it keep a Docker v2s2 manifest as it is, or fail. An OCI layout cannot hold
+    # signatures (oci/layout/oci_dest.go: "Pushing signatures for OCI images is not supported"), so where registries.d names
+    # a lookaside for the registry, as Fedora's containers-common does for registry.access.redhat.com, a copy that kept
+    # them would fail every attempt. This script checks no signature, so none is copied.
+    retried(f"{ref}: the {platform} image {image}", attempts, delay,
+            lambda: skopeo("copy", "--quiet", "--preserve-digests", "--remove-signatures", f"docker://{repo}@{image}", f"oci:{layout}"))
+    if image != pinned:  # the index itself, so that the build can be given the pinned digest; its bytes were checked above
+        with open(os.path.join(layout, "blobs", "sha256", pinned.split(":", 1)[1]), "wb") as f:
             f.write(raw)
-        put_blob(layout, pinned, index_path)
-    shutil.rmtree(work)
-    print(f"{ref}: {len(manifest['layers'])} layers of {image} for {platform}, each checked by SHA-256", file=sys.stderr)
-    return kind, len(raw), pinned
+    print(f"{ref}: {image} for {platform}, in the layout", file=sys.stderr)
 
 
 def main() -> int:
@@ -189,25 +189,20 @@ def main() -> int:
         p.error("--attempts must be at least 1, --delay not negative, and --platform OS/ARCH[/VARIANT]")
     layout = os.path.abspath(a.layout)
     try:
+        if ":" in layout:
+            raise Refused(f"--layout {layout}: skopeo's oci: transport reads what follows a colon as a tag")
         refs = base_images(a.containerfile)
-        os.makedirs(os.path.join(layout, "blobs", "sha256"))
-        descriptors = []
+        os.makedirs(layout)
         for ref in refs:
             try:
-                kind, size, digest = fetch(ref, layout, a.platform, a.attempts, a.delay)
+                fetch(ref, layout, a.platform, a.attempts, a.delay)
             except (ValueError, KeyError, TypeError) as e:
                 raise Refused(f"{ref}: a manifest this script cannot read ({e!r})") from e
-            descriptors.append({"mediaType": kind, "digest": digest, "size": size,
-                                "annotations": {"org.opencontainers.image.ref.name": ref}})
     except (Refused, OSError) as e:
         print(f"base-images: {e}", file=sys.stderr)
         return 1
-    with open(os.path.join(layout, "oci-layout"), "w") as f:
-        json.dump({"imageLayoutVersion": "1.0.0"}, f)
-    with open(os.path.join(layout, "index.json"), "w") as f:
-        json.dump({"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json", "manifests": descriptors}, f)
-    for d in descriptors:
-        print(f"{d['annotations']['org.opencontainers.image.ref.name']}=oci-layout://{layout}@{d['digest']}")
+    for ref in refs:
+        print(f"{ref}=oci-layout://{layout}@{ref.partition('@')[2]}")
     return 0
 
 

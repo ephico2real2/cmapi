@@ -16,8 +16,13 @@ registry.access.redhat.com's UBI itself and stopped at one 401 from registry.red
 45492928616); BuildKit retries a 5xx, not a 4xx. Each command of ci.yml that runs deploy/base-images.py is run, with its own
 --platform, --attempts and --delay, against a stub registry whose token endpoint answers 401 to the first two requests. It
 must exit 0 with each FROM image in its layout, every blob under its own SHA-256, and print one build context per image. The
-same command must fail when every attempt is refused, when a blob or manifest is not the pinned digest, and when a FROM is
-not pinned by digest. Before #663 ci.yml ran no such command, so this part fails and names the gap.
+same command must fail when every attempt is refused, and when a FROM, an image another instruction names, or a syntax
+directive's frontend image would be pulled by BuildKit itself. A layer, a config, a manifest, an index and an index's platform
+manifest that are not their digest must be refused on the first attempt, with the workflow's own --attempts. The UBI stub has
+a signature in a lookaside store, as registry.access.redhat.com has where Fedora's registries.d names it; an OCI layout cannot
+hold one. The script's own check of the pinned manifest is run against a skopeo that adds a byte after the real one has
+finished, and its TLS against the same stub with no setting that allows plain HTTP. Before #663 ci.yml ran no such command, so
+this part fails and names the gap.
 
 Python standard library, and the curl and skopeo on PATH. usage: download-retry-test.py. Exit 1 on any failure.
 """
@@ -29,6 +34,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -103,6 +109,12 @@ class StubRegistry(http.server.BaseHTTPRequestHandler):
 
     def answer(self, with_body: bool):
         cls, path = type(self), self.path.split("?", 1)[0]
+        if path.startswith("/sigstore/"):  # a lookaside signature store is a plain web server, with no token
+            with cls.lock:
+                cls.requested.append(path)
+            if path not in cls.content:
+                return self.reply(404, "text/plain", b"not found\n", with_body)
+            return self.reply(200, "application/octet-stream", cls.content[path][1], with_body)
         if path == "/token":
             with cls.lock:
                 cls.token_requests += 1
@@ -137,8 +149,8 @@ class StubRegistry(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def stub_image(name: str, kind: str, payload: bytes) -> tuple[str, list]:
-    """One linux/amd64 image of one gzipped layer: its manifest digest and its content entries."""
+def stub_image(name: str, kind: str, payload: bytes, times: int = 1) -> tuple[str, list]:
+    """One linux/amd64 image of one gzipped layer, listed `times` times: its manifest digest and its content entries."""
     tar = io.BytesIO()
     with tarfile.open(fileobj=tar, mode="w") as t:
         info = tarfile.TarInfo("etc/stub")
@@ -146,7 +158,7 @@ def stub_image(name: str, kind: str, payload: bytes) -> tuple[str, list]:
         t.addfile(info, io.BytesIO(payload))
     layer = gzip.compress(tar.getvalue(), mtime=0)
     config = json.dumps({"architecture": "amd64", "os": "linux",
-                         "rootfs": {"type": "layers", "diff_ids": [digest_of(tar.getvalue())]}}).encode()
+                         "rootfs": {"type": "layers", "diff_ids": [digest_of(tar.getvalue())] * times}}).encode()
     docker = kind == V2S2
     manifest = json.dumps({"schemaVersion": 2, "mediaType": kind,
                            "config": {"mediaType": "application/vnd.docker.container.image.v1+json" if docker
@@ -154,7 +166,7 @@ def stub_image(name: str, kind: str, payload: bytes) -> tuple[str, list]:
                                       "digest": digest_of(config), "size": len(config)},
                            "layers": [{"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip" if docker
                                        else "application/vnd.oci.image.layer.v1.tar+gzip",
-                                       "digest": digest_of(layer), "size": len(layer)}]}).encode()
+                                       "digest": digest_of(layer), "size": len(layer)}] * times}).encode()
     entries = [(f"/v2/{name}/blobs/{digest_of(config)}", ("application/octet-stream", config)),
                (f"/v2/{name}/blobs/{digest_of(layer)}", ("application/octet-stream", layer)),
                (f"/v2/{name}/manifests/{digest_of(manifest)}", (kind, manifest))]
@@ -162,20 +174,27 @@ def stub_image(name: str, kind: str, payload: bytes) -> tuple[str, list]:
 
 
 def stub_content():
-    """ubi: one Docker v2s2 manifest, as the UBI base is. node: an OCI index of linux/amd64, linux/arm64 and an attestation,
-    as the docker.io bases are, where only the amd64 image is served."""
+    """ubi: one Docker v2s2 manifest, as the UBI base is. node: an OCI index of linux/arm64, linux/amd64 and an attestation,
+    as the docker.io bases are, where only the amd64 image is served; arm64 comes first, so the platform must be read.
+    twice: an image whose manifest lists one layer twice, as an image with two identical layers does."""
     ubi, content = stub_image("ubi", V2S2, b"ubi\n")
     amd64, node = stub_image("node", OCI_MANIFEST, b"node amd64\n")
     content += node
     arm64 = digest_of(b"the arm64 manifest, never served")
     index = json.dumps({"schemaVersion": 2, "mediaType": OCI_INDEX, "manifests": [
+        {"mediaType": OCI_MANIFEST, "digest": arm64, "size": 100, "platform": {"os": "linux", "architecture": "arm64", "variant": "v8"}},
         {"mediaType": OCI_MANIFEST, "digest": amd64, "size": len(dict(node)[f"/v2/node/manifests/{amd64}"][1]),
          "platform": {"os": "linux", "architecture": "amd64"}},
-        {"mediaType": OCI_MANIFEST, "digest": arm64, "size": 100, "platform": {"os": "linux", "architecture": "arm64", "variant": "v8"}},
         {"mediaType": OCI_MANIFEST, "digest": digest_of(b"an attestation"), "size": 100,
-         "platform": {"os": "unknown", "architecture": "unknown"}}]}).encode()
+         "platform": {"os": "unknown", "architecture": "unknown"}}]}, indent=2).encode()  # indented, so a script that re-serializes it files other bytes
     content.append((f"/v2/node/manifests/{digest_of(index)}", (OCI_INDEX, index)))
-    return dict(content), ubi, digest_of(index), arm64
+    twice, entries = stub_image("twice", OCI_MANIFEST, b"twice\n", times=2)
+    # ubi's signature, where a registries.d lookaside for this host points: <lookaside>/<repo>@sha256=<hex>/signature-1
+    # (containers-registries.d(5)). Its first byte is OpenPGP's, so skopeo reads it as a simple signing signature
+    # (internal/signature/signature.go, FromBlob); its content is never verified: no policy here asks for a signature.
+    entries.append((f"/sigstore/ubi@sha256={ubi.split(':')[1]}/signature-1",
+                    ("application/octet-stream", b"\xa3 a signature, never verified")))
+    return dict(content + entries), ubi, digest_of(index), arm64, twice
 
 
 def base_commands():
@@ -200,9 +219,36 @@ def run_base(flags: dict, containerfile: str, layout: str, env: dict, **override
     return subprocess.run(argv, capture_output=True, text=True, env=env, timeout=600)
 
 
+# The real skopeo, then one byte more after "inspect": skopeo's own check has passed by then (1.24.1) or was never made
+# (1.13.3), so only base-images.py's can refuse it.
+LYING_SKOPEO = """#!{python}
+import os, subprocess, sys
+r = subprocess.run([os.environ["REAL_SKOPEO"], *sys.argv[1:]], capture_output=True)
+out = r.stdout + (b" " if r.returncode == 0 and sys.argv[1] == "inspect" else b"")
+sys.stdout.buffer.write(out)
+sys.stderr.buffer.write(r.stderr)
+sys.exit(r.returncode)
+"""
+
+
 def layout_ok(layout: str) -> bool:
     blobs = os.path.join(layout, "blobs", "sha256")
     return all(digest_of(open(os.path.join(blobs, b), "rb").read()) == "sha256:" + b for b in os.listdir(blobs))
+
+
+def layout_holds(layout: str, digest: str, platform: str) -> bool:
+    """What BuildKit reads from the layout for a context's digest: that blob, and for an index the platform's manifest, then
+    the manifest's config and every layer."""
+    def blob(d):
+        path = os.path.join(layout, "blobs", "sha256", d.split(":", 1)[1])
+        return json.loads(open(path, "rb").read()) if os.path.isfile(path) else None
+    doc = blob(digest)
+    if doc and "manifests" in doc:
+        want = platform.split("/")[:2]
+        entry = [e for e in doc["manifests"] if [(e.get("platform") or {}).get(k) for k in ("os", "architecture")] == want]
+        doc = blob(entry[0]["digest"]) if len(entry) == 1 else None
+    return bool(doc) and all(os.path.isfile(os.path.join(layout, "blobs", "sha256", b["digest"].split(":", 1)[1]))
+                             for b in [doc["config"], *doc["layers"]])
 
 
 def base_images_case() -> list:
@@ -215,7 +261,7 @@ def base_images_case() -> list:
 
     commands = base_commands()
     check(bool(commands), "ci.yml fetches the base images before it builds an image (deploy/base-images.py)")
-    content, ubi, node, arm64 = stub_content()
+    content, ubi, node, arm64, twice = stub_content()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), StubRegistry)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     host = f"127.0.0.1:{server.server_port}"
@@ -228,18 +274,25 @@ def base_images_case() -> list:
             conf_dir, auth = os.path.join(tmp, "home", ".config", "containers"), os.path.join(tmp, "auth.json")
             os.makedirs(conf_dir)
             open(os.path.join(conf_dir, "registries.conf"), "w").write(f'[[registry]]\nlocation = "{host}"\ninsecure = true\n')
+            os.makedirs(os.path.join(conf_dir, "registries.d"))
+            open(os.path.join(conf_dir, "registries.d", "stub.yaml"), "w").write(
+                f"docker:\n  {host}:\n    lookaside: http://{host}/sigstore\n")
             open(auth, "w").write("{}")
             os.makedirs(os.path.join(tmp, "docker"))
             env = {k: v for k, v in os.environ.items() if k != "CONTAINERS_REGISTRIES_CONF"}
             env.update(HOME=os.path.join(tmp, "home"), REGISTRY_AUTH_FILE=auth, DOCKER_CONFIG=os.path.join(tmp, "docker"))
 
-            def containerfile(name, *froms):
+            def containerfile(name, *lines, bom=""):
                 path = os.path.join(tmp, name)
-                open(path, "w").write("".join(f"FROM {f}\n" for f in froms))
+                open(path, "w", encoding="utf-8").write(bom + "".join(f"{line}\n" for line in lines))
                 return path
 
-            pinned = containerfile("Containerfile", f"{host}/ubi@{ubi} AS tools", f"{host}/node@{node} AS build",
-                                   "tools", f"{host}/ubi@{ubi}")
+            # As the two Containerfiles are: stages, and COPY --from= a stage by its name. And by its number, and a mount. A
+            # parser directive that is not syntax, and a syntax line after the directives, which is only a comment.
+            pinned = containerfile("Containerfile", "# escape=\\", "# The stub's bases.",
+                                   f"FROM {host}/ubi@{ubi} AS tools", "# syntax=a-comment-here", f"FROM {host}/node@{node} AS build",
+                                   "FROM tools", f"FROM {host}/ubi@{ubi}", "COPY --from=tools /etc/stub /a",
+                                   "COPY --from=0 /etc/stub /b", "RUN --mount=type=bind,from=build,target=/m true")
 
             def fresh(served=None, failures=0):
                 StubRegistry.content = served or content
@@ -248,20 +301,39 @@ def base_images_case() -> list:
             def last(r):
                 return r.stderr.strip().splitlines()[-1:]
 
-            ubi_manifest = f"/v2/ubi/manifests/{ubi}"
+            ubi_manifest, node_index = f"/v2/ubi/manifests/{ubi}", f"/v2/node/manifests/{node}"
             ubi_layer = "/v2/ubi/blobs/" + json.loads(content[ubi_manifest][1])["layers"][0]["digest"]
+            ubi_config = "/v2/ubi/blobs/" + json.loads(content[ubi_manifest][1])["config"]["digest"]
+            node_amd64 = "/v2/node/manifests/" + next(e["digest"] for e in json.loads(content[node_index][1])["manifests"]
+                                                      if e["platform"]["architecture"] == "amd64")
+            lying = os.path.join(tmp, "lying")
+            os.makedirs(lying)
+            open(os.path.join(lying, "skopeo"), "w").write(LYING_SKOPEO.format(python=sys.executable))
+            os.chmod(os.path.join(lying, "skopeo"), 0o755)
+            lying_env = {**env, "REAL_SKOPEO": shutil.which("skopeo") or "skopeo", "PATH": lying + os.pathsep + env["PATH"]}
+            os.makedirs(os.path.join(tmp, "strict-home"))
+            # The lookaside is read: a copy into an OCI layout that keeps signatures fails, so the cases below that copy the
+            # UBI stub would fail without --remove-signatures.
+            fresh()
+            r = subprocess.run(["skopeo", "copy", "--quiet", "--preserve-digests", f"docker://{host}/ubi@{ubi}",
+                                f"oci:{os.path.join(tmp, 'signed')}"], capture_output=True, text=True, env=env, timeout=600)
+            check(r.returncode != 0 and "Pushing signatures for OCI images is not supported" in r.stderr
+                  and any(p.startswith("/sigstore/ubi@") for p in StubRegistry.requested),
+                  f"the stub's signature store is read, and an OCI layout refuses its signature: exit {r.returncode} {last(r)}")
             for i, (where, flags) in enumerate(commands):
-                attempts = int(flags["--attempts"])
+                attempts, delay = int(flags["--attempts"]), float(flags["--delay"])
                 fresh(failures=TOKEN_FAILURES)
                 layout = os.path.join(tmp, f"layout-{i}")
                 r = run_base(flags, pinned, layout, env)
                 expect = sorted([f"{host}/ubi@{ubi}=oci-layout://{layout}@{ubi}", f"{host}/node@{node}=oci-layout://{layout}@{node}"])
                 check(r.returncode == 0 and sorted(r.stdout.split()) == expect and layout_ok(layout)
-                      and os.path.exists(os.path.join(layout, "blobs", "sha256", ubi.split(":")[1]))
+                      and all(layout_holds(layout, d, flags["--platform"]) for d in (ubi, node))
                       and not os.path.exists(os.path.join(layout, "blobs", "sha256", arm64.split(":")[1]))
-                      and not [p for p in StubRegistry.requested if arm64 in p] and StubRegistry.token_requests > TOKEN_FAILURES,
+                      and not [p for p in StubRegistry.requested if arm64 in p] and StubRegistry.token_requests > TOKEN_FAILURES
+                      and f"trying again in {delay:g} s" in r.stderr and f"trying again in {2 * delay:g} s" in r.stderr,
                       f"{where}: {' '.join(f'{k} {v}' for k, v in flags.items() if k not in ('--containerfile', '--layout'))}: "
-                      f"each FROM image in the layout after {TOKEN_FAILURES} refused token requests, every blob under its "
+                      f"each FROM image in the layout after {TOKEN_FAILURES} refused token requests and a wait that doubles, "
+                      f"every blob under its "
                       f"SHA-256, only the {flags['--platform']} image: exit {r.returncode} {last(r)}")
 
                 fresh(failures=attempts)
@@ -269,21 +341,72 @@ def base_images_case() -> list:
                 check(r.returncode == 1 and f"failed {attempts} times" in r.stderr and "unauthorized" in last(r)[0] and not r.stdout,
                       f"{where}: fails, with no build context, when all {attempts} attempts are refused: exit {r.returncode} {last(r)}")
 
-                # A layer that is not its digest, and a manifest that is not the pinned one: refused, one attempt each, by
-                # skopeo ("Digest did not match"; newer versions also check the manifest) or by base-images.py's own check.
-                fresh({**content, ubi_layer: (content[ubi_layer][0], gzip.compress(b"other bytes", mtime=0))})
-                r = run_base(flags, pinned, os.path.join(tmp, f"blob-{i}"), env, **{"--attempts": "1"})
-                check(r.returncode == 1 and not r.stdout and re.search(r"did not match|does not match", last(r)[0]) is not None,
-                      f"{where}: refuses a layer that is not its digest: exit {r.returncode} {last(r)}")
-                fresh({**content, ubi_manifest: (V2S2, content[ubi_manifest][1] + b" ")})
-                r = run_base(flags, pinned, os.path.join(tmp, f"manifest-{i}"), env, **{"--attempts": "1"})
-                check(r.returncode == 1 and not r.stdout and re.search(r"did not match|does not match", last(r)[0]) is not None,
-                      f"{where}: refuses a manifest that is not the pinned digest: exit {r.returncode} {last(r)}")
+                # A layer, a config, a manifest, an index and the platform's manifest of an index that are not their digest:
+                # refused by skopeo (1.24.1 also checks the pinned manifest) or by base-images.py's own check. With the
+                # workflow's own --attempts, and asked for once: another attempt cannot make wrong bytes right.
+                ubi_only = containerfile(f"Ubi-{i}", f"FROM {host}/ubi@{ubi}")
+                node_only = containerfile(f"Node-{i}", f"FROM {host}/node@{node}")
+                for n, (what, path, kind, data, file) in enumerate((
+                        ("a layer that is not its digest", ubi_layer, content[ubi_layer][0], gzip.compress(b"other", mtime=0), ubi_only),
+                        ("a config that is not its digest", ubi_config, content[ubi_config][0], content[ubi_config][1] + b" ", ubi_only),
+                        ("the platform's manifest of an index, not the digest the index names", node_amd64, OCI_MANIFEST,
+                         content[node_amd64][1] + b" ", node_only),
+                        ("a manifest that is not the pinned digest", ubi_manifest, V2S2, content[ubi_manifest][1] + b" ", ubi_only),
+                        ("an index that is not the pinned digest", node_index, OCI_INDEX, content[node_index][1] + b" ", node_only))):
+                    fresh({**content, path: (kind, data)})
+                    r = run_base(flags, file, os.path.join(tmp, f"wrong-{i}-{n}"), env)
+                    asked = StubRegistry.requested.count(path)
+                    # One attempt: no "trying again". A config is read twice in that attempt, so the count is not 1 for it.
+                    check(r.returncode == 1 and not r.stdout and re.search(r"did not match|does not match", last(r)[0]) is not None
+                          and asked >= 1 and "trying again" not in r.stderr,
+                          f"{where}: refuses {what}, in one attempt of {attempts}: asked {asked}, exit {r.returncode} {last(r)}")
+
+                # base-images.py's own check, where skopeo's has passed: a skopeo that adds one byte after the real one.
+                fresh()
+                r = run_base(flags, ubi_only, os.path.join(tmp, f"lying-{i}"), lying_env)
+                check(r.returncode == 1 and not r.stdout and "the registry's manifest does not match the pinned digest" in last(r)[0]
+                      and "trying again" not in r.stderr,
+                      f"{where}: its own check refuses a byte added to the pinned manifest after skopeo's: exit {r.returncode} {last(r)}")
+
+                # TLS: the same stub, which speaks plain HTTP, with no registries.conf that allows it. skopeo must stop
+                # before any request for a token or for content; a script that turned TLS off would be served.
+                fresh()
+                r = run_base(flags, ubi_only, os.path.join(tmp, f"tls-{i}"), {**env, "HOME": os.path.join(tmp, "strict-home")},
+                             **{"--attempts": "1"})
+                check(r.returncode == 1 and not r.stdout and not StubRegistry.requested and not StubRegistry.token_requests
+                      and re.search(r"HTTPS client|TLS handshake", last(r)[0]) is not None,
+                      f"{where}: asks a registry that speaks plain HTTP for nothing: exit {r.returncode} {last(r)}")
 
                 fresh()
-                r = run_base(flags, containerfile(f"Tagged-{i}", f"{host}/ubi:latest"), os.path.join(tmp, f"tag-{i}"), env)
-                check(r.returncode == 1 and "is not pinned by a sha256 digest" in r.stderr,
-                      f"{where}: refuses a FROM that is not pinned by digest: exit {r.returncode} {last(r)}")
+                listed = os.path.join(tmp, f"listed-{i}")
+                r = run_base(flags, containerfile(f"Twice-{i}", f"FROM {host}/twice@{twice}"), listed, env)
+                check(r.returncode == 0 and layout_ok(listed) and layout_holds(listed, twice, flags["--platform"])
+                      and len(os.listdir(os.path.join(listed, "blobs", "sha256"))) == 3,
+                      f"{where}: takes an image whose manifest lists one layer twice: exit {r.returncode} {last(r)}")
+
+                # skopeo's oci: transport ends the path at the first colon (containers-transports(5)), so such a layout
+                # would be written somewhere else than the build context names.
+                fresh()
+                r = run_base(flags, ubi_only, os.path.join(tmp, f"co:lon-{i}"), env)
+                check(r.returncode == 1 and not r.stdout and "a colon" in last(r)[0] and not StubRegistry.requested,
+                      f"{where}: refuses a layout path with a colon: exit {r.returncode} {last(r)}")
+
+                for n, (what, why, lines, bom) in enumerate((
+                        ("a FROM that is not pinned by digest", "is not pinned by a sha256 digest", [f"FROM {host}/ubi:latest"], ""),
+                        ("an unpinned FROM behind a byte-order mark, which BuildKit drops", "is not pinned by a sha256 digest",
+                         [f"FROM {host}/ubi:latest", f"FROM {host}/ubi@{ubi}"], "\ufeff"),
+                        ("COPY --from= an image", "names an image, not a stage",
+                         [f"FROM {host}/ubi@{ubi}", f"COPY --from={host}/node:latest /etc/stub /a"], ""),
+                        ("RUN --mount= from an image", "names an image, not a stage",
+                         [f"FROM {host}/ubi@{ubi}", f"RUN --mount=type=bind,from={host}/node@{node},target=/m true"], ""),
+                        ("a syntax directive, whose frontend image BuildKit pulls", "a syntax directive",
+                         ["# syntax=docker/dockerfile:1", f"FROM {host}/ubi@{ubi}"], ""),
+                        ("a syntax directive after a #! line and another directive", "a syntax directive",
+                         ["#!/usr/bin/env buildctl", "# check=error=true", "#SYNTAX = docker/dockerfile:1", f"FROM {host}/ubi@{ubi}"], "\ufeff"))):
+                    fresh()
+                    r = run_base(flags, containerfile(f"Unpinned-{i}-{n}", *lines, bom=bom), os.path.join(tmp, f"no-{i}-{n}"), env)
+                    check(r.returncode == 1 and not r.stdout and why in r.stderr and not StubRegistry.requested,
+                          f"{where}: refuses {what}: exit {r.returncode} {last(r)}")
     finally:
         server.shutdown()
     return fails
