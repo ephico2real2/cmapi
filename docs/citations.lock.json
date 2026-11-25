@@ -338,7 +338,7 @@
   "        return None",
   "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|313-318": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|322-327": [
   "            if permission:",
   "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
   "            op_id = f\"{self.plugin}_{fn.__name__}\"",
@@ -500,30 +500,30 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1332-1332": [
   "            raise Problem.forbidden(f\"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|173-175": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|175-177": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|251-251": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|263-263": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|257-257": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|269-269": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|265-265": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|277-277": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|482-482": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|513-513": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|533-533": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|564-564": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|66-66": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|73-73": [
   "    \"on-behalf-of-not-allowed\": \"Remove `onBehalfOf`. A person calls as themselves.\","
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|67-67": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|74-74": [
   "    \"on-behalf-of-required\": \"Name the person in `onBehalfOf`. A service client must say for whom it calls.\","
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/views.py|25-27": [
@@ -581,10 +581,10 @@
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|117-117": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|193-193": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|194-194": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|232-232": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|234-234": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [

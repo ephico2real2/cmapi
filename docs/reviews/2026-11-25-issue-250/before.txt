@@ -1,0 +1,35 @@
+E       AssertionError: {'clusters/CRC/namespaces/payments-dev/namespace.yaml': 'changed', 'clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml': 'added', 'clusters/CRC/namespaces/payments-dev/resourcequota.yaml': 'removed'}
+E       AssertionError: assert {'clusters/CR...l': 'removed'} == {'clusters/CR...l': 'changed'}
+E       AssertionError: {'clusters/CRC/namespaces/payments-dev/namespace.yaml': 'changed', 'clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml': 'added', 'clusters/CRC/namespaces/payments-dev/resourcequota.yaml': 'removed'}
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/policy-violation","title":"policy violation","status":422,"detail":"A custom tier needs every sizable key","code":"policy-violation","errors":[{"code":"custom-quota-required","missing":["requests.cpu","requests.memory","pods"]}]}
+E           AssertionError: {"changes":{"clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-cpu.yaml":"changed","clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-memory.yaml":"changed","clusters/CRC/namespaces/payments-dev/namespace.yaml":"changed","clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml":"added","clusters/CRC/namespaces/payme
+E           AssertionError: {"changes":{"clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-cpu.yaml":"changed","clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-memory.yaml":"changed","clusters/CRC/namespaces/payments-dev/namespace.yaml":"changed","clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml":"added","clusters/CRC/namespaces/payme
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/policy-violation","title":"policy violation","status":422,"detail":"A custom tier needs every sizable key","code":"policy-violation","errors":[{"code":"custom-quota-required","missing":["requests.cpu","requests.memory","pods"]}]}
+E       AssertionError: assert {'clusters/CR...l': 'changed'} == {'clusters/CR...aml': 'added'}
+        """A trailing `---` is a second, empty document: yaml.safe_load raised ComposerError, and GET and every change answered
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+E       AttributeError: module 'cmapi.core.kube_yaml' has no attribute 'load_all'
+        """#680: a manifest that PyYAML cannot parse made GET and every change of the namespace answer 500 internal-error."""
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+        """#680: a manifest that PyYAML cannot parse made GET and every change of the namespace answer 500 internal-error."""
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+        """#680: a manifest that PyYAML cannot parse made GET and every change of the namespace answer 500 internal-error."""
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/internal-error","title":"internal error","status":500,"detail":"The service failed. Give the X-Request-Id of this answer to the platform team","code":"internal-error"}
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+FAILED tests/service/test_multidoc_quota_250.py::test_a_label_change_keeps_both_quotas_of_one_file_unchanged_each_in_its_own_file_and_on_the_cluster
+FAILED tests/service/test_multidoc_quota_250.py::test_a_quota_already_in_its_own_file_keeps_its_text
+FAILED tests/service/test_multidoc_quota_250.py::test_two_quotas_and_none_of_them_cmapis_a_label_change_keeps_every_quota_and_limitrange[small]
+FAILED tests/service/test_multidoc_quota_250.py::test_two_quotas_and_none_of_them_cmapis_a_label_change_keeps_every_quota_and_limitrange[custom]
+FAILED tests/service/test_multidoc_quota_250.py::test_a_quota_change_beside_another_quota_is_refused_naming_both[change0]
+FAILED tests/service/test_multidoc_quota_250.py::test_a_quota_change_beside_another_quota_is_refused_naming_both[change1]
+FAILED tests/service/test_multidoc_quota_250.py::test_with_no_quota_of_cmapis_a_limits_change_is_refused_too
+FAILED tests/service/test_multidoc_quota_250.py::test_a_limitrange_that_cmapi_does_not_own_is_kept
+FAILED tests/service/test_multidoc_quota_250.py::test_a_namespace_yaml_with_a_second_document_is_read
+FAILED tests/service/test_multidoc_quota_250.py::test_the_reader_takes_every_object_of_a_stream
+FAILED tests/service/test_multidoc_quota_250.py::test_680_a_folder_file_that_is_not_yaml_is_a_409_that_names_it[get]
+FAILED tests/service/test_multidoc_quota_250.py::test_680_a_folder_file_that_is_not_yaml_is_a_409_that_names_it[patch]
+FAILED tests/service/test_multidoc_quota_250.py::test_680_a_folder_file_that_is_not_yaml_is_a_409_that_names_it[delete]
+13 failed in 24.72s

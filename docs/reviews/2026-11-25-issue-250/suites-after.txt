@@ -1,0 +1,9 @@
+== core
+750 passed, 113 skipped in 124.95s (0:02:04)
+== service (related, 32 files)
+FAILED tests/service/test_api_standard.py::test_the_create_operation_answers_what_the_design_lists[metadata-keys.yaml]
+FAILED tests/service/test_api_standard.py::test_the_create_operation_answers_what_the_design_lists[metadata-keys.company.yaml]
+FAILED tests/service/test_api_standard.py::test_the_create_operation_answers_what_the_design_lists[design]
+3 failed, 729 passed in 932.86s (0:15:32)
+== rerun after adding folder-not-yaml to CREATE_ANSWERS (tests/service/test_api_standard.py)
+177 passed in 12.90s

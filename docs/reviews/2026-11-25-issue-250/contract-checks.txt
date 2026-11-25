@@ -1,0 +1,11 @@
+== gate vs main
+No breaking changes to report, but the specs are different.
+Run 'oasdiff diff' to see structural differences.
+exit 0
+== changelog --check
+exit 0
+== examples doc
+exit 0
+== spectral lint
+No results with a severity of 'warn' or higher found!
+exit 0
