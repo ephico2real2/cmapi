@@ -221,3 +221,18 @@ manifest lists `sha256:4f4fb700ef54…` 3 times in 10 layers (measured 2026-11-2
 `node@sha256:06d7ad…` and `nginxinc/nginx-unprivileged@sha256:f5116e…`, as run 45529793850 showed for the `dir:` layout; and
 no `[internal] load metadata for` line for any of the three. If either is missing, the direct copy is not taken: the
 `dir:` path of review 1's `fix.diff` is the fallback.
+
+## The coordinator's rulings and the CI gate
+
+- **Rulings (Opus 5.5).** All of reviewer 1's findings (Fable 5.2, a second model family) are accepted as reviewer 2 (Opus 5.5 high) ruled them.
+  - Reviewer 1's simpler design is taken: copy straight into the OCI layout with `--preserve-digests --remove-signatures`.
+  - Reviewer 2's three additions are taken:
+    - R2-2: a wrong config is final on the first attempt.
+    - R2-3: a `syntax` frontend is refused.
+    - R2-4: the layout is checked as a whole.
+  - Reviewer 2's patch was applied with `patch -p1 -F0`.
+- **Local proof (skopeo 1.24.1).** `deploy/tests/ci-guard.py` reports 0 failed cases. `deploy/tests/download-retry-test.py` reports 0 failed for the base images.
+- **CI gate (run 45543496938, head `7fcca6e`).** The gate is reviewer 2's: each base loads from its layout, and no base is pulled from a registry. Every job passed.
+  - **`images-pr (cmapi)`:** `[context registry.access.redhat.com/ubi9/python-312-minimal@sha256:b99faa…] OCI load from client`.
+  - **`images-pr (cmapi-portal)` and `front-door`:** `[context node@sha256:06d7ad…] OCI load from client` and `[context nginxinc/nginx-unprivileged@sha256:f5116e…] OCI load from client`.
+  - **All three jobs:** 0 `[internal] load metadata for` lines for any base image.
