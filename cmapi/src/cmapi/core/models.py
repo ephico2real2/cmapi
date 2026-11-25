@@ -6,11 +6,14 @@ cluster-scoped resource: inherit ClusterScoped.
 """
 from __future__ import annotations
 
+import re
+from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from pydantic.alias_generators import to_camel
+from pydantic_core import PydanticCustomError
 
 ClusterId = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{1,62}$")]
 DnsLabel = Annotated[str, StringConstraints(pattern=r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")]
@@ -33,26 +36,106 @@ class ClusterScoped(Api):
 NUL_REFUSED = "A value of the request holds the character NUL (U+0000), which cmapi does not take"
 
 
+# The place of a value as a linked list, built into a tuple only where an error names it: None at the top of the body, else
+# (the link of its container, its key or index).
+Link = tuple[Any, str | int] | None
+
+
+def strings_of(value: Any) -> Iterator[tuple[str, Link, bool]]:
+    """Each string of a parsed JSON value, and each key, in document order: (the string, the link of its place, whether it
+    is a key). A key comes before its value, and has its value's place.
+
+    A loop over a stack of the containers it is in, not recursion: json.loads parses a body nested far deeper than Python's
+    recursion limit of 1000, since its decoder counts depth against CPython's C recursion limit instead (10000 here; CPython
+    3.12.14 Include/cpython/pystate.h C_RECURSION_LIMIT, Modules/_json.c; measured, depth 9900 parses). A recursive walk
+    raised RecursionError from about depth 600, which answered 500. No place is copied on the way down, so the walk is
+    linear in the size of the body at any depth."""
+    if not isinstance(value, (dict, list)):
+        if isinstance(value, str):
+            yield value, None, False
+        return
+    stack: list[tuple[Iterator[tuple[str | int, Any]], Link]] = [(_items(value), None)]
+    while stack:
+        items, link = stack[-1]
+        for step, child in items:
+            if isinstance(step, str):
+                yield step, (link, step), True
+            if isinstance(child, str):
+                yield child, (link, step), False
+            elif isinstance(child, (dict, list)):
+                stack.append((_items(child), (link, step)))
+                break
+        else:
+            stack.pop()
+
+
+def _items(container: dict | list) -> Iterator[tuple[str | int, Any]]:
+    return iter(container.items()) if isinstance(container, dict) else enumerate(container)
+
+
 def holds_nul(value: Any) -> bool:
     """Whether a parsed JSON value holds U+0000 in a string or a key, at any depth."""
-    if isinstance(value, str):
-        return "\x00" in value
-    if isinstance(value, dict):
-        return any(holds_nul(k) or holds_nul(v) for k, v in value.items())
-    if isinstance(value, list):
-        return any(holds_nul(v) for v in value)
-    return False
+    return any("\x00" in text for text, _, _ in strings_of(value))
+
+
+# A string made of Unicode scalar values holds no code point from U+D800 to U+DFFF (#353). json.loads joins an escaped
+# surrogate pair into one character, so a code point of that range left in a parsed string is not a character: a lone
+# `\ud800`, a reversed pair, or the bytes ED A0 80, which json.loads decodes with "surrogatepass". RFC 7493, section 2.1:
+# names and string values "MUST NOT include code points that identify Surrogates", escaped or not. Kubernetes reads such a
+# value as U+FFFD or not at all, and PostgreSQL and the UTF-8 answer cannot hold it, so a body is refused at the edge
+# (docs/reviews/2026-11-25-issue-353/README.md).
+SURROGATE = re.compile(r"[\ud800-\udfff]")
+SURROGATE_CODE = "string_surrogate"
+SURROGATE_REFUSED = "A string of the request holds a surrogate code point, which is not a Unicode character"
+Place = tuple[str | int, ...]
+# The places a refusal names, at most. Each is one error of the answer, and its field grows with the depth of the place:
+# without a bound, a 1 MB body of 100,000 lone surrogates nested 400 deep was answered with 93 MB in 15 s.
+MAX_PLACES = 20
+
+
+def _shown(key: str) -> str:
+    """A key as an error names it: each surrogate as its escape, since the UTF-8 answer cannot carry one."""
+    return key.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
+def place_of(link: Link) -> Place:
+    """The place that a link of strings_of stands for, from the top of the body, each key as an error names it."""
+    steps: list[str | int] = []
+    while link is not None:
+        link, step = link
+        steps.append(_shown(step) if isinstance(step, str) else step)
+    return tuple(reversed(steps))
+
+
+def surrogate_places(value: Any) -> list[tuple[Place, str]]:
+    """The first MAX_PLACES places of a parsed JSON value whose string, or key, holds a surrogate code point, in document
+    order, with what is wrong there (the first such code point). A key's place ends in "[key]", as pydantic names the
+    error of a key."""
+    found: list[tuple[Place, str]] = []
+    for text, link, is_key in strings_of(value):
+        if match := SURROGATE.search(text):
+            found.append(((*place_of(link), "[key]") if is_key else place_of(link),
+                          f"holds U+{ord(match.group()):04X}, a surrogate code point, which is not a Unicode character"))
+            if len(found) == MAX_PLACES:
+                break
+    return found
 
 
 class RequestBody(Api):
     """The base of every request body. A body with U+0000 anywhere, in a label or an annotation too, is 422 validation-failed
-    before a route reads it; before #653 PostgreSQL refused it at the first write, and the caller got 500."""
+    before a route reads it; before #653 PostgreSQL refused it at the first write, and the caller got 500.
+
+    So is a body with a surrogate code point in any string or key (#353): one error of type string_surrogate whose context
+    `places` holds each place, the first MAX_PLACES, which main.py's request_validation_handler names as one error each
+    below the body."""
 
     @model_validator(mode="before")
     @classmethod
-    def refuse_nul(cls, data: Any) -> Any:
+    def refuse_what_is_not_text(cls, data: Any) -> Any:
         if holds_nul(data):
             raise ValueError(NUL_REFUSED)
+        if places := surrogate_places(data):
+            raise PydanticCustomError(SURROGATE_CODE, SURROGATE_REFUSED, {"places": places})
         return data
 
 
