@@ -53,4 +53,27 @@ COPY --from=build /src/cmapi-portal-ui/dist/ /usr/share/nginx/html/portal/
 COPY mockups/portal/dist/portal.html /usr/share/nginx/html/mockup/portal.html
 # The entrypoint writes conf.d and nginx.conf (the worker count) at start, as the image's arbitrary UID in group 0.
 RUN chown -R 101:0 /etc/nginx /usr/share/nginx/html && chmod -R g+w /etc/nginx && chmod -R a+rX /usr/share/nginx/html
+
+# As in cmapi/Containerfile (#650): the build runs as an arbitrary UID in group 0 with no capabilities, as OpenShift runs the
+# image, and fails on a path it cannot read, a directory it cannot search, or a file that its owner may run and it cannot. It
+# must also write what the entrypoint writes at start: conf.d (20-envsubst-on-templates.sh), and nginx.conf, which
+# 30-tune-worker-processes.sh edits with sed -i, a new file in /etc/nginx; that script exits 0 when it cannot write, and nginx
+# would start with the stock worker count. busybox's find has no -readable, so sh's test reads each mode. The UID, the premise
+# it asserts first (group 0 alone, owns nothing here) and the links are as in cmapi/Containerfile.
+USER 54321:0
+RUN set -eu; \
+    canary=$(mktemp); chmod 000 "$canary"; \
+    if [ -r "$canary" ]; then echo "the modes check cannot see modes: this user reads a file of mode 000" >&2; exit 1; fi; \
+    rm -f "$canary"; \
+    paths="/usr/share/nginx/html /etc/nginx /docker-entrypoint.sh /docker-entrypoint.d"; \
+    bad=$( { [ "$(id -G)" = 0 ] || echo "the check runs in groups $(id -G), not in group 0 alone"; \
+             find $paths -user "$(id -u)" -exec echo "owned by the check UID, so the kernel read its owner bits:" {} +; \
+             find $paths ! -type l -exec sh -c 'for p; do [ -r "$p" ] || echo "cannot read $p"; done' sh {} +; \
+             find $paths -type l -exec sh -c 'for p; do [ -e "$p" ] || continue; [ -r "$p" ] || echo "cannot read $p (a link: its target)"; if [ -d "$p" ] || [ -n "$(find -H "$p" -maxdepth 0 -type f -perm -100)" ]; then [ -x "$p" ] || echo "cannot search or run $p (a link: its target)"; fi; done' sh {} +; \
+             find $paths \( -type d -o -type f -perm -100 \) -exec sh -c 'for p; do [ -x "$p" ] || echo "cannot search or run $p"; done' sh {} +; \
+             for p in /etc/nginx /etc/nginx/conf.d /etc/nginx/nginx.conf; do [ -w "$p" ] || echo "cannot write $p"; done; \
+           } 2>&1 ) || true; \
+    if [ -n "$bad" ]; then printf 'Not usable by an arbitrary UID in group 0 (#650):\n%s\n' "$bad" >&2; exit 1; fi; \
+    echo "image modes (#650): an arbitrary UID ($(id -u)) in group 0 reads every file and searches every directory under $paths, and writes the entrypoint's files"
+
 USER 101
