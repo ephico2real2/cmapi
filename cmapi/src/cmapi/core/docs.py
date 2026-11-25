@@ -54,6 +54,13 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "folder-not-utf8": (409, "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not "
                              "UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the "
                              "request again"),
+    "folder-not-yaml": (409, "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/namespace.yaml, which is not "
+                             "YAML: expected ',' or '}', but got '<stream end>' at line 4, column 1. Correct it in Git, then send "
+                             "the request again"),
+    "several-resource-quotas": (409, "The folder of payments-dev holds 2 ResourceQuotas, payments-dev-objects, payments-dev-quota: a "
+                                     "change of the quota or the tier must name the object it changes, and a request cannot name "
+                                     "one. Change only labels, annotations or the expiry, or leave one ResourceQuota in the folder "
+                                     "in Git, then send the request again"),
     "idempotency-replay": (409, "Idempotency-Key was used for a different request"),
     "precondition-failed": (412, "The namespace changed in Git since you read it"),
     "content-too-large": (413, too_large(DEFAULT_MAX_REQUEST_BODY_BYTES).detail),
@@ -179,6 +186,8 @@ PROBLEM_EXTRAS: dict[str, dict[str, Any]] = {
     # instance.yaml http.maxRequestBodyBytes, here its default (core/bodylimit.py, #683)
     "content-too-large": {"maxBytes": DEFAULT_MAX_REQUEST_BODY_BYTES},
     "folder-not-utf8": {"paths": ["clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml"]},
+    "folder-not-yaml": {"paths": ["clusters/CRC/namespaces/payments-dev/namespace.yaml"]},
+    "several-resource-quotas": {"resourceQuotas": ["payments-dev-objects", "payments-dev-quota"]},
     # the instance that serves qa, from instance.yaml directory (core/config.py environment_not_served, #671)
     "environment-not-served": {"instanceUrl": "https://cmapi-staging.ephico2real.com",
                                "portalUrl": "https://portal-staging.ephico2real.com"},

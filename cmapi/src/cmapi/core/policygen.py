@@ -50,7 +50,7 @@ import yaml
 from cmapi.core import kube_yaml
 from cmapi.core.metadata import KINDS, KeyRule, MetadataKeys, _glob_regex, _KEY, value_regex
 from cmapi.core.policy import PolicySettings
-from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec
+from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec, objects_of
 from cmapi.core.tiers import LIMIT_KINDS, STORAGE_KIND, TierCatalog, flatten_limits, limit_key_parts, qty
 
 ACTIONS = {"enforce": ["Deny"], "audit": ["Audit", "Warn"]}
@@ -269,7 +269,7 @@ def _written(catalog: TierCatalog, keys: MetadataKeys, env: str, instance: str) 
                          requested_by_email="cmapi-probe@example.invalid",
                          expires_at=None if env == "prod" else date(2000, 1, 1))
     files = ManifestRenderer(catalog, keys).render(spec)
-    meta = yaml.safe_load(next(t for p, t in files.items() if p.endswith("/namespace.yaml") and t))["metadata"]
+    meta = objects_of(files, "Namespace")[0]["metadata"]
     return {kind: set(meta.get(_FIELD[kind]) or {}) for kind in KINDS}
 
 

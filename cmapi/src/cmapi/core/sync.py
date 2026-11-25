@@ -20,8 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
-import yaml
-
+from cmapi.core import kube_yaml
 from cmapi.core.clients.kube import KubeClient, KubeError
 from cmapi.core.ports import AppStatus
 from cmapi.core.render.manifests import objects_of
@@ -65,7 +64,7 @@ class ApplyDelivery:
     def apply_folder(self, files: Mapping[str, str]) -> int:
         docs: list[dict[str, Any]] = []
         for path, text in sorted(files.items(), key=lambda kv: not kv[0].endswith("namespace.yaml")):
-            docs.extend(d for d in yaml.safe_load_all(text) if d)
+            docs.extend(kube_yaml.load_all(text))
         for d in docs:
             self.client.apply(d)
         return len(docs)
@@ -73,8 +72,8 @@ class ApplyDelivery:
     def prune_objects(self, namespace: str, removed_files: Mapping[str, str]) -> int:
         n = 0
         for text in removed_files.values():
-            for d in yaml.safe_load_all(text):
-                if d and d["kind"] != "Namespace":
+            for d in kube_yaml.load_all(text):
+                if d["kind"] != "Namespace":
                     self.client.delete(d["kind"], namespace, d["metadata"]["name"])
                     n += 1
         return n
@@ -117,8 +116,8 @@ def _object_keys(files: Mapping[str, str]) -> list[tuple[str, str, str]]:
     (a kustomization.yaml, say) is not an object Argo CD would report."""
     keys = []
     for text in files.values():
-        for d in yaml.safe_load_all(text):
-            meta = d.get("metadata") or {} if isinstance(d, dict) else {}
+        for d in kube_yaml.load_all(text):
+            meta = d.get("metadata") or {}
             if meta.get("name") and d.get("kind"):
                 keys.append((d["kind"], meta.get("namespace") or "", meta["name"]))
     return keys

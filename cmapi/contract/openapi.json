@@ -10327,6 +10327,18 @@
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
                     }
                   },
+                  "folder-not-yaml": {
+                    "value": {
+                      "code": "folder-not-yaml",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/namespace.yaml, which is not YAML: expected ',' or '}', but got '<stream end>' at line 4, column 1. Correct it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/namespace.yaml"
+                      ],
+                      "status": 409,
+                      "title": "folder not yaml",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-yaml"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -10360,7 +10372,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `namespace-exists`, `namespace-exists-unmanaged`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`, `namespace-exists`, `namespace-exists-unmanaged`."
           },
           "413": {
             "content": {
@@ -11019,6 +11031,18 @@
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
                     }
                   },
+                  "folder-not-yaml": {
+                    "value": {
+                      "code": "folder-not-yaml",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/namespace.yaml, which is not YAML: expected ',' or '}', but got '<stream end>' at line 4, column 1. Correct it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/namespace.yaml"
+                      ],
+                      "status": 409,
+                      "title": "folder not yaml",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-yaml"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -11034,7 +11058,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-holds-submodule`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`, `folder-holds-submodule`."
           },
           "412": {
             "content": {
@@ -11493,6 +11517,18 @@
                       "title": "folder not utf8",
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
                     }
+                  },
+                  "folder-not-yaml": {
+                    "value": {
+                      "code": "folder-not-yaml",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/namespace.yaml, which is not YAML: expected ',' or '}', but got '<stream end>' at line 4, column 1. Correct it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/namespace.yaml"
+                      ],
+                      "status": 409,
+                      "title": "folder not yaml",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-yaml"
+                    }
                   }
                 },
                 "schema": {
@@ -11500,7 +11536,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `folder-not-utf8`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `folder-not-utf8`, `folder-not-yaml`."
           },
           "422": {
             "content": {
@@ -11588,7 +11624,7 @@
         "x-plugin-version": "0.2.0"
       },
       "patch": {
-        "description": "Changes a namespace that exists: its tier, its custom quota and limits, and its labels and annotations.\n\n**Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):\na key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,\nin `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,\nsays how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (filled at creation;\na change keeps Git's value, and adoption must supply a missing value), `required` (it changes and is never removed)\nor `optional`. A key that no rule admits can be removed,\nnever set. A `sensitive` key adds one approval to the request.\n\n**Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and no request is opened. `metadataDiff`\nlists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`\nis `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).\n\n**If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,\na namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,\nmissing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi\nrefuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags, sent in one If-Match\nfield, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/\"...\"`) never matches.\nOtherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the\nnamespace again, apply the change to it and send it.\nAn Idempotency-Key replay still requires If-Match, but does not compare it again: it returns the\noriginal request in its current state even after Git moves, and `*` is 428 there too. The Idempotency-Key parameter\nsays when a retry is a replay. A non-dry-run submission also requires Idempotency-Key (400 without it).\nOne request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.\n\n**Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,\n`invalid_key`, `invalid_value`, `derived_key`, `missing_required_key`, `too_many_keys`, `annotations_too_large`).\nA key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's\nenvironment. A body that changes nothing is 422 `no-change`.\n\n**Requires** `namespaces:write`.",
+        "description": "Changes a namespace that exists: its tier, its custom quota and limits, and its labels and annotations.\n\n**Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):\na key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,\nin `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,\nsays how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (filled at creation;\na change keeps Git's value, and adoption must supply a missing value), `required` (it changes and is never removed)\nor `optional`. A key that no rule admits can be removed,\nnever set. A `sensitive` key adds one approval to the request.\n\n**Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and no request is opened. `metadataDiff`\nlists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`\nis `null` when it is removed. The same body without `dryRun`, with an Idempotency-Key, opens the request (202).\n\n**If-Match.** Send the ETag of `GET .../namespaces/{ns}` as If-Match (RFC 9110, section 13.1.1). For a new plan,\na namespace missing from Git is 404 `object-not-found` before the precondition checks. For an existing namespace,\nmissing If-Match is 428 `precondition-required` (RFC 6585, section 3), and so is `*`: it proves no read, so cmapi\nrefuses it on purpose, where RFC 9110 lets it match any namespace that exists. A list of tags, sent in one If-Match\nfield, passes when one of them is the current etag, by the strong comparison, so a weak tag (`W/\"...\"`) never matches.\nOtherwise the answer is 412 `precondition-failed` (RFC 9110, section 15.5.13) with the current `etag`: read the\nnamespace again, apply the change to it and send it.\nAn Idempotency-Key replay still requires If-Match, but does not compare it again: it returns the\noriginal request in its current state even after Git moves, and `*` is 428 there too. The Idempotency-Key parameter\nsays when a retry is a replay. A non-dry-run submission also requires Idempotency-Key (400 without it).\nOne request at a time holds a namespace: while another is open, 409 `change-pending` names it in `requestId`.\n\n**Refusals.** 422 `policy-violation` has one `errors` entry for each key that breaks a rule (`reserved_key`,\n`invalid_key`, `invalid_value`, `derived_key`, `missing_required_key`, `too_many_keys`, `annotations_too_large`).\nA key that only an operator may change is 403 `forbidden` without `namespaces:protect` in the namespace's\nenvironment. A body that changes nothing is 422 `no-change`.\n\n**Several ResourceQuotas.** cmapi changes only its own ResourceQuota (`<ns>-quota`) and LimitRanges (`<ns>-limits-*`);\nevery other one in the folder is kept as Git holds it, each in its own file (#250). When the folder holds several\nResourceQuotas, a change of `quota` or `tier` is 409 `several-resource-quotas`, which names them in `resourceQuotas`: the\nrequest cannot say which one it changes. When none of them is `<ns>-quota`, a change of `limitRange` is refused too, and\na change of labels, annotations or the expiry keeps every ResourceQuota and LimitRange.\n\n**Requires** `namespaces:write`.",
         "operationId": "namespaces_update_namespace",
         "parameters": [
           {
@@ -12004,6 +12040,18 @@
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
                     }
                   },
+                  "folder-not-yaml": {
+                    "value": {
+                      "code": "folder-not-yaml",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/namespace.yaml, which is not YAML: expected ',' or '}', but got '<stream end>' at line 4, column 1. Correct it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/namespace.yaml"
+                      ],
+                      "status": 409,
+                      "title": "folder not yaml",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-yaml"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -12013,6 +12061,19 @@
                       "title": "idempotency replay",
                       "type": "https://cmapi.ephico2real.com/problems/idempotency-replay"
                     }
+                  },
+                  "several-resource-quotas": {
+                    "value": {
+                      "code": "several-resource-quotas",
+                      "detail": "The folder of payments-dev holds 2 ResourceQuotas, payments-dev-objects, payments-dev-quota: a change of the quota or the tier must name the object it changes, and a request cannot name one. Change only labels, annotations or the expiry, or leave one ResourceQuota in the folder in Git, then send the request again",
+                      "resourceQuotas": [
+                        "payments-dev-objects",
+                        "payments-dev-quota"
+                      ],
+                      "status": 409,
+                      "title": "several resource quotas",
+                      "type": "https://cmapi.ephico2real.com/problems/several-resource-quotas"
+                    }
                   }
                 },
                 "schema": {
@@ -12020,7 +12081,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`, `several-resource-quotas`."
           },
           "412": {
             "content": {
@@ -12694,6 +12755,18 @@
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
                     }
                   },
+                  "folder-not-yaml": {
+                    "value": {
+                      "code": "folder-not-yaml",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/namespace.yaml, which is not YAML: expected ',' or '}', but got '<stream end>' at line 4, column 1. Correct it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/namespace.yaml"
+                      ],
+                      "status": 409,
+                      "title": "folder not yaml",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-yaml"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -12709,7 +12782,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`."
           },
           "412": {
             "content": {
@@ -13383,6 +13456,18 @@
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
                     }
                   },
+                  "folder-not-yaml": {
+                    "value": {
+                      "code": "folder-not-yaml",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/namespace.yaml, which is not YAML: expected ',' or '}', but got '<stream end>' at line 4, column 1. Correct it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/namespace.yaml"
+                      ],
+                      "status": 409,
+                      "title": "folder not yaml",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-yaml"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -13398,7 +13483,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`."
           },
           "412": {
             "content": {
@@ -14031,6 +14116,18 @@
                       "type": "https://cmapi.ephico2real.com/problems/folder-not-utf8"
                     }
                   },
+                  "folder-not-yaml": {
+                    "value": {
+                      "code": "folder-not-yaml",
+                      "detail": "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/namespace.yaml, which is not YAML: expected ',' or '}', but got '<stream end>' at line 4, column 1. Correct it in Git, then send the request again",
+                      "paths": [
+                        "clusters/CRC/namespaces/payments-dev/namespace.yaml"
+                      ],
+                      "status": 409,
+                      "title": "folder not yaml",
+                      "type": "https://cmapi.ephico2real.com/problems/folder-not-yaml"
+                    }
+                  },
                   "idempotency-replay": {
                     "value": {
                       "code": "idempotency-replay",
@@ -14046,7 +14143,7 @@
                 }
               }
             },
-            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`."
+            "description": "It conflicts with the current state of the object, of an open request or of the Idempotency-Key.\n\nCodes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`."
           },
           "412": {
             "content": {

@@ -39,6 +39,13 @@ ACTIONS: dict[str, str] = {
                        "manifests as UTF-8 text. `paths` shows each byte that is not UTF-8 as `\\xNN` (`caf\\xe9.yaml`), and each "
                        "backslash as `\\\\`. A name with U+FFFD, which a Git host's API gives for such a byte, is refused too. "
                        "`git ls-tree` shows the same name quoted, with each byte in octal (`caf\\351.yaml`).",
+    "folder-not-yaml": "Correct each file that `paths` lists in the namespace's folder in Git so that it parses as YAML, then send "
+                       "the request again. `detail` says where the parser stopped in the first one. A file may hold several "
+                       "documents separated by `---`.",
+    "several-resource-quotas": "Send the change of labels, annotations or the expiry without `quota`, `tier` or `limitRange`, "
+                               "and cmapi keeps each ResourceQuota that `resourceQuotas` lists as Git holds it. To change the "
+                               "quota, the tier or the limits, leave one ResourceQuota in the namespace's folder in Git, then "
+                               "send the request again.",
     "idempotency-replay": "Send a new `Idempotency-Key` for a new request. A key belongs to one request body.",
     "precondition-failed": "For a read, send it again without `If-Match` or `If-Unmodified-Since`. For a change, read the object again, and send the change with the new `ETag` in `If-Match`.",
     "content-too-large": "Send less content: at most the number of bytes in `maxBytes`. Nothing was done. A request that the "
