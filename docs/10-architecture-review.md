@@ -190,7 +190,9 @@ service container pinned by digest, on the image's hashed lock, with Helm 3.19.0
 CRC and for the Ingress variant), `dependency-audit` (`cmapi/audit.sh`: the Python sets of the image, the service tests
 and the reference code against OSV, failing on any advisory, #655), `portal-mockup` (Playwright), `portal-ui` (Vitest),
 `front-door`, `api-contract`, `manifests`, and the image builds: `images-pr` on a pull request, `images` (pushed to GHCR
-by digest and attested) on a push to `main`. Absent: an SBOM and a deployment job; Argo
+by digest and attested) on a push to `main`. Each job that builds an image (`front-door`, `images-pr`, `images`) first
+fetches its `FROM` images with `deploy/base-images.py`, with retries and each blob checked by digest, and the build reads
+them from that OCI layout, not from the registries (#663). Absent: an SBOM and a deployment job; Argo
 CD deploying cmapi itself from `deploy/environments/*.yaml` is not set up.
 
 ## 9. Product capabilities that make the app operable

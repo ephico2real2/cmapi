@@ -176,8 +176,27 @@ jobs:
         run: |
           python -m pip install -e cmapi
           cd cmapi-portal-ui && npm ci && npx playwright install --with-deps chromium
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: The base images
+        # As in images-pr (#663): fetched with retries and checked by digest, then read by the build from the layout.
+        id: base
+        env:
+          FILE: cmapi-portal-ui/Containerfile
+        run: |
+          contexts=$(python3 deploy/base-images.py --containerfile "$FILE" --layout "$RUNNER_TEMP/base-images" --platform linux/amd64 --attempts 5 --delay 2)
+          printf 'contexts<<CONTEXTS\n%s\nCONTEXTS\n' "$contexts" >>"$GITHUB_OUTPUT"
       - name: Build the image
-        run: docker build -f cmapi-portal-ui/Containerfile --build-arg "GIT_COMMIT=${GITHUB_SHA}" -t cmapi-portal:ci .
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: cmapi-portal-ui/Containerfile
+          build-contexts: ${{ steps.base.outputs.contexts }}
+          platforms: linux/amd64
+          build-args: GIT_COMMIT=${{ github.sha }}
+          load: true
+          tags: cmapi-portal:ci
+          provenance: false
+          sbom: false
       - name: nginx in the image, on its own configuration
         run: python deploy/tests/front-door-test.py --image cmapi-portal:ci --engine docker
       - name: The pages through the front door, in a browser
@@ -226,6 +245,16 @@ jobs:
           echo "$IMAGE:sha-$commit, version $version"
       - &image_buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - &image_base
+        # The FROM images, fetched before the build with retries and checked by digest; the build reads them from the layout
+        # and asks no registry for them (#663, deploy/base-images.py).
+        name: The base images
+        id: base
+        env:
+          FILE: ${{ matrix.file }}
+        run: |
+          contexts=$(python3 deploy/base-images.py --containerfile "$FILE" --layout "$RUNNER_TEMP/base-images" --platform linux/amd64 --attempts 5 --delay 2)
+          printf 'contexts<<CONTEXTS\n%s\nCONTEXTS\n' "$contexts" >>"$GITHUB_OUTPUT"
       - name: Sign in to GHCR
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -238,6 +267,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
+          build-contexts: ${{ steps.base.outputs.contexts }}
           platforms: linux/amd64
           build-args: &image_args |
             GIT_COMMIT=${{ steps.meta.outputs.commit }}
@@ -295,10 +325,12 @@ jobs:
       - *image_checkout
       - *image_meta
       - *image_buildx
+      - *image_base
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
+          build-contexts: ${{ steps.base.outputs.contexts }}
           platforms: linux/amd64
           build-args: *image_args
           push: false
@@ -397,7 +429,7 @@ jobs:
         run: shellcheck cmapi/audit.sh cmapi/lock.sh cmapi/locked-pip.sh deploy/render.sh deploy/render-test.sh deploy/secrets.sh deploy/secrets-test.sh deploy/kind-test.sh deploy/crc-image.sh deploy/crc-trust.sh deploy/crc-reader-import.sh deploy/crc-backup.sh deploy/crc-proof.sh deploy/crc-rollback.sh deploy/kind-import/*.sh examples/cmapi-sso/ldap/apply-test-identities.sh deploy/tests/*.sh deploy/tests/kind-test-stubs/* deploy/tests/secrets-stub/stub.sh cmapi/contract/gate.sh cmapi/contract/gate-test.sh cmapi/contract/lint.sh
       - name: This job's own guards
         run: python deploy/tests/ci-guard.py .github/workflows/ci.yml
-      - name: Each download survives a transient 503 (#609)
+      - name: Each download survives a transient 503, and each base image two refused tokens (#609, #663)
         run: python deploy/tests/download-retry-test.py
       - name: docs/12's commands and claims
         run: python deploy/tests/doc12-test.py docs/12-existing-postgresql.md
