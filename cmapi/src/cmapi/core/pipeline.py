@@ -20,7 +20,7 @@ import yaml
 from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, Requirement
 from cmapi.core.capacity_backend import SimulatedCapacity
 from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeError
-from cmapi.core.config import InstanceConfig
+from cmapi.core.config import InstanceConfig, environment_not_served
 from cmapi.core.db.models import ChangeRequestRow
 from cmapi.core.db.repo import JobRepo, RequestRepo, fingerprint, requirement_to_json
 from cmapi.core.errors import Problem
@@ -184,10 +184,7 @@ class Pipeline:
         if env in self.cfg.allowed_environments:
             return
         ENV_NOT_SERVED.labels(env).inc()
-        other = next((d for d in (self.cfg.raw_instance["instance"].get("directory") or {}).values()
-                      if env in d.get("environments", [])), None)
-        raise Problem.unprocessable("environment-not-served", f"{env} is not served by the {self.cfg.name} instance",
-                                    instanceUrl=(other or {}).get("url"), portalUrl=(other or {}).get("portalUrl"))
+        raise environment_not_served(self.cfg, env)
 
     def check_plugin_offered(self, plugin: str, env: str) -> None:
         """Refuse a write of a plugin that plugins.yaml disables in this environment of this instance."""
@@ -467,6 +464,10 @@ class Pipeline:
         return Problem.policy_violation("Metadata refused", protection) if protection else None
 
     def _decide(self, facts: Mapping[str, Any], team_auto_today: int = 0) -> Requirement:
+        # Refused here, before the rules, so the answer names the instance that serves the environment (#671). The revert job
+        # reaches this with an environment from a stored request, which a later configuration may no longer serve.
+        if facts["environment"] not in self.cfg.allowed_environments:
+            raise environment_not_served(self.cfg, facts["environment"])
         req = self.cfg.approvals.decide(facts, paused=bool(self.auto_paused()), team_auto_today=team_auto_today)
         if req.auto_fallback:
             AUTO_FALLBACKS.labels(req.auto_fallback).inc()

@@ -9339,7 +9339,9 @@
                   "environment-not-served": {
                     "value": {
                       "code": "environment-not-served",
-                      "detail": "qa is served by the staging instance",
+                      "detail": "qa is not served by the nonprod instance",
+                      "instanceUrl": "https://cmapi-staging.ephico2real.com",
+                      "portalUrl": "https://portal-staging.ephico2real.com",
                       "status": 422,
                       "title": "environment not served",
                       "type": "https://cmapi.ephico2real.com/problems/environment-not-served"
@@ -10319,7 +10321,9 @@
                   "environment-not-served": {
                     "value": {
                       "code": "environment-not-served",
-                      "detail": "qa is served by the staging instance",
+                      "detail": "qa is not served by the nonprod instance",
+                      "instanceUrl": "https://cmapi-staging.ephico2real.com",
+                      "portalUrl": "https://portal-staging.ephico2real.com",
                       "status": 422,
                       "title": "environment not served",
                       "type": "https://cmapi.ephico2real.com/problems/environment-not-served"
@@ -10981,7 +10985,9 @@
                   "environment-not-served": {
                     "value": {
                       "code": "environment-not-served",
-                      "detail": "qa is served by the staging instance",
+                      "detail": "qa is not served by the nonprod instance",
+                      "instanceUrl": "https://cmapi-staging.ephico2real.com",
+                      "portalUrl": "https://portal-staging.ephico2real.com",
                       "status": 422,
                       "title": "environment not served",
                       "type": "https://cmapi.ephico2real.com/problems/environment-not-served"
@@ -11975,7 +11981,9 @@
                   "environment-not-served": {
                     "value": {
                       "code": "environment-not-served",
-                      "detail": "qa is served by the staging instance",
+                      "detail": "qa is not served by the nonprod instance",
+                      "instanceUrl": "https://cmapi-staging.ephico2real.com",
+                      "portalUrl": "https://portal-staging.ephico2real.com",
                       "status": 422,
                       "title": "environment not served",
                       "type": "https://cmapi.ephico2real.com/problems/environment-not-served"
@@ -12639,7 +12647,9 @@
                   "environment-not-served": {
                     "value": {
                       "code": "environment-not-served",
-                      "detail": "qa is served by the staging instance",
+                      "detail": "qa is not served by the nonprod instance",
+                      "instanceUrl": "https://cmapi-staging.ephico2real.com",
+                      "portalUrl": "https://portal-staging.ephico2real.com",
                       "status": 422,
                       "title": "environment not served",
                       "type": "https://cmapi.ephico2real.com/problems/environment-not-served"
@@ -13304,7 +13314,9 @@
                   "environment-not-served": {
                     "value": {
                       "code": "environment-not-served",
-                      "detail": "qa is served by the staging instance",
+                      "detail": "qa is not served by the nonprod instance",
+                      "instanceUrl": "https://cmapi-staging.ephico2real.com",
+                      "portalUrl": "https://portal-staging.ephico2real.com",
                       "status": 422,
                       "title": "environment not served",
                       "type": "https://cmapi.ephico2real.com/problems/environment-not-served"
@@ -13928,7 +13940,9 @@
                   "environment-not-served": {
                     "value": {
                       "code": "environment-not-served",
-                      "detail": "qa is served by the staging instance",
+                      "detail": "qa is not served by the nonprod instance",
+                      "instanceUrl": "https://cmapi-staging.ephico2real.com",
+                      "portalUrl": "https://portal-staging.ephico2real.com",
                       "status": 422,
                       "title": "environment not served",
                       "type": "https://cmapi.ephico2real.com/problems/environment-not-served"
@@ -20680,7 +20694,7 @@
         "operationId": "tiers_tiers",
         "parameters": [
           {
-            "description": "Only this environment. Without it, the answer has each environment that the instance serves.",
+            "description": "Only this environment. Without it, the answer has each environment that the instance serves. One the instance does not serve returns 422 `environment-not-served`.",
             "in": "query",
             "name": "environment",
             "required": false,
@@ -20693,7 +20707,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only this environment. Without it, the answer has each environment that the instance serves.",
+              "description": "Only this environment. Without it, the answer has each environment that the instance serves. One the instance does not serve returns 422 `environment-not-served`.",
               "examples": [
                 "dev"
               ],
@@ -20941,13 +20955,15 @@
             "content": {
               "application/problem+json": {
                 "examples": {
-                  "policy-violation": {
+                  "environment-not-served": {
                     "value": {
-                      "code": "policy-violation",
-                      "detail": "Metadata refused",
+                      "code": "environment-not-served",
+                      "detail": "qa is not served by the nonprod instance",
+                      "instanceUrl": "https://cmapi-staging.ephico2real.com",
+                      "portalUrl": "https://portal-staging.ephico2real.com",
                       "status": 422,
-                      "title": "policy violation",
-                      "type": "https://cmapi.ephico2real.com/problems/policy-violation"
+                      "title": "environment not served",
+                      "type": "https://cmapi.ephico2real.com/problems/environment-not-served"
                     }
                   },
                   "validation-failed": {
@@ -20965,7 +20981,7 @@
                 }
               }
             },
-            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `policy-violation`, `validation-failed`."
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `environment-not-served`, `validation-failed`."
           },
           "503": {
             "content": {

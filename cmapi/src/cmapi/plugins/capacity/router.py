@@ -27,6 +27,7 @@ from fastapi import Depends, Query, Request, Response
 from cmapi import __version__
 from cmapi.core.capacity import NOT_MEASURED, RESOURCES, bound_by, group_figures, resource_figures, worst
 from cmapi.core.capacity_backend import read_snapshot_quotas
+from cmapi.core.config import environment_not_served
 from cmapi.core.context import AppContext
 from cmapi.core.docs import CONDITIONAL_READ, DocumentedRouter
 from cmapi.core.errors import Problem
@@ -193,7 +194,7 @@ def capacity(request: Request, group_by: GroupBy = "region,environment", env: En
     keys = _group_by(group_by)
     if env is not None:
         if env not in c.cfg.allowed_environments:
-            raise Problem.unprocessable("environment-not-served", f"{env} is not served by the {c.cfg.name} instance")
+            raise environment_not_served(c.cfg, env)
         c.cfg.roles.require(who, "capacity:read", env)
     envs = sorted(e for e in c.cfg.allowed_environments if c.cfg.roles.allowed(who, "capacity:read", e))
     if cluster_id is not None:

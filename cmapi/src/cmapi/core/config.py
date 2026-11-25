@@ -29,6 +29,7 @@ from cmapi.core.approvals import ApprovalRules
 from cmapi.core.authz import DEFAULT_GROUP_PATH, RolePolicy, check_group_path
 from cmapi.core.cluster_tokens import TokenPolicy
 from cmapi.core.clustertls import ClusterTLSSettings
+from cmapi.core.errors import Problem
 from cmapi.core.giturl import GitConfigError, parse_remote
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.plugins import PluginSwitch
@@ -58,6 +59,20 @@ class InstanceConfig:
     policy: PolicySettings = field(default_factory=PolicySettings)   # instance.yaml `policy` (#213)
     cluster_tls: ClusterTLSSettings = field(default_factory=ClusterTLSSettings)   # instance.yaml `clusterTLS` (#434)
     cluster_tokens: TokenPolicy = field(default_factory=TokenPolicy)
+
+
+def environment_not_served(cfg: InstanceConfig, env: str) -> Problem:
+    """The 422 environment-not-served for an environment this instance does not serve (#671).
+
+    Every refusal of one is built here, so each names the instance that serves the environment, as docs/02, "Problems", says:
+    instanceUrl and portalUrl, from the entry of instance.yaml `directory` that lists it. A member the entry does not give is
+    left out, never null: RFC 9457, section 3, has a client treat a member whose value is not of its type "as if the member
+    had not been present", so present means a URL.
+    """
+    serving = next((d for d in (cfg.raw_instance["instance"].get("directory") or {}).values()
+                    if env in d.get("environments", [])), {})
+    urls = {member: serving[key] for member, key in (("instanceUrl", "url"), ("portalUrl", "portalUrl")) if serving.get(key)}
+    return Problem.unprocessable("environment-not-served", f"{env} is not served by the {cfg.name} instance", **urls)
 
 
 def _read(path: Path) -> tuple[dict, str]:

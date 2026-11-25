@@ -532,6 +532,7 @@ class TierCatalog:
         return r
 
     def _need_env(self, env: str) -> None:
+        # A guard for a direct caller: GET /tiers and the pipeline refuse first, with the serving instance's URLs (#671).
         if env not in self._env:
             raise TierError("environment-not-served", f"Environment {env} is not served by this instance",
                             environment=env, served=self.environments())

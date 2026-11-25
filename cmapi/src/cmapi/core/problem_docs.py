@@ -46,7 +46,8 @@ ACTIONS: dict[str, str] = {
                         "`findings`, when present, lists what the validator found on the same files beside them: a Kyverno "
                         "warning in audit says the cluster's policy reports the same value.",
     "capacity-exceeded": "Ask for less, or choose another cluster. `detail` names the resource that does not fit.",
-    "environment-not-served": "Send the request to the instance that serves the environment. `detail` names it.",
+    "environment-not-served": "Send the request to the instance that serves the environment: `instanceUrl` is its API and "
+                              "`portalUrl` its portal. Each is left out when this instance's directory does not name one.",
     "cluster-not-writable": "Choose a cluster that takes writes, or ask the platform team to add this cluster to `clusters.yaml`.",
     "plugin-disabled": "Ask the platform team. `plugins.yaml` turns this kind of write off for the environment.",
     "reserved-namespace": "Use a name that matches no reserved pattern.",

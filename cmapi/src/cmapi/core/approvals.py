@@ -160,7 +160,7 @@ class ApprovalRules:
     def decide(self, facts: Mapping[str, Any], *, paused: bool = False,
                team_auto_today: int = 0) -> Requirement:
         env = facts["environment"]
-        if env not in self.environments:
+        if env not in self.environments:     # Pipeline._decide refuses first, with the serving instance's URLs (#671)
             raise Problem.unprocessable("environment-not-served", f"No approval rules for {env}")
         rule = self.environments[env]
         kind = action_kind(facts["action"])
