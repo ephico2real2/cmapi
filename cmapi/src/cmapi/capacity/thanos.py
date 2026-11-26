@@ -1,7 +1,11 @@
 """The MetricsSource of each cluster's Thanos Querier (core/ports.py; docs/02, "Capacity plugin", #310).
 
     "cmapi-capacity reaches each cluster's Thanos Querier at the thanos-querier Route in openshift-monitoring, or at the
-    optional thanosUrl override in clusters.yaml, with the cmapi-reader token bound to cluster-monitoring-view."
+    optional thanosUrl override in clusters.yaml, with the cmapi-reader token and the reader's own grants in
+    openshift-monitoring from the cluster baseline (the platform's Role cluster-monitoring-metrics-api and get on the Route,
+    #724)."
+
+A cluster whose import check found the reader without those grants (core/registry.py, `usage_findings`) is not queried.
 
 One instant query per call, GET /api/v1/query of the Prometheus HTTP API (https://prometheus.io/docs/prometheus/latest/
 querying/api/, read 2026-11-25: "GET /api/v1/query", `query`, `time` "Evaluation timestamp"), with Thanos's
@@ -58,6 +62,10 @@ class ThanosQuerier:
         client = st.client                  # once: the registry clears it when the cluster drops (#402)
         if client is None:
             raise MetricsUnavailable(f"{cluster_id} is {st.status}: no client for its Thanos Querier")
+        if missing := st.usage_findings:
+            # The import check found the reader without its own grants (#724): an answer allowed only by another grant, such
+            # as one to every user, is not used.
+            raise MetricsUnavailable(f"{cluster_id}: {'; '.join(missing)}"[:300])
         base = self._base_url(cluster_id, st.policy.thanos_url if st.policy else None, client)
         # `timeout`: the Querier stops evaluating when the caller has stopped waiting (Prometheus HTTP API, "Evaluation timeout").
         params: dict[str, Any] = {"query": promql, "partial_response": "false", "dedup": "true",

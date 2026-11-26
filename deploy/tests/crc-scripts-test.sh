@@ -40,6 +40,7 @@ case "$s" in
       *'"name":"thanos-querier"'*) printf '%s' "${STUB_SAR_ROUTE-true RBAC: allowed by RoleBinding \"cmapi-reader-thanos-route/openshift-monitoring\" of Role \"cmapi-reader-thanos-route\" to ServiceAccount \"cmapi-reader/cmapi-system\"}";;
       *'"name":"k8s"'*) printf '%s' "${STUB_SAR_API-true RBAC: allowed by RoleBinding \"cmapi-reader-metrics-api/openshift-monitoring\" of Role \"cluster-monitoring-metrics-api\" to ServiceAccount \"cmapi-reader/cmapi-system\"}";;
       *'"name":"user-workload"'*) printf '%s' "${STUB_SAR_UWM-false }";;
+      *'"resource":"localsubjectaccessreviews"'*) printf '%s' "${STUB_SAR_CHECK-true RBAC: allowed by RoleBinding \"cmapi-reader-grant-check/openshift-monitoring\" of Role \"cmapi-reader-grant-check\" to ServiceAccount \"cmapi-reader/cmapi-system\"}";;
       *) echo "stub oc: unhandled review $body" >&2; exit 3;;
     esac; exit 0;;
   "create token cmapi-reader -n cmapi-system --duration=10m") printf 'reader.%s\n' "$TOKEN"; exit 0;;
@@ -201,7 +202,9 @@ Content-Security-Policy: default-src 'self'; script-src 'self'
     */api/v1/me) case "$*" in *--config*) printf '{"username":"%s","roles":["cmapi-onboarding"]}' "${STUB_ME:-cmapi-automation}"; exit 0;; *) code=401;; esac;;
     */portal.html) code=200;;
     */token) python3 "$STUB_TOKEN_PY"; exit 0;;
-    */api/v1/clusters) case "$STDIN_SEEN" in *cmapi.noaccess*) code=${STUB_NOACCESS:-403};; *) code=${STUB_VIEWER:-200};; esac;;
+    # Without -w, the viewer's list: CRC and the kind cluster, each as cmapi's import check left it (#724).
+    */api/v1/clusters) [ -n "$wants" ] || { printf '{"items":[%s]}' "${STUB_CLUSTERS-{\"clusterId\":\"CRC\",\"status\":\"connected\",\"findings\":[]\},{\"clusterId\":\"KIND_CMAPI_TEST\",\"status\":\"connected\",\"findings\":[\"usage: the cluster serves no monitoring.coreos.com/v1, so it has no OpenShift monitoring\"]\}}"; exit 0; }
+      case "$STDIN_SEEN" in *cmapi.noaccess*) code=${STUB_NOACCESS:-403};; *) code=${STUB_VIEWER:-200};; esac;;
     # STUB_PLAN_SECONDS: how long the plan takes. curl's own -m decides, as the real one does: past it, curl's exit 28 (#275).
     */namespaces*) m=; prev=; for a in "$@"; do [ "$prev" = -m ] && m=$a; prev=$a; done
       if [ -n "${STUB_PLAN_SECONDS:-}" ] && [ -n "$m" ] && [ "$STUB_PLAN_SECONDS" -gt "$m" ]; then
@@ -394,10 +397,13 @@ ln -s "$W" "$B"; got=$("$D/crc-backup.sh" >"$W/out" 2>&1; echo $?); [ "$got" != 
 # crc-proof.sh
 export STUB_PROOF=1 CMAPI_PROOF_SCRAPE_TRIES=1 CMAPI_CRC_CA=$W/mac.pem; P=$W/rendered; mkdir -p "$P"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa\n' >"$P/IMAGE"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@sha256:pppp\n' >"$P/PORTAL_IMAGE"
 : >"$ARGV_LOG.sar"; want "proof passes when all is right" 0 "$(run "$D/crc-proof.sh" "$P")"; [ "$(tail -1 "$W/out")" = "proof: all passed" ] || bad "the proof's last line: $(tail -1 "$W/out")"
-# The reader's Thanos grants (#310): three reviews, each for the reader and its own groups alone, and its own token's query.
+# The reader's Thanos grants (#310) and the import check's review of them (#724): four reviews, each for the reader and its own
+# groups alone, its own token's query, and cmapi's own check of CRC with no usage finding.
+grep -qxF "proof: cmapi's import check finds the reader's own usage grants on CRC: no usage finding" "$W/out" \
+  && ok "the proof records cmapi's import check of the usage grants" || bad "the import check's record: $(grep -i 'usage' "$W/out" | head -1)"
 grep -qxF 'proof: the reader reads Thanos by cmapi-reader-thanos-route and cmapi-reader-metrics-api alone, not the user-defined Prometheus: count(kube_resourcequota) = 108' "$W/out" \
   && ok "the proof records the reader's Thanos grants and its query" || bad "the reader's Thanos record: $(grep -i thanos "$W/out" | head -1)"
-[ "$(grep -c '"user":"system:serviceaccount:cmapi-system:cmapi-reader","groups":\["system:serviceaccounts","system:serviceaccounts:cmapi-system"\]' "$ARGV_LOG.sar")" = 3 ] \
+[ "$(grep -c '"user":"system:serviceaccount:cmapi-system:cmapi-reader","groups":\["system:serviceaccounts","system:serviceaccounts:cmapi-system"\]' "$ARGV_LOG.sar")" = 4 ] \
   && ! grep -q 'system:authenticated' "$ARGV_LOG.sar" && ok "each review names the reader's groups without system:authenticated" || bad "the reviews: $(cat "$ARGV_LOG.sar")"
 # The Policies tab's premise, recorded as the reader's discovery serves it (#387): the request the API's own probe makes.
 grep -qxF 'proof: discovery, as cmapi-reader, serves wgpolicyk8s.io/v1alpha2 with clusterpolicyreports policyreports, the reports of the Policies tab; openreports.io: not served' "$W/out" \
@@ -489,6 +495,12 @@ pstop "a container that cannot say how it connects" STUB_SSLMODE_RC=1
 # The reader's Thanos grants (#310), each by cmapi's own RoleBinding, proven without system:authenticated, and its own token's query.
 pstop "the reader without its Route grant" 'STUB_SAR_ROUTE=false '
 pstop "Thanos allowed to the reader only through a binding to everyone" 'STUB_SAR_API=true RBAC: allowed by ClusterRoleBinding "openshift-coo-cluster-monitoring-view" of ClusterRole "cluster-monitoring-view" to Group "system:authenticated"'
+# The import check's own grant and its outcome (#724), each stopped by its own line, not by an earlier step.
+pstop "the reader without the import check's review" 'STUB_SAR_CHECK=false '
+grep -q '^FAIL: the reader may not create localsubjectaccessreviews/ in openshift-monitoring by RoleBinding cmapi-reader-grant-check' "$W/out" && ok "the missing review grant is named" || bad "the missing review grant was not named: $(tail -1 "$W/out")"
+pstop "a usage finding of cmapi's import check on CRC" 'STUB_CLUSTERS={"clusterId":"CRC","status":"connected","findings":["usage: missing grant in openshift-monitoring: x"]}'
+grep -q "^FAIL: cmapi's import check of CRC is not connected without usage findings: connected usage: missing grant" "$W/out" && ok "a usage finding on CRC is named" || bad "a usage finding on CRC was not named: $(tail -1 "$W/out")"
+pstop "CRC not connected" 'STUB_CLUSTERS={"clusterId":"CRC","status":"forbidden","findings":[]}'
 pstop "the reader reaching the user-defined Prometheus" 'STUB_SAR_UWM=true RBAC: allowed by ClusterRoleBinding "x" of ClusterRole "cluster-monitoring-view" to ServiceAccount "cmapi-reader/cmapi-system"'
 pstop "no kube_resourcequota series as the reader" STUB_QUOTAS=
 pstop "kube_resourcequota counted 0 as the reader" 'STUB_QUOTAS={"value":[0,"0"]}'
@@ -549,6 +561,7 @@ check_deletes() { python3 - "$ARGV_LOG" <<'PY'
 import re,sys
 ok={"secret cmapi-ldap-test-users -n cmapi","keycloakrealmimport cmapi -n keycloak","job cmapi-realm-sync -n cmapi","cluster.postgresql.cnpg.io cmapi-db -n cmapi","pvc cmapi-db-1 -n cmapi","pv pv-1","namespace cmapi-np-probe","namespace cmapi-imports","namespace cmapi-system","clusterrolebinding cmapi-reader","clusterrole cmapi-reader","secret cmapi-realm-secrets -n keycloak",
     "rolebinding cmapi-reader-metrics-api -n openshift-monitoring","rolebinding cmapi-reader-thanos-route -n openshift-monitoring","role cmapi-reader-thanos-route -n openshift-monitoring",
+    "rolebinding cmapi-reader-grant-check -n openshift-monitoring","role cmapi-reader-grant-check -n openshift-monitoring",
     "clusterrolebinding cmapi-deliverer","clusterrole cmapi-deliverer","validatingadmissionpolicybinding cmapi-deliverer-managed-only","validatingadmissionpolicy cmapi-deliverer-managed-only"}
 ok|={f"{k} {n} -n cmapi" for k,n in [("deployment","cmapi-api"),("deployment","cmapi-worker"),("deployment","cmapi-portal"),("pod","cmapi-np-target"),("service","cmapi-api"),("service","cmapi-api-pods"),("service","cmapi-worker"),("service","cmapi-portal"),("networkpolicy","cmapi-metrics"),("networkpolicy","cmapi-front-door"),("route.route.openshift.io","cmapi"),("route.route.openshift.io","cmapi-mockup"),("servicemonitor.monitoring.coreos.com","cmapi-api"),("servicemonitor.monitoring.coreos.com","cmapi-worker"),("prometheusrule.monitoring.coreos.com","cmapi"),("configmap","cmapi-env"),("configmap","cmapi-config"),("configmap","cmapi-trust"),("configmap","cmapi-trusted-ca"),("configmap","cmapi-portal-config"),("secret","cmapi-keys"),("secret","cmapi-keycloak"),("secret","cmapi-test-users"),("secret","cmapi-git"),("secret","cmapi-git-bot"),("secret","cmapi-git-bot-ssh"),("configmap","cmapi-git-bot-known-hosts"),("serviceaccount","cmapi-api"),("serviceaccount","cmapi-worker"),("serviceaccount","cmapi-jobs"),("imagestream.image.openshift.io","cmapi"),("imagestream.image.openshift.io","cmapi-portal")]}
 bad=[]

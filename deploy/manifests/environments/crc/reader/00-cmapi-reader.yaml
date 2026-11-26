@@ -1,7 +1,8 @@
 # The reader baseline as plain YAML: what cmapi needs to read a cluster, and nothing more. From examples/baseline/cmapi-reader-rbac.yaml,
 # cut to what the code calls: core/registry.py's six checks, core/clients/kube.py's WatchCache KINDS, pipeline.workload_counts, the
 # policy reports and ValidatingPolicies of core/clients/policyreports.py (#302), and the nodes of core/clients/nodes.py for the
-# Capacity tab (#302; the owner, 2026-11-18), and the Thanos Querier of capacity/thanos.py for the live usage (#310, Part of #22).
+# Capacity tab (#302; the owner, 2026-11-18), and the Thanos Querier of capacity/thanos.py for the live usage (#310, Part of #22)
+# with the import check of its grants (#724).
 # Discovery needs no rule (system:discovery).
 # The identity check needs no rule here: users/~ and selfsubjectreviews are for every authenticated user. Later waves add their own
 # rule in their own pull request. The import Secret holding this token is not YAML: deploy/crc-reader-import.sh writes it.
@@ -101,5 +102,29 @@ metadata:
   namespace: openshift-monitoring
   labels: {app.kubernetes.io/part-of: cmapi}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cluster-monitoring-metrics-api}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}
+---
+# The import check of the two grants above (core/registry.py, #724): with usage.source thanos, each check asks the API server, by a
+# LocalSubjectAccessReview in openshift-monitoring, whether the reader holds them without system:authenticated, which CRC binds
+# to cluster-monitoring-view through another project's chart. Namespaced, so it reviews openshift-monitoring alone.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cmapi-reader-grant-check
+  namespace: openshift-monitoring
+  labels: {app.kubernetes.io/part-of: cmapi}
+rules:
+  - apiGroups: [authorization.k8s.io]
+    resources: [localsubjectaccessreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cmapi-reader-grant-check
+  namespace: openshift-monitoring
+  labels: {app.kubernetes.io/part-of: cmapi}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-reader-grant-check}
 subjects:
   - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}

@@ -55,10 +55,6 @@ rules:
   - apiGroups: [kyverno.io]               # legacy ClusterPolicy family, counted separately
     resources: [clusterpolicies, policies]
     verbs: [get, list]
-  - apiGroups: [route.openshift.io]
-    resources: [routes]
-    resourceNames: [thanos-querier]
-    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -66,11 +62,50 @@ metadata: {name: cmapi-reader}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cmapi-reader}
 subjects: [{kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}]
 ---
+# The Thanos Querier for the capacity plugin (usage.source thanos, #724): cmapi's own grants, in openshift-monitoring alone, on
+# OpenShift 4.18 and later. The Route: capacity/thanos.py reads its host when clusters.yaml has no thanosUrl.
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata: {name: cmapi-reader-monitoring}     # Thanos Querier for the capacity plugin
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-monitoring-view}
-subjects: [{kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}]
+kind: Role
+metadata: {name: cmapi-reader-thanos-route, namespace: openshift-monitoring}
+rules:
+  - apiGroups: [route.openshift.io]
+    resources: [routes]
+    resourceNames: [thanos-querier]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: cmapi-reader-thanos-route, namespace: openshift-monitoring}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-reader-thanos-route}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}
+---
+# The query: the Querier's kube-rbac-proxy allows get on prometheuses/api "k8s" in openshift-monitoring, exactly what the
+# platform's Role cluster-monitoring-metrics-api grants ("access Thanos Querier API endpoints", OpenShift 4.18 and 4.22). Not
+# the ClusterRole cluster-monitoring-view bound cluster-wide, and never a grant to every user that cmapi does not own.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: cmapi-reader-metrics-api, namespace: openshift-monitoring}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cluster-monitoring-metrics-api}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}
+---
+# The import check of the two grants above (core/registry.py): a LocalSubjectAccessReview in openshift-monitoring, for the
+# reader without system:authenticated, so a grant to every user cannot stand in for them.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: cmapi-reader-grant-check, namespace: openshift-monitoring}
+rules:
+  - apiGroups: [authorization.k8s.io]
+    resources: [localsubjectaccessreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: cmapi-reader-grant-check, namespace: openshift-monitoring}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-reader-grant-check}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

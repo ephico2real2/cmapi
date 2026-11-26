@@ -130,7 +130,8 @@ def _querier(answer):
     """A ThanosQuerier over one real KubeClient whose monitoring answers `answer`, with a thanosUrl (no Route read)."""
     client = kube.KubeClient("c", "https://api.example.test", TOKEN)
     client._monitoring = httpx.Client(transport=httpx.MockTransport(answer))
-    st = SimpleNamespace(client=client, status="connected", policy=SimpleNamespace(thanos_url="https://thanos.example.test"))
+    st = SimpleNamespace(client=client, status="connected", policy=SimpleNamespace(thanos_url="https://thanos.example.test"),
+                         usage_findings=[])
     return thanos.ThanosQuerier(SimpleNamespace(get=lambda cid: st)), client
 
 

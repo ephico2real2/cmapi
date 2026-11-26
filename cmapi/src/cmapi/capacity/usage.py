@@ -299,18 +299,23 @@ def _assemble(answers: Mapping[str, list[dict[str, Any]]], at: datetime) -> dict
 SOURCES = ("none", "thanos")
 
 
-def usage_source(raw: Mapping[str, Any] | None, registry: Any) -> UsageSource:
-    """capacity.yaml `usage.source`: `thanos` reads each cluster's Thanos Querier (thanos.py), `none` (the default) reads
-    nothing and says so. None is the default so that an instance whose reader has no cluster-monitoring-view grant, or a
-    cluster with monitoring off (CRC, #489), shows insufficient data instead of a failure on every plan. A value of another
-    kind stops the start."""
+def usage_source_name(raw: Mapping[str, Any] | None) -> str:
+    """capacity.yaml `usage.source`, one of SOURCES, `none` when unset. A value of another kind stops the start."""
     block = (raw or {}).get("usage") or {}
     if not isinstance(block, Mapping) or set(block) - {"source"}:
         raise ValueError("capacity.yaml: usage takes the one key source")
     source = block.get("source", "none")
     if source not in SOURCES:
         raise ValueError(f"capacity.yaml: usage.source is one of {list(SOURCES)}, not {source!r}")
-    if source == "none":
+    return source
+
+
+def usage_source(raw: Mapping[str, Any] | None, registry: Any) -> UsageSource:
+    """capacity.yaml `usage.source`: `thanos` reads each cluster's Thanos Querier (thanos.py), `none` (the default) reads
+    nothing and says so. None is the default so that an instance whose readers lack the monitoring grants of the baseline
+    (examples/baseline, #724), or a cluster with monitoring off (CRC, #489), shows insufficient data instead of a failure on
+    every plan. With `thanos`, the registry's import check names each missing grant (core/registry.py, #724)."""
+    if usage_source_name(raw) == "none":
         return NoUsage()
     from cmapi.capacity.thanos import ThanosQuerier       # the adapter, imported only when an instance names it
     return PromUsage(ThanosQuerier(registry), sweep_metrics=ThanosQuerier(registry, SWEEP_TIMEOUT_SECONDS))

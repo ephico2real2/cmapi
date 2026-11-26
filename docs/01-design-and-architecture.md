@@ -62,7 +62,7 @@ The only path from cmapi to a cluster's desired state is a merged PR that the cl
 | cmapi-imports | Hub namespace | One import Secret per cluster, written by the baseline process | Read by cmapi-api, cmapi-worker and cmapi-capacity |
 | cluster-configs | Git host | Desired state: one folder per cluster plus the Kyverno policy bundle | Argo CD on each cluster |
 | Argo CD | Each managed cluster | Applies that cluster's folder; Kyverno checks the same bundle at admission: it admits and reports in audit, the default, and denies in enforce (#342) | Git host |
-| cmapi-reader | Each managed cluster | Read-only ServiceAccount and ClusterRole from the baseline; cluster-monitoring-view for Thanos | — |
+| cmapi-reader | Each managed cluster | Read-only ServiceAccount and ClusterRole from the baseline; for Thanos, its own grants in openshift-monitoring: the platform's Role cluster-monitoring-metrics-api and get on the thanos-querier Route | — |
 | Optional | Hub or external | Argo Workflows or Tekton (operations), Argo CD Notifications (sync signal), webhook or Kafka (events) | cmapi-api and worker, never in the request path |
 
 ## Deployment instances
@@ -375,7 +375,7 @@ cmapi never logs in to a cluster. The cluster-baseline process creates the cmapi
 3. Choose the TLS mode: caData, trusted bundle, or insecure where the environment allows it (rnd only by default).
 4. Connect with GET /version. Fails as unreachable or cert-verify-failed, naming the trust store and the fix.
 5. Check identity with GET users/\~. It must be cmapi-system:cmapi-reader, or the result is auth\_failed or wrong-identity.
-6. Check capability: list namespaces and applications, reach Thanos. A 403 names the missing grant and never triggers a token change.
+6. Check capability: list namespaces and applications, reach Thanos. A 403 names the missing grant and never triggers a token change. A missing Thanos grant of the reader's own is a finding on a cluster that stays connected, and its usage is unavailable until the grant is applied; a grant to every user does not count.
 
 Each refusal is a finding on that cluster only. A connected cluster with no clusters.yaml entry is read-only; writes return 422 cluster-not-writable until the cluster-onboard operation merges its entry.
 
@@ -799,7 +799,7 @@ Everything an instance runs sits on its zone's hub; the table shows one instance
 | Hub | cmapi-imports | Secrets, one per cluster | Written only by the baseline; cmapi has get, list, watch |
 | Hub | cmapi-sso | Keycloak (2 instances, Operator) | Route sso.ephico2real.com; external PostgreSQL; shared by all instances |
 | Hub | — | PostgreSQL | Schemas cmapi and capacity; the API role reads capacity but cannot write it |
-| Each cluster | cmapi-system | ServiceAccount cmapi-reader | ClusterRole cmapi-reader and cluster-monitoring-view, from the baseline |
+| Each cluster | cmapi-system | ServiceAccount cmapi-reader | ClusterRole cmapi-reader, and in openshift-monitoring the Role cluster-monitoring-metrics-api, get on the thanos-querier Route and the grant check, from the baseline |
 | Each cluster | Argo CD's namespace | Root Application | Watches only clusters/\<clusterId>; policies/ pinned to a bundle tag |
 | Each cluster | managed namespaces | Namespace, quota, LimitRange, SAs, RoleBindings, cmapi-token-issuer RoleBinding | Rendered by cmapi into Git, applied by Argo CD |
 | Git host | — | cluster-configs | Only the cmapi bot merges under clusters/; branch protection requires CI and the cmapi check (approved request ID, plan hash) |

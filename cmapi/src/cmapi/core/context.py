@@ -10,7 +10,7 @@ from typing import Any, Callable
 import httpx
 import yaml
 
-from cmapi.capacity.usage import NoUsage, UsageSource, usage_source
+from cmapi.capacity.usage import NoUsage, UsageSource, usage_source, usage_source_name
 from cmapi.capacity.verdicts import AnalysisSettings
 from cmapi.core.auth import Authenticator, Jwks
 from cmapi.core.capacity import CapacitySettings
@@ -141,7 +141,9 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
                                insecure_environments=cfg.cluster_tls.insecure_environments,
                                start_caches=start_registry, reports_factory=reports_for,
                                # Only the API reads allocatable (GET /api/v1/capacity): the worker opens no Node watch.
-                               nodes_factory=nodes_for if settings.component == "api" else None)
+                               nodes_factory=nodes_for if settings.component == "api" else None,
+                               # With live usage, each import check names a missing grant of the reader's for it (#724).
+                               usage_grants=usage_source_name(capacity_cfg) == "thanos")
     if start_registry:
         registry.start()
 
