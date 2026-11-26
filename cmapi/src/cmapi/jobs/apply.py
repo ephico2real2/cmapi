@@ -25,6 +25,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from cmapi.core import kube_yaml
+from cmapi.core.adoption import takeover_allowed
 from cmapi.core.clients.kube import ClusterUnreachable, KubeError
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
@@ -35,7 +36,8 @@ from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import MERGE_CONFLICTS
 from cmapi.core.render.manifests import folder
 from cmapi.core.sync import ApplyDelivery, confirmed_by_read
-from cmapi.jobs.delivery import APPLY_STARTED, apply_started, end_pr, mark_apply_started, mode_of, planned, pr_of, request_context
+from cmapi.jobs.delivery import (APPLY_STARTED, adoption_staleness, adoption_stored, apply_started, end_adoption, end_pr,
+                                 mark_apply_started, mode_of, planned, pr_of, request_context)
 
 
 def apply(ctx: AppContext, s: Session, job: JobRow) -> None:
@@ -91,9 +93,17 @@ def _apply(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) 
         client = _deliverer(ctx, row.cluster_id)
         d = ApplyDelivery(client)
         live = d.client.get_object("Namespace", None, row.namespace)
-        if live is not None and not _managed(live):
+        adopting = adoption_stored(row)
+        if live is not None and not _managed(live) and not takeover_allowed(adopting, live):
             return _stop(ctx, repo, jobs, row, job, f"{row.namespace} exists on the cluster and cmapi does not manage it; nothing applied",
                          started)
+        if adopting is not None and not started:
+            # The apply is cmapi's own write here, so the reads of D16 run right before it: no gap is left for a change.
+            found = adoption_staleness(ctx, row)
+            if found is not None:
+                end_adoption(ctx, repo, jobs, row, found, "cmapi-deliverer")
+                jobs.done(job)
+                return
         if not started:
             if not mark_apply_started(ctx, row.request_id, head):
                 jobs.done(job)                   # a :cancel won the row first: nothing applied

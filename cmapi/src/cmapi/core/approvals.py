@@ -5,7 +5,9 @@ decide(facts) turns a plan's facts into a Requirement, evaluated in this order:
 1. The environment's count for the action kind (create, change, delete) and its approving group.
 2. Namespace patterns, first match wins: waive the action kind, or raise the count and set the group.
    Skipped for an expiry delete (reason expired).
-3. Thresholds: each `when:` that is true adds approvers (its group, or defaults.group).
+3. Thresholds: each `when:` that is true adds approvers (its group, or defaults.group). An adoption (plugin adoption) that
+   no rule gives an approver gets one of defaults.group: an unmanaged namespace is never taken over without a person
+   (story #26, the adoption design's D10).
 4. Auto-approval: when the master switch is on, the kill switch is off, a policy matches and every
    fixed guard and the policy's own guards pass, the request is approved by auto:<policy>. A request with a value
    beyond its tier (fact beyondTier) is covered only by a policy whose match says beyondTier: true.
@@ -69,6 +71,7 @@ class Requirement:
 # names the approvals that it adds (added_for).
 BEYOND_FACTS = frozenset({"beyondTier", "beyondTierKeys", "networkExposure"})
 FIXED_GUARDS = ("delete", "beyond-tier", "rules-added-approvers", "capacity", "warnings", "team-allowance")
+ADOPTION = "adoption"                                    # the plugin of an adoption request (story #26)
 CAPACITY_PLUGINS = frozenset({"namespaces", "quotas"})   # their creates and changes need "fits" on fresh data
 POLICY_GUARDS = {
     "noOpenRequest": lambda f: not f.get("openRequestOnNamespace", False),
@@ -196,6 +199,11 @@ class ApprovalRules:
             m = merged.get(s.group)
             merged[s.group] = Slot(s.group, s.count + (m.count if m else 0),
                                    s.reason if not m else f"{m.reason}; {s.reason}")
+        if facts.get("plugin") == ADOPTION and not any(s.count for s in merged.values()):
+            g = self.defaults["group"]
+            merged[g] = Slot(g, 1, "An adoption needs an approver")
+            reasons.append(f"an adoption, and no rule gives it an approver: +1 {g}")
+            added = True
         req = Requirement(rule=f"{env}-{kind}", slots=tuple(merged.values()),
                           self_approval=bool(rule.get("selfApproval")), timeout_hours=int(rule["timeoutHours"]),
                           reasons=tuple(reasons), group_path=self.group_path)
@@ -251,6 +259,8 @@ class ApprovalRules:
             return allowed is None or "*" in allowed or value in allowed
         if m.get("plugin") and m["plugin"] != f.get("plugin"):
             return False
+        if f.get("plugin") == ADOPTION and m.get("plugin") != ADOPTION:
+            return False                # D10: auto-approval never covers an adoption unless a policy names the plugin
         if not (any_of("actions", f.get("action")) and any_of("environments", f.get("environment"))
                 and any_of("tiers", f.get("tier"))):
             return False

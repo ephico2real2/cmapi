@@ -11,15 +11,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date
 from decimal import Decimal
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import yaml
 
 from cmapi.capacity.usage import NoUsage, UsageSource, plan_usage
 from cmapi.core import kube_yaml
+from cmapi.core.adoption import (INSTANCE_LABEL, SYNC_OPTIONS_ANNOTATION, Owner, Standing, adopted_files, object_findings,
+                                 snapshot, snapshot_hash, standing)
 from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, Requirement
 from cmapi.core.capacity_backend import SimulatedCapacity
 from cmapi.core.capacity_ledger import binding_hard, quota_facts, totals_of
@@ -42,10 +44,11 @@ from cmapi.core.validate import ValidatorBusy, ValidatorUnavailable
 from cmapi.core.registry import ClusterRegistry
 from cmapi.core.render.manifests import (DELETED, ManifestRenderer, NamespaceSpec, diff_files, folder, objects_of,
                                          own_limit_range, own_quota, plan_hash, quotas_kept)
-from cmapi.core.tiers import EXPOSURE_KEYS, QuotaChange, flatten_limits, qty
+from cmapi.core.tiers import EXPOSURE_KEYS, QuotaChange, TierError, flatten_limits, qty
 from cmapi.plugins.expiration.rules import ExpiryInfo, utc_day, utc_today
 
 SYSTEM_PREFIX = "cmapi.net/"
+ADOPTION_PLUGIN = "adoption"
 # The requester of the delete that expire_check opens after an expiry's grace: cmapi itself, never a person's identity.
 EXPIRY_REQUESTER = Identity(sub=EXPIRY_NAME, username=EXPIRY_NAME, kind="service", client_id="cmapi-worker")
 
@@ -74,6 +77,9 @@ class Plan:
     metadata: dict[str, Any] | None = None         # a create's final labels and annotations, each with its source (#479)
     metadata_diff: dict[str, Any] | None = None    # a change's effective label and annotation changes, with sources (#481)
     usage: dict[str, Any] | None = None            # a quota change's live 14-day usage (#310); None when nothing was read
+    adoption: dict[str, Any] | None = None         # an adoption's snapshot and key decisions (story #26); stored with the plan
+    # The files again with the request's ID, for a plan that has no NamespaceSpec to render from (an adoption): submit calls it.
+    rerender: Callable[[str], dict[str, str | None]] | None = None
 
     @property
     def hash(self) -> str:
@@ -88,14 +94,15 @@ class Plan:
                 "approval": approval_view(r, None),
                 "files": {k: v for k, v in self.files.items() if k in self.changes and v is not None},
                 "findings": [f.view() for f in self.findings], "beyondTier": self.beyond_tier, "metadata": self.metadata,
-                "metadataDiff": self.metadata_diff, "usage": self.usage}
+                "metadataDiff": self.metadata_diff, "usage": self.usage,
+                "adoption": adoption_view(self.adoption) if self.adoption else None}
 
     def stored(self) -> dict[str, Any]:
         """What change_requests.plan holds: enough for the worker to render and verify."""
         return {"files": self.files, "prev": self.prev, "changes": self.changes, "facts": self.facts,
                 "capacity": {"status": self.capacity.status, "fresh": self.capacity.fresh, **dict(self.capacity.detail)},
                 "spec": _spec_json(self.spec), "findings": [f.view() for f in self.findings],
-                "beyondTier": self.beyond_tier}
+                "beyondTier": self.beyond_tier, **({"adoption": self.adoption} if self.adoption else {})}
 
 
 def _spec_json(spec: NamespaceSpec | None) -> dict[str, Any] | None:
@@ -603,6 +610,149 @@ class Pipeline:
         return Plan(cluster_id, ns, env, "delete", "namespaces", None, files, prev, {p: "removed" for p in files},
                     requirement, cap, facts, requester, [], base_sha, reason=reason, etag=etag)
 
+    # ---- plan an adoption (story #26, docs/reviews/2026-11-14-issue-26-adoption)
+    def live_objects(self, cluster_id: str, ns: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+        """The live Namespace, and each ResourceQuota and LimitRange in it, read now from the cluster through cmapi's read
+        client, with uid, resourceVersion and managedFields (D2). Not the watch cache: D16 compares exactly what was read. A
+        cluster that does not answer is 503, never "no objects"."""
+        client = self.registry.cache(cluster_id).client
+        try:
+            live = client.get_object("Namespace", None, ns)
+            if live is None:
+                return None, [], []
+            return (live, list(client.list("ResourceQuota", namespace=ns)["items"]),
+                    list(client.list("LimitRange", namespace=ns)["items"]))
+        except (ClusterUnreachable, KubeError, BadResponse) as exc:
+            raise Problem(503, "cluster-unreachable", f"Cannot read {ns} on {cluster_id}: {str(exc)[:200]}",
+                          extra={"retryAfter": 30}) from exc
+
+    def _unadopted_counts(self, cluster_id: str, ns: str) -> dict[str, int | None]:
+        """D2: how many ServiceAccounts and RoleBindings the namespace has, which the adoption leaves unmanaged. A kind that
+        cannot be read is null (not known), never 0."""
+        client = self.registry.cache(cluster_id).client
+        out: dict[str, int | None] = {}
+        for kind in ("ServiceAccount", "RoleBinding"):
+            try:
+                out[kind] = len(client.list(kind, namespace=ns)["items"])
+            except (ClusterUnreachable, KubeError, BadResponse):
+                out[kind] = None
+        return out
+
+    def plan_adoption(self, who: Identity, cluster_id: str, ns: str, *, own_application: str | None) -> Plan:
+        try:
+            return self._plan_adoption(who, cluster_id, ns, own_application=own_application)
+        except Problem as exc:
+            count_refusal(exc)
+            raise
+
+    def _plan_adoption(self, who: Identity, cluster_id: str, ns: str, *, own_application: str | None) -> Plan:
+        """The plan of one adoption: the live objects as they are (D3), cmapi's system keys (D4), tier custom (D5), one file
+        for each object (D8), and each difference from the rules as a finding, never a change (D6, D17). The rendered
+        policies run with the snapshot as their base (D6a, #248), so a value the namespace already holds is reported, not
+        refused, in enforce too. Nothing is written to the cluster or to Git."""
+        st = self.registry.writable(cluster_id)
+        env = st.policy.environment
+        self.check_env_served(env)
+        self.cfg.roles.require(who, "adoption:write", env)
+        self.check_plugin_offered(ADOPTION_PLUGIN, env)
+        if not is_label(ns):
+            raise Problem(404, "object-not-found", f"{ns!r} is not a namespace name")
+        live, quotas, limits = self.live_objects(cluster_id, ns)
+        if live is None:
+            raise Problem(404, "object-not-found", f"{ns} is not on {cluster_id}")
+        prev_files, base_sha = self._read_folder(cluster_id, ns)
+        settings = self.cfg.adoption
+        where = standing(live, in_git=bool(prev_files), environment=env, cluster_id=cluster_id, settings=settings,
+                         keys=self.cfg.metadata, own_application=own_application, reserved_patterns=self.reserved)
+        if where.state != "candidate":
+            raise not_adoptable(ns, where)
+        requester = self.requester_for(who, None)
+        try:
+            user = label_value_of(requester.person.username)
+        except ValueError as exc:
+            raise Problem.unprocessable("validation-failed", str(exc)[:300]) from exc
+        tier = next((r.name for r in self.cfg.tiers.offered(env) if r.custom), None)
+        if tier is None:
+            # D5 adopts under the custom tier; an environment that offers none cannot hold an adopted namespace.
+            raise TierError("tier-not-offered", f"No custom tier is offered in {env}: an adopted namespace takes the custom tier",
+                            offered=[r.name for r in self.cfg.tiers.offered(env)])
+        snap, decisions = snapshot(live, quotas, limits, settings)
+        owner = Owner(cluster_id, self.cfg.name, env, tier, "(planned)", user, requester.email)
+        files, replaced = adopted_files(snap, owner, self.cfg.metadata)
+        base_files = snap.files(cluster_id)
+        path = folder(cluster_id, ns) + "namespace.yaml"
+        held_meta = metadata_of(snap.namespace)
+        sources = {"namespace": ns, "environment": env, "cluster": cluster_id, "instance": self.cfg.name}
+        findings: list[Finding] = [
+            Finding("cmapi", f["code"], path, f"{f['kind']} {f['key']}: {f['detail']}", "warning")
+            for f in self.cfg.metadata.adoption_findings(held_meta["label"], held_meta["annotation"], sources,
+                                                          ignore=frozenset({settings.label}))]
+        for d in decisions:
+            managers = f" (managers: {', '.join(d.managers)})" if d.managers else ""
+            findings.append(Finding("cmapi", "skipped-key-kept" if d.kept else "skipped-key", path,
+                                    f"{d.kind} {d.key}: {'kept in Git' if d.kept else 'left out of Git'}, {d.why}{managers}",
+                                    "warning"))
+        for r in replaced:
+            code = "sync-options-replaced" if r["key"] == SYNC_OPTIONS_ANNOTATION else "system-key-replaced"
+            findings.append(Finding("cmapi", code, path, f"{r['object']}: the {r['kind']} {r['key']} was {r['before']!r}; "
+                                                         f"cmapi writes {r['after']!r}", "warning"))
+        live_labels = (live.get("metadata") or {}).get("labels") or {}
+        if live_labels.get(INSTANCE_LABEL) and not settings.label_tracking:
+            findings.append(Finding("cmapi", "instance-label", path,
+                                    f"label {INSTANCE_LABEL}={live_labels[INSTANCE_LABEL]}: Argo CD tracks by annotation here, "
+                                    "so the label names no owner; kept as it is", "warning"))
+        kept, beyond = object_findings(snap, cluster_id=cluster_id, environment=env, tiers=self.cfg.tiers)
+        findings += [Finding("cmapi", f.code, f.path, f.message, "warning") for f in kept]
+        others = self._unadopted_counts(cluster_id, ns)
+        shown = [f"{n if n is not None else 'an unknown number of'} {kind}s" for kind, n in others.items() if n != 0]
+        if shown:
+            findings.append(Finding("cmapi", "not-adopted", folder(cluster_id, ns),
+                                    f"{' and '.join(shown)} stay unmanaged: adoption takes the Namespace, ResourceQuotas "
+                                    "and LimitRanges only", "warning"))
+        held: list[Finding] = []
+        try:
+            validated = self.validator.validate(files, cluster_id, env, previous=base_files, held=held)
+        except ValidatorBusy as exc:
+            VALIDATOR_BUSY.labels(exc.reason).inc()
+            raise Problem(503, "validator-busy", ValidatorBusy.public_detail, extra={"retryAfter": exc.retry_after}) from exc
+        except ValidatorUnavailable as exc:
+            raise Problem(503, "validator-unavailable", str(exc)[:300], extra={"retryAfter": 60}) from exc
+        errors = [f for f in validated if f.severity == "error"]
+        if errors:
+            # Only what the adoption itself writes can fail here: each value the namespace holds is the base (D6a).
+            raise Problem.policy_violation("Rendered files failed validation",
+                                           [{"code": f.rule, "source": f.source, "path": f.path, "detail": f.message,
+                                             "kyvernoRule": f.kyverno_rule} for f in errors],
+                                           findings=[f.view() for f in [*findings, *validated] if f.severity != "error"])
+        findings += validated
+        findings += [Finding("cmapi", "policy-ratcheted", h.path, f"{h.rule}: {h.message}", "warning", kyverno_rule=h.kyverno_rule)
+                     for h in held]
+        counts: dict[str, int] = {}
+        for f in findings:
+            counts[f.rule] = counts.get(f.rule, 0) + 1
+        facts = {"plugin": ADOPTION_PLUGIN, "action": "adopt", "environment": env, "namespace": ns, "clusterId": cluster_id,
+                 "team": held_meta["label"].get("cmapi.net/team"), "tier": tier, "capacity": "fits", "capacityFresh": True,
+                 "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,
+                 "clusterLabels": dict(st.policy.labels), "warnings": [f.message for f in findings], "reason": None,
+                 "findings": dict(sorted(counts.items())), "findingCount": len(findings), "beyondTier": bool(beyond),
+                 "beyondTierKeys": sorted(beyond), "networkExposure": False, "trackedElsewhere": False}
+        requirement = self._decide(facts)
+        beyond_view = self.beyond_view(facts, {k: {"tier": v["bound"], "requested": v["requested"]} for k, v in beyond.items()})
+        identity = snap.identity
+        adoption = {"identity": identity, "snapshot": base_files, "snapshotHash": snapshot_hash(base_files, identity),
+                    "label": settings.label, "value": settings.value, "recognised": list(where.recognised),
+                    "keys": [{"kind": d.kind, "key": d.key, "kept": d.kept, "managers": list(d.managers), "why": d.why}
+                             for d in decisions],
+                    "notAdopted": others}
+
+        def rerender(request_id: str) -> dict[str, str | None]:
+            return dict(adopted_files(snap, replace(owner, request_id=request_id), self.cfg.metadata)[0])
+
+        cap = CapacityResult("fits", True, None, {"source": "adoption"})
+        return Plan(cluster_id, ns, env, "adopt", ADOPTION_PLUGIN, None, dict(files), prev_files, {p: "added" for p in files},
+                    requirement, cap, facts, requester, findings, base_sha, etag=folder_etag(prev_files),
+                    warnings=[f.message for f in findings], beyond_tier=beyond_view, adoption=adoption, rerender=rerender)
+
     # ---- record it
     def submit(self, who: Identity, plan: Plan, repo: RequestRepo, jobs: JobRepo, *, idempotency_key: str | None,
                body_fingerprint: str, justification: str | None) -> ChangeRequestRow:
@@ -617,6 +767,9 @@ class Pipeline:
         if plan.spec is not None:
             plan.spec.request_id = rid
             files = self.renderer.render(plan.spec, previous=plan.prev)
+            plan.files = files
+        elif plan.rerender is not None:
+            files = plan.rerender(rid)
             plan.files = files
         req = plan.requirement
         row = ChangeRequestRow(
@@ -771,6 +924,22 @@ def several_quotas(ns: str, quotas: list[dict[str, Any]], *, kept: bool) -> Prob
                             f"The folder of {ns} holds {len(names)} ResourceQuotas, {', '.join(names)}: {what} must name the "
                             "object it changes, and a request cannot name one. Change only labels, annotations or the expiry, or "
                             "leave one ResourceQuota in the folder in Git, then send the request again", resourceQuotas=names)
+
+
+def not_adoptable(ns: str, where: Standing) -> Problem:
+    """409: the namespace is not a candidate (the adoption design's D1): excluded, Terminating, managed already, tracked by
+    another Argo CD Application, or without the opt-in label. `rule` names the step that stopped it; nothing is planned."""
+    extra: dict[str, Any] = {"rule": where.rule, "state": where.state}
+    if where.application:
+        extra["application"] = where.application
+    return Problem.conflict("namespace-not-adoptable", f"{ns} is not a candidate for adoption: {where.detail}", **extra)
+
+
+def adoption_view(stored: Mapping[str, Any]) -> dict[str, Any]:
+    """PlanAdoption: what an approver reads of an adoption's plan. The snapshot's files stay in the stored plan."""
+    return {"objects": [dict(i) for i in stored.get("identity") or []], "label": stored.get("label"),
+            "recognised": list(stored.get("recognised") or []), "keys": [dict(k) for k in stored.get("keys") or []],
+            "notAdopted": dict(stored.get("notAdopted") or {}), "snapshotHash": stored.get("snapshotHash")}
 
 
 def count_refusal(problem: Problem) -> None:

@@ -412,10 +412,13 @@ class FakeValidator:
         self.findings: list[Finding] = []
         self.calls = 0
         self.previous: list = []        # the previous folder that each call gave (#212: a held value is not refused)
+        self.held: list[Finding] = []   # the failures that a previous version holds, given to a caller that asks (#248)
 
-    def validate(self, files, cluster_id, environment, previous=None):
+    def validate(self, files, cluster_id, environment, previous=None, held=None):
         self.calls += 1
         self.previous.append(previous)
+        if held is not None:
+            held.extend(self.held)
         return list(self.findings)
 
 

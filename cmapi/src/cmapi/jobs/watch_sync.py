@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from cmapi.core.adoption import takeover_allowed
 from cmapi.core.clients.kube import ClusterUnreachable, KubeError
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
@@ -18,6 +19,7 @@ from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import LEAD_TIME, log
 from cmapi.core.render.manifests import folder
 from cmapi.core.sync import ApplyDelivery, ArgoCdSignal, application_name, confirmed_by_read, not_synced
+from cmapi.jobs.delivery import adoption_stored
 
 
 def _deliverer(ctx: AppContext, cluster_id: str):
@@ -91,7 +93,8 @@ def watch_sync(ctx: AppContext, s: Session, job: JobRow) -> None:
                 return _refuse(repo, jobs, row, job, "Git main's folder differs from the approved plan; nothing applied")
             d = ApplyDelivery(_deliverer(ctx, row.cluster_id))
             live = d.client.get_object("Namespace", None, row.namespace)
-            if live is not None and not _managed(live):
+            # An approved adoption takes over the very namespace its plan read (the same uid), and no other (story #26).
+            if live is not None and not _managed(live) and not takeover_allowed(adoption_stored(row), live):
                 # The plan-time check is hours old by now. Server-side apply with force would take it over.
                 return _refuse(repo, jobs, row, job, f"{row.namespace} exists on the cluster and cmapi does not manage it; nothing applied")
             jobs.fence()

@@ -16,6 +16,7 @@ Each file is validated by its own module; this module adds the checks no single 
 - instance.yaml's directory maps each name to a list of environments, an http(s) url and an optional http(s) portalUrl, the
   shape environment_not_served reads on every refusal (#674);
 - instance.yaml's http.maxRequestBodyBytes is a whole number of bytes, 1 to 2**53 - 1 (core/http_settings.py, #683);
+- adoption.yaml, when the instance has one, names only served environments in its exclusions (core/adoption.py, #26);
 - instance.yaml's http.rateLimits names only the bucket classes, each with a perMinute and a burst in range (core/ratelimit.py,
   #689).
 
@@ -32,6 +33,7 @@ from urllib.parse import urlsplit
 
 import yaml
 
+from cmapi.core.adoption import AdoptionSettings
 from cmapi.core.approvals import ApprovalRules
 from cmapi.core.authz import DEFAULT_GROUP_PATH, RolePolicy, check_group_path
 from cmapi.core.cluster_tokens import TokenPolicy
@@ -70,6 +72,7 @@ class InstanceConfig:
     cluster_tokens: TokenPolicy = field(default_factory=TokenPolicy)
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES   # instance.yaml `http.maxRequestBodyBytes` (#683)
     rate_limits: dict[str, Limit] = field(default_factory=lambda: dict(DEFAULT_RATE_LIMITS))   # `http.rateLimits` (#689)
+    adoption: AdoptionSettings = field(default_factory=AdoptionSettings)   # adoption.yaml, optional (story #26)
 
 
 def environment_not_served(cfg: InstanceConfig, env: str) -> Problem:
@@ -134,6 +137,11 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
     else:
         plugins = PluginSwitch(None, me["name"], allowed)
 
+    # Optional: without the file the adoption design's defaults hold (opt-in cmapi.net/adopt, the four skip prefixes).
+    adoption = AdoptionSettings()
+    if (d / "adoption.yaml").exists():
+        adoption = build("adoption.yaml", lambda r: AdoptionSettings.parse(r, allowed)) or AdoptionSettings()
+
     if approvals and tiers:
         known = {r.name for e in tiers.environments() for r in tiers.offered(e)}
         for t in sorted(approvals.tier_names() - known):
@@ -161,7 +169,7 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
     if problems:
         raise ConfigError(problems)
     return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, plugins, hashes, policy,
-                          cluster_tls, cluster_tokens, max_request_body_bytes, rate_limits)
+                          cluster_tls, cluster_tokens, max_request_body_bytes, rate_limits, adoption)
 
 
 def _directory_problems(directory: Any) -> list[str]:

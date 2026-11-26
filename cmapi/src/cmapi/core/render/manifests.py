@@ -113,14 +113,23 @@ def own_quota(quotas: list[dict[str, Any]], namespace: str) -> dict[str, Any] | 
 
 def quotas_kept(quotas: list[dict[str, Any]], namespace: str, *, changes_quota: bool = True) -> bool:
     """True when a change keeps every ResourceQuota and LimitRange as Git holds them, and renders none of the tier's beside
-    them (D9): the folder holds ResourceQuotas, none of them is cmapi's <ns>-quota, and either there are several (a second
+    them (D9): the folder holds ResourceQuotas, none of them is cmapi's own rendering (rendered_quota), and either there are several (a second
     quota would bind with the others, and a request cannot name which one it means) or the request changes no quota, tier
     or limits. D9: "Any other request, a change of a label for example, leaves every object unchanged." A lone quota of
     another name is still the one that a change of the quota, the tier or the limits acts on (own_quota, #253; D9: "When the
     namespace has exactly one object of the kind, the name may be left out, as today")."""
-    if not quotas or any(_name(d) == f"{namespace}-quota" for d in quotas):
+    if not quotas or any(rendered_quota(d, namespace) for d in quotas):
         return False
     return len(quotas) > 1 or not changes_quota
+
+
+def rendered_quota(doc: Mapping[str, Any], namespace: str) -> bool:
+    """A ResourceQuota that cmapi rendered from a tier: named <ns>-quota and carrying the cmapi.net/tier-hash that every
+    rendering writes, as own_limit_range asks of a LimitRange. An adopted quota keeps its own name, which may be <ns>-quota,
+    and carries no tier hash (the adoption design, D4): a change that sends no quota, tier or limits keeps it and every
+    LimitRange as Git holds them (D9), instead of writing the tier's objects over them under the same names (#26)."""
+    annotations = (doc.get("metadata") or {}).get("annotations") or {}
+    return _name(doc) == f"{namespace}-quota" and "cmapi.net/tier-hash" in annotations
 
 
 def own_limit_range(doc: Mapping[str, Any], namespace: str) -> bool:

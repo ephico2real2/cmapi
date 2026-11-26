@@ -17,7 +17,7 @@ from cmapi.core.git.workspace import request_branch
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import log
 from cmapi.core.render.manifests import folder
-from cmapi.jobs.delivery import body_of, request_context, title_of
+from cmapi.jobs.delivery import adoption_staleness, body_of, end_adoption, request_context, title_of
 
 
 def open_pr(ctx: AppContext, s: Session, job: JobRow) -> None:
@@ -38,6 +38,11 @@ def _open_pr(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow
         # No recorded push, or the branch is not at it: push_branch adopts, replaces or refuses (Fable 2.2).
         jobs.done(job)
         jobs.enqueue("push_branch", request_id=row.request_id, cluster_id=row.cluster_id)
+        return
+    found = adoption_staleness(ctx, row)             # D16: an adoption reads again when the bot opens its PR
+    if found is not None:
+        end_adoption(ctx, repo, jobs, row, found, "cmapi-bot")
+        jobs.done(job)
         return
     jobs.fence()
     pr = ctx.git.open_pr(branch, head, title_of(row), body_of(row))
@@ -63,8 +68,8 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
 
     repo, jobs = RequestRepo(s), JobRepo(s)
     row = repo.get(job.request_id)
-    if row.status != S.SYNC_FAILED.value:
-        jobs.done(job)
+    if row.status != S.SYNC_FAILED.value or row.plugin == "adoption":
+        jobs.done(job)                    # an adoption is never reverted (D11 step 4): :revert refuses it first
         return
     prev = row.plan.get("prev") or {}
     now_files, base_sha = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
