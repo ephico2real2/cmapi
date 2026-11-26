@@ -514,10 +514,10 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|277-277": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|513-513": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|514-514": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|564-564": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|568-568": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|77-77": [
@@ -1085,12 +1085,15 @@
   "    def get(self, name: str) -> dict[str, Any] | None:"
  ],
  "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|344-344": [
+  "    def value(self, name: str) -> dict[str, Any] | None:"
+ ],
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|350-350": [
   "    def set(self, name: str, value: Mapping[str, Any], by: str) -> None:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|358-358": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|364-364": [
   "    def load(self, issuer: str) -> list[dict[str, Any]] | None:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|363-363": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|369-369": [
   "    def save(self, issuer: str, keys: list[dict[str, Any]]) -> None:"
  ],
  "docs/16-data-model.md|cmapi/src/cmapi/core/identity/claims.py|43-48": [
