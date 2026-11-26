@@ -429,7 +429,7 @@ class Pipeline:
             findings = [*findings, *self._environment_moved(cluster_id, ns, prev_ns, env)]
         if action == "update" and reason is None:
             # A PATCH, whose body can add a key: the expiry calls (reason expiration:...) cannot, so they get no finding.
-            findings = [*findings, *self._held_key_findings(cluster_id, ns, labels, anns)]
+            findings = [*findings, *self._held_key_findings(cluster_id, sources, labels, anns)]
         # Every change is sized from the quota that Git holds and the cluster enforces, never from the catalog (#710). A
         # namespace rendered from an older catalog is tier-outdated, and the change that renders it again is "an ordinary
         # update request: the plan diff shows old and new values, increases go through the capacity check and reserve the
@@ -532,18 +532,22 @@ class Pipeline:
                         f"Git holds the environment {held} and the cluster is now {env}: this change writes {env}",
                         "warning")]
 
-    def _held_key_findings(self, cluster_id: str, ns: str, labels: Mapping[str, str],
+    def _held_key_findings(self, cluster_id: str, sources: Mapping[str, str], labels: Mapping[str, str],
                            annotations: Mapping[str, str]) -> list[Finding]:
         """Each required key that the namespace lacks and the change leaves out: held, not refused (#234), and reported as
-        a warning (#481, design section 3, the adoption finding): that this change can add it, or, for a key that a change
-        cannot set (fixed or automatic in x-cmapi-edit), that adoption must."""
-        path = folder(cluster_id, ns) + "namespace.yaml"
+        a warning (#481, design section 3, the adoption finding) with how a request adds it: any valid value, or for a key that
+        cmapi fills in or that starts the name, exactly the value that it would have had at create (#732)."""
+        path = folder(cluster_id, sources["namespace"]) + "namespace.yaml"
+        maps = {"label": labels, "annotation": annotations}
         findings = []
         for kind, key in self.cfg.metadata.missing_required(labels, annotations):
-            mode = self.cfg.metadata.edit_rule(kind, key)["mode"]
-            remedy = "adoption must supply it" if mode in ("fixed", "automatic") else "this change can add it"
-            findings.append(Finding("cmapi", "missing_required_key", path,
-                                    f"the {kind} {key} is required and the namespace lacks it: {remedy}", "warning"))
+            rule = self.cfg.metadata.rules[kind][key]
+            if key in maps[kind] and (rule.derived or rule.namespace_prefix or rule.namespace_suffix):
+                message = f"the required {kind} {key} is empty in Git: a change keeps that value"
+            else:
+                remedy = self.cfg.metadata.remedy(kind, key, sources)
+                message = f"the {kind} {key} is required and the namespace lacks it: {remedy}"
+            findings.append(Finding("cmapi", "missing_required_key", path, message, "warning"))
         return findings
 
     def _metadata_refusal(self, labels: Mapping[str, Any], annotations: Mapping[str, Any], **kw: Any) -> Problem | None:

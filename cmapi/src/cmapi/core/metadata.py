@@ -1145,21 +1145,59 @@ class MetadataKeys:
         return value is not None and value == current[kind].get(key)
 
     def _fixed_key_error(self, kind: str, key: str, rule: KeyRule, sent: Mapping[str, Mapping[str, str | None]],
-                         current: Mapping[str, Mapping[str, str]]) -> list[dict[str, Any]]:
+                         current: Mapping[str, Mapping[str, str]], sources: Mapping[str, str]) -> list[dict[str, Any]]:
         """A change sends a key that it cannot change: one filled in by cmapi (value.from), or one that the name is made of
         (namespacePrefix, namespaceSuffix). The value that Git holds is accepted (FB1 of #488); any other value, or a
         removal, is refused on that key. The removal of a required name key is left to _check_required, which reports it
-        as missing_required_key, as before #481."""
+        as missing_required_key, as before #481.
+
+        A key that Git lacks, as an adopted namespace may (the owner's decision 2 on #26: "it stays a finding until someone
+        chooses to add it"; #732), can be added by a request with exactly the value that it would have had at create: the
+        derived value of a value.from key, or a start of the namespace name ("<value>-") that keeps its own rule for a
+        namespacePrefix key. Any other value is refused, and the refusal says which value is taken."""
         if self._is_echo(kind, key, sent, current):
             return []
         held = current[kind].get(key)
-        keeps = f"a change keeps {held!r}" if held is not None else "a change cannot add it; adoption does (story #26)"
+        if held is None and sent[kind][key] is not None:
+            how = self._addition(kind, key, rule, sent[kind][key], sources)
+            if how is None:
+                error = self._syntax(key, sent[kind][key], kind)
+                return [error] if error else []
+            keeps = how
+        else:
+            keeps = f"a change keeps {held!r}" if held is not None else self.remedy(kind, key, sources)
         if rule.derived:
             return [{"code": "derived_key", "key": key, "kind": kind, "detail": f"cmapi sets {key}: {keeps}"}]
         if sent[kind][key] is None and rule.required:
             return []
         return [{"code": "invalid_value", "key": key, "kind": kind,
                  "detail": f"{EDIT_REASONS['name'].rstrip('.').lower()}: {keeps}"}]
+
+    def _addition(self, kind: str, key: str, rule: KeyRule, value: str, sources: Mapping[str, str]) -> str | None:
+        """None when a change may add this missing key with this value (#732); else the remedy to say in the refusal."""
+        if rule.derived:
+            expected = sources.get(rule.derived)
+            return None if expected and value == expected else self.remedy(kind, key, sources)
+        namespace = sources.get("namespace")
+        if rule.namespace_prefix and namespace and namespace.startswith(f"{value}-") and \
+                not self._breaks_own_rule(key, value, kind, sources):
+            return None
+        return self.remedy(kind, key, sources)
+
+    def remedy(self, kind: str, key: str, sources: Mapping[str, str]) -> str:
+        """How a request adds a required key that a namespace lacks, in words (#732): the plan's finding and a refusal say it."""
+        rule = self.rules[kind].get(key)
+        if rule is None or not (rule.derived or rule.namespace_prefix or rule.namespace_suffix):
+            return "a request can add it"
+        if rule.derived:
+            expected = sources.get(rule.derived)
+            if not expected or self._syntax(key, expected, kind):
+                # As at create, which fills nothing from an empty target and refuses a value that is not a valid label.
+                return f"a change cannot add it: the {rule.derived} gives no valid value"
+            return f"a request can add it with the value cmapi derives from the {rule.derived} ({expected})"
+        if rule.namespace_prefix:
+            return "a request can add it with the start of the namespace name"
+        return "a change cannot add it: it is part of the namespace's fixed name"
 
     def _check_prefix(self, sent: Mapping[str, Mapping[str, str | None]], current: Mapping[str, Mapping[str, str]],
                       sources: Mapping[str, str]) -> list[dict[str, Any]]:
@@ -1220,7 +1258,7 @@ class MetadataKeys:
                 if existing and rule is not None and (rule.derived or rule.namespace_prefix or rule.namespace_suffix):
                     # Fixed on an existing namespace (#481, design section 3, rows 5 and 6): only Git's own value may
                     # be sent back, also when it predates today's rule or target.
-                    errs.extend(self._fixed_key_error(kind, key, rule, sent, current))
+                    errs.extend(self._fixed_key_error(kind, key, rule, sent, current, sources))
                     continue
                 # Removing a key that the namespace holds writes nothing, so its syntax is not checked: a key that Git
                 # holds from before #330 ("/foo") can be removed, though no request may set it now.

@@ -462,10 +462,10 @@ export interface paths {
          *     **Merge patch.** `labels` and `annotations` follow JSON Merge Patch (RFC 7396, https://www.rfc-editor.org/rfc/rfc7396):
          *     a key that the body leaves out keeps its value, a string sets it, and `null` removes it. `x-cmapi-edit` of each key,
          *     in `GET /api/v1/metadata-keys` and, for the keys that file does not declare, in `git.edits` of the namespace's read,
-         *     says how it may change: `fixed` (the value in Git stays; the same value sent back is accepted), `automatic` (filled at creation;
-         *     a change keeps Git's value, and adoption must supply a missing value), `required` (it changes and is never removed)
-         *     or `optional`. A key that no rule admits can be removed,
-         *     never set. A `sensitive` key adds one approval to the request.
+         *     says how it may change: `fixed` (the value in Git stays; the same value sent back is accepted; a missing key that
+         *     starts the name can be added with that start), `automatic` (filled at creation; a change keeps Git's value, and a request
+         *     can add a missing one with the derived value), `required` (it changes and is never removed) or `optional`. A key that no
+         *     rule admits can be removed, never set. A `sensitive` key adds one approval to the request.
          *
          *     **Check, then submit.** With `dryRun=true` the answer is 200 with the plan, and no request is opened. `metadataDiff`
          *     lists each effective change by key as `before`, `after` and `source`: `before` is `null` when the key is added, `after`
