@@ -166,6 +166,16 @@ def test_a_namespace_with_a_folder_in_git_is_managed_and_not_adopted(world):
     assert r.status_code == 409 and r.json()["rule"] == "managed"
 
 
+def test_a_repeated_dry_run_is_refused_and_plans_nothing(world):
+    """docs/02: a repeated `dryRun` is 422 validation-failed (refuse_repeated_dry_run, #606), on :adopt as on every write."""
+    client, ctx, git, kube, validator, keys = world
+    owner_sample(kube)
+    r = client.post(f"/api/v1/clusters/CRC/namespaces/{NS}:adopt?dryRun=true&dryRun=true", json={},
+                    headers=auth(keys, "opal", **OPAL))
+    assert r.status_code == 422 and r.json()["code"] == "validation-failed", r.text
+    assert validator.calls == 0 and git.prs == {}
+
+
 def test_only_adoption_write_may_adopt(world):
     client, ctx, git, kube, validator, keys = world
     owner_sample(kube)
