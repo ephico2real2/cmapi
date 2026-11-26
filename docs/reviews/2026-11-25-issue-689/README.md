@@ -194,3 +194,4 @@ only); a load test with several API pods.
 
 - **Found by reviewer 2, older than this PR:** **#696, pool starvation** (Medium). It gets its own pull request next, with reviewer 2's patch.
 - **Concurrency proof on PostgreSQL:** 8 creates at once, with failures after the INSERT. The tokens left equalled the burst minus the rows recorded in 5 of 5 runs. Head failed it.
+- **The coordinator's run** on `0ff3ea8`, database `cmapi_coord_695`: **3048 service passed**, none failed. The reference suite (`tests/core` in the venv built from `examples/local/requirements.txt`): **775 passed, 113 skipped** (`coord-suite.txt`).
