@@ -35,7 +35,8 @@ from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import MERGE_CONFLICTS
 from cmapi.core.render.manifests import folder
 from cmapi.core.sync import ApplyDelivery, confirmed_by_read
-from cmapi.jobs.delivery import APPLY_STARTED, apply_started, end_pr, mark_apply_started, mode_of, planned, pr_of, request_context
+from cmapi.jobs.delivery import (ADOPTION_STALE, APPLY_STARTED, adoption_stored, adoption_writes, apply_started, end_adoption,
+                                 end_pr, mark_apply_started, mode_of, planned, pr_of, request_context)
 
 
 def apply(ctx: AppContext, s: Session, job: JobRow) -> None:
@@ -90,10 +91,22 @@ def _apply(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) 
     try:
         client = _deliverer(ctx, row.cluster_id)
         d = ApplyDelivery(client)
-        live = d.client.get_object("Namespace", None, row.namespace)
-        if live is not None and not _managed(live):
-            return _stop(ctx, repo, jobs, row, job, f"{row.namespace} exists on the cluster and cmapi does not manage it; nothing applied",
-                         started)
+        writes = files
+        if adoption_stored(row) is not None:
+            # D16 before cmapi's own write, and each object sent with the uid and resourceVersion the plan read: the API
+            # server refuses an object that changed between this read and the write (adoption_writes).
+            found, writes = adoption_writes(ctx, row, files, resuming=started)
+            if found is not None:
+                if started:
+                    return _stop(ctx, repo, jobs, row, job, f"{ADOPTION_STALE}: {found.detail}", started)
+                end_adoption(ctx, repo, jobs, row, found, "cmapi-deliverer")
+                jobs.done(job)
+                return
+        else:
+            live = d.client.get_object("Namespace", None, row.namespace)
+            if live is not None and not _managed(live):
+                return _stop(ctx, repo, jobs, row, job, f"{row.namespace} exists on the cluster and cmapi does not manage it; nothing applied",
+                             started)
         if not started:
             if not mark_apply_started(ctx, row.request_id, head):
                 jobs.done(job)                   # a :cancel won the row first: nothing applied
@@ -101,7 +114,7 @@ def _apply(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) 
             started = True
         jobs.fence()
         with Op("apply", head_sha=head) as op:
-            n = d.apply_folder(files)
+            n = d.apply_folder(writes)
             pruned = 0
             if removed:
                 # A file rename removes a path, not the Kubernetes objects retained in another file.
@@ -122,6 +135,8 @@ def _apply(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) 
         if not ok:
             raise _NotYet(why)
     except KubeError as exc:
+        if exc.status == 409 and adoption_stored(row) is not None:   # a precondition of adoption_writes
+            return _stop(ctx, repo, jobs, row, job, f"{ADOPTION_STALE}: {str(exc)[:160]}", started)
         if exc.status in (400, 403, 409, 422):           # the cluster refused the objects: waiting cannot fix it
             return _stop(ctx, repo, jobs, row, job, f"the cluster refused the apply: {str(exc)[:160]}", started)
         return _wait(ctx, repo, jobs, row, job, f"{type(exc).__name__}: {exc}", started)

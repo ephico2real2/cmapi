@@ -347,6 +347,36 @@ class BeyondTier(Api):
                                                       "on top of the environment's rule")
 
 
+class AdoptBody(RequestBody):
+    justification: str | None = Field(default=None, description="Why the namespace is adopted, which the approvers read",
+                                      examples=["Bring the team's namespace under cmapi"])
+
+
+AdoptionState = Literal["candidate", "skipped", "managed", "excluded", "unlabelled"]
+
+
+class AdoptionStanding(Api):
+    name: str = Field(description="The namespace", examples=["abc-rnd"])
+    state: AdoptionState = Field(description="candidate: it can be adopted. skipped: it carries the opt-in label and a rule "
+                                             "stops it. managed, excluded, unlabelled: never adopted", examples=["candidate"])
+    rule: str | None = Field(description="What stops it: excluded, terminating, managed, tracked-elsewhere or not-labelled; "
+                                         "null for a candidate", examples=[None])
+    detail: str = Field(description="The rule in words, empty for a candidate", examples=[""])
+    labelled: bool = Field(description="Whether it carries the opt-in label of adoption.yaml (cmapi.net/adopt: \"true\")",
+                           examples=[True])
+    recognised: list[str] = Field(description="Each adoptionLabels key and value it carries: made by another tool",
+                                  examples=[["company.net/provisioner=cluster-configs"]])
+    application: str | None = Field(description="The Argo CD Application that tracks it, when another one does",
+                                    examples=[None])
+
+
+class AdoptionList(Api):
+    items: list[AdoptionStanding] = Field(description="The namespaces, by name")
+    total: int = Field(description="How many items there are", examples=[1])
+    label: str = Field(description="The opt-in label that a namespace carries to be adopted, with the value \"true\"",
+                       examples=["cmapi.net/adopt"])
+
+
 class NamespaceCreate(RequestBody):
     namespace: DnsLabel = Field(description="Namespace name: DNS-1123, not reserved", examples=["payments-dev"])
     tier: str = Field(default="small", description="A tier from the catalog, or custom", examples=["small"])
@@ -441,6 +471,44 @@ class PlanUsage(Api):
     memory: UsageFigures = Field(description="Memory, in bytes")
 
 
+class AdoptedObject(Api):
+    kind: Literal["Namespace", "ResourceQuota", "LimitRange"] = Field(description="The object's kind", examples=["ResourceQuota"])
+    name: str = Field(description="The object's name", examples=["abc-rnd-quota"])
+    uid: str = Field(description="The object's uid as the plan read it: a namespace made again has another, and the "
+                                 "request then fails with adoption-plan-stale", examples=["0f3c2b1a-7d6e-4c5b-9a8f-1e2d3c4b5a69"])
+    resource_version: str = Field(description="Its resourceVersion as the plan read it: any change after the plan fails the "
+                                              "request with adoption-plan-stale", examples=["48211"])
+
+
+class AdoptionKey(Api):
+    kind: Literal["label", "annotation"] = Field(description="Whether the key is a label or an annotation", examples=["label"])
+    key: str = Field(description="A key under a skip prefix of adoption.yaml", examples=["pod-security.kubernetes.io/enforce"])
+    kept: bool = Field(description="True: written to Git as it is, because leaving it out could remove it from the cluster on "
+                                   "the first sync. False: left out of Git, which changes nothing on the cluster",
+                       examples=[False])
+    managers: list[str] = Field(description="The field managers that own it on the live object (metadata.managedFields)",
+                                examples=[["pod-security-admission-label-synchronization-controller"]])
+    why: str = Field(description="Why it is kept or left out, in words", examples=["only server components own it"])
+
+
+class PlanAdoption(Api):
+    objects: list[AdoptedObject] = Field(description="Each object that the plan read and adopts: the Namespace, each "
+                                                     "ResourceQuota and each LimitRange. cmapi reads them again when the "
+                                                     "request is approved, when the bot opens the pull request and in its "
+                                                     "check; a difference fails the request")
+    label: str = Field(description="The opt-in label. It stays on the namespace after the adoption and is then ignored; "
+                                   "removing it before the merge cancels the request", examples=["cmapi.net/adopt"])
+    recognised: list[str] = Field(description="Each adoptionLabels key and value of metadata-keys.yaml that the namespace "
+                                              "carries: made by another tool", examples=[["company.net/provisioner=cluster-configs"]])
+    keys: list[AdoptionKey] = Field(description="Each label and annotation under a skip prefix, and whether it is kept")
+    not_adopted: dict[str, int | None] = Field(description="How many objects of the other kinds the namespace has, which stay "
+                                                           "unmanaged; null when they could not be counted",
+                                               examples=[{"ServiceAccount": 2, "RoleBinding": 1}])
+    snapshot_hash: str = Field(description="SHA-256 of the objects as read: the base of the policy checks at plan time and in "
+                                           "the pull request's check, which never take it from the pull request",
+                               examples=["5d1f0c9e2b7a4c3d8e6f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d"])
+
+
 class PlanView(Api):
     changes: dict[str, str] = Field(description="Per changed file: added, changed or removed", examples=[{"clusters/CRC/namespaces/payments-dev/namespace.yaml": "added"}])
     plan_hash: str = Field(description="SHA-256 of the planned files", examples=["9f2c..."])
@@ -468,6 +536,9 @@ class PlanView(Api):
         default=None, description="On a change of an existing namespace's quota: its live usage over the last 14 days, read "
                                   "from Thanos for this plan and cached 10 minutes (#310). Null on a create and on a change "
                                   "that leaves the quota as it is")
+    adoption: PlanAdoption | None = Field(default=None, description="On an adoption: the objects it read, the keys under a "
+                                                                    "skip prefix, and what stays unmanaged (story #26). Null "
+                                                                    "on other writes")
 
 
 SyncState = Literal["in-sync", "pending", "drift", "unknown"]

@@ -1376,6 +1376,73 @@ class MetadataKeys:
         return [(kind, key) for kind in KINDS for key, rule in self.rules[kind].items()
                 if rule.required and not maps[kind].get(key)]
 
+    def adoption_findings(self, labels: Mapping[str, str], annotations: Mapping[str, str], sources: Mapping[str, str],
+                          ignore: frozenset[str] = frozenset()) -> list[dict[str, str]]:
+        """The adoption design's D6: each difference between an existing namespace's keys and this file's rules, as
+        {code, kind, key, detail}. Adoption keeps every key as it is, so nothing here refuses or changes a value: each is a
+        finding of the plan, and a later request is checked only on what it changes. `ignore`: keys that the adoption
+        itself handles (the opt-in label). Codes, in the design's words:
+
+            derived-mismatch, environment-mismatch      a value.from key whose value is not the derived one
+            missing-required-key                        a required key the namespace lacks
+            empty-value                                 a declared key with an empty value
+            invalid-value                               a value that breaks its pattern, enum, format, or the name's ends
+            declared-as-annotation, declared-as-label   a key that the stanzas declare as the other kind
+            unknown-key                                 a key that no stanza declares and allowOther does not admit
+            adoption-label                              a key of adoptionLabels (recognised when its value is listed)"""
+        out: list[dict[str, str]] = []
+        maps = {"label": labels, "annotation": annotations}
+        namespace = sources.get("namespace", "")
+        for kind in KINDS:
+            other = "annotation" if kind == "label" else "label"
+            for key in sorted(maps[kind]):
+                value = maps[kind][key]
+                if key in ignore or key in self.system:
+                    continue
+                if kind == "label" and key in self.adoption_labels:
+                    seen = "recognised" if value in self.adoption_labels[key] else "not a recognised value"
+                    out.append({"code": "adoption-label", "kind": kind, "key": key,
+                                "detail": f"{key}={value} marks a namespace that another tool made ({seen}): kept as it is"})
+                    continue
+                rule = self.rules[kind].get(key)
+                if rule is None:
+                    if key in self.rules[other]:
+                        out.append({"code": f"declared-as-{other}", "kind": kind, "key": key,
+                                    "detail": f"{key} is declared as an {other}; the {kind} is kept until a request "
+                                              "removes it with null"})
+                    elif self.classify(key, kind) == "disallowed":
+                        out.append({"code": "unknown-key", "kind": kind, "key": key,
+                                    "detail": f"no rule of this instance admits the {kind} {key}: kept; a request may "
+                                              "remove it, never set it"})
+                    continue
+                if value == "":
+                    out.append({"code": "empty-value", "kind": kind, "key": key, "detail": f"{key} is empty"})
+                    continue
+                if rule.derived:
+                    expected = sources.get(rule.derived)
+                    if expected is not None and value != expected:
+                        code = "environment-mismatch" if rule.derived == "environment" else "derived-mismatch"
+                        out.append({"code": code, "kind": kind, "key": key,
+                                    "detail": f"{key} is {value}, and cmapi derives {expected} from the {rule.derived}: "
+                                              "kept until a request sets it"})
+                    continue
+                broken = self._governed(key, value, kind, sources)
+                if not broken and rule.namespace_prefix and namespace and not namespace.startswith(f"{value}-"):
+                    broken = [{"detail": f"{namespace} does not start with {value}-"}]
+                if not broken and rule.namespace_suffix and namespace and not namespace.endswith(f"-{value}"):
+                    broken = [{"detail": f"{namespace} does not end with -{value}"}]
+                if broken:
+                    out.append({"code": "invalid-value", "kind": kind, "key": key,
+                                "detail": f"{key}={value}: {broken[0].get('detail') or 'breaks its rule'}; kept until a "
+                                          "request sets a valid value"})
+        for kind, key in self.missing_required(labels, annotations):
+            if maps[kind].get(key) == "":
+                continue                    # reported as empty-value above
+            out.append({"code": "missing-required-key", "kind": kind, "key": key,
+                        "detail": f"the required {kind} {key} is missing: never forced; each plan lists it until a request "
+                                  "sets it"})
+        return out
+
     def change_facts(self, before: Mapping[str, str], after: Mapping[str, str],
                      before_annotations: Mapping[str, str] | None = None,
                      after_annotations: Mapping[str, str] | None = None, *, existing: bool = False) -> dict[str, Any]:

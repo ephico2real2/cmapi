@@ -266,6 +266,12 @@ def revert(request_id: RequestId, who: Identity = Depends(require("requests:retr
         row = repo.get(request_id)
         c.cfg.roles.require(who, "requests:retry", row.env)
         transition(S(row.status), E.REVERT)                    # 409 invalid-transition unless sync_failed
+        if row.plugin == "adoption":
+            # The adoption design's D11, step 4 (Fable's A2): a revert would remove the folder, and Argo CD would then prune
+            # objects that existed before cmapi. :retry, after the cause is removed, is the way out.
+            raise Problem.conflict("invalid-transition", f"{request_id} is an adoption: it is never reverted, because a revert "
+                                                         "would prune objects that existed before cmapi; :retry it once the "
+                                                         "cause is removed", state=row.status)
         if not row.merge_sha:
             # Before any merge Git holds nothing to revert, while the cluster may hold part of the plan: the owner decides how
             # that is undone (#286, the arbitration's row 15). Until then, :retry.

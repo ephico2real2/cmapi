@@ -82,9 +82,9 @@ def test_a_file_rename_does_not_prune_the_reapplied_quota():
     d.apply_folder(previous)
     # Run watch_sync's own apply-and-prune block, with the real renderer and ApplyDelivery; no job, session or database.
     source = WATCH_SYNC.read_text()
-    start = source.index("            n = d.apply_folder(files)")
+    start = source.index("            n = d.apply_folder(writes)")
     end = source.index('            repo.event(row, "applied"', start)
-    exec(textwrap.dedent(source[start:end]), {"d": d, "files": files, "removed": removed,
+    exec(textwrap.dedent(source[start:end]), {"d": d, "files": files, "writes": files, "removed": removed,
                                              "row": SimpleNamespace(namespace="abc-rnd")})
     assert ("ResourceQuota", "abc-rnd", "abc-rnd-quota") in client.objects
     assert ("LimitRange", "abc-rnd", "abc-rnd-limits") in client.deleted

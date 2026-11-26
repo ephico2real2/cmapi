@@ -29,7 +29,7 @@ from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.ports import PrRef
 from cmapi.core.rejections import record_ci
 from cmapi.core.render.manifests import folder, plan_hash
-from cmapi.jobs.delivery import end_pr, mode_of, request_context
+from cmapi.jobs.delivery import adoption_base, adoption_staleness, end_adoption, end_pr, mode_of, request_context
 
 CONTEXT_KUBECONFORM = "ci/kubeconform"
 CONTEXT_KYVERNO = "ci/kyverno"
@@ -89,9 +89,26 @@ def _pr_checks(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobR
         # tree holds only the manifests: a delete's head holds nothing of the folder, at any depth, or the posted check would
         # pass a head that keeps a path, which a person could then merge by hand (#616).
         cmapi_ok = not ctx.git.list_folder(folder(row.cluster_id, row.namespace), head)[0]
-    # The default branch's folder is what this merge changes: a value that it already holds is not refused (#212).
+    if row.plugin == "adoption":
+        # D16: the check reads the live objects again, and it is required, so the merge follows it at once.
+        found = adoption_staleness(ctx, row)
+        if found is not None:
+            end_adoption(ctx, repo, jobs, row, found, "ci")
+            jobs.done(job)
+            return
+    # The default branch's folder is what this merge changes: a value that it already holds is not refused (#212). An adoption
+    # has no folder there: its base is the snapshot of the approved plan, never a file of the PR (D6a, #248).
     try:
-        base, _ = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
+        if row.plugin == "adoption":
+            try:
+                base = adoption_base(row)
+            except ValueError as exc:
+                repo.move(row, E.PR_FAILED, "ci", str(exc)[:240])
+                end_pr(ctx, repo, jobs, row, str(exc))
+                jobs.done(job)
+                return
+        else:
+            base, _ = ctx.git.read_folder(folder(row.cluster_id, row.namespace))
     except NotUtf8 as exc:
         # Main's folder holds a name or text no plan holds (#626): not the plan's base, as the merge check below would read it.
         why = f"the folder on {ctx.git.default_branch} is no longer the plan's base: {exc}"

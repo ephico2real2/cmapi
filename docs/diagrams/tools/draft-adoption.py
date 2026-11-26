@@ -38,7 +38,7 @@ def arrow(x1, y1, x2, y2, label=None, lx=None, ly=None, anchor="middle", dashed=
 
 def body():
     out = []
-    for x, name in ((20, "THE CLUSTER"), (300, "CMAPI (THE ADOPTION PLUGIN, NOT BUILT)"), (800, "GIT AND ARGO CD")):
+    for x, name in ((20, "THE CLUSTER"), (300, "CMAPI (THE ADOPTION PLUGIN)"), (800, "GIT AND ARGO CD")):
         out.append(f'<text x="{x}" y="22" font-weight="600" font-size="11" fill="var(--muted)" {MONO}>{e(name)}</text>')
     for x in (282, 778):
         out.append(f'<line x1="{x}" y1="8" x2="{x}" y2="560" stroke="var(--rule)" stroke-width="1.2" stroke-dasharray="6 5"/>')
@@ -50,23 +50,23 @@ def body():
         "mnemonic-confluence: ''", "cmapi.net/adopt: \"true\"  (opt-in)"), mono=False)
     out += box(20, 274, 244, 58, "none", "ResourceQuota, LimitRange", ("each one, whatever its keys",))
     out += box(20, 360, 244, 74, "none", "Not adopted", ("ServiceAccounts, RoleBindings,", "SCC grants: they stay unmanaged"))
-    out += box(20, 470, 244, 74, "none", "After the adoption", ("cmapi.net/adopt stays, inert;", "cmapi only reads the cluster"), dashed=True)
+    out += box(20, 470, 244, 74, "none", "After the adoption", ("cmapi.net/adopt stays, inert;", "cmapi only reads the cluster"))
 
     # cmapi's steps.
     steps = [
-        ("1  Candidate?", ("opt-in label; not excluded; not managed;", "not tracked by another Argo CD app")),
-        ("2  Read the live objects", ("Namespace, ResourceQuotas, LimitRanges;", "uid, resourceVersion, field managers")),
-        ("3  Drop, then add", ("drop server fields; skip keys only when D3a allows;", "add cmapi's system keys, tier custom")),
-        ("4  Findings, never changes", ("a wrong name label; a missing key: reported,", "never forced; two labels that are annotations now")),
+        ("1  Candidate? (built)", ("opt-in label; not excluded; not managed;", "not tracked by another Argo CD app")),
+        ("2  Read the live objects (built)", ("Namespace, ResourceQuotas, LimitRanges;", "uid, resourceVersion, field managers")),
+        ("3  Drop, then add (built)", ("drop server fields; skip keys only when D3a allows;", "add cmapi's system keys, tier custom")),
+        ("4  Findings, never changes (built)", ("a wrong name label; a missing key: reported,", "never forced; two labels that are annotations now")),
     ]
     for i, (title, lines) in enumerate(steps):
         y = 40 + 92 * i
-        out += box(300, y, 424, 74, "host", title, lines, dashed=True)
+        out += box(300, y, 424, 74, "host", title, lines)
         if i:
             out += arrow(512, y - 18, 512, y - 2)
-    out += box(300, 416, 424, 58, "remote", "5  Approval, as for any request (built)", ("approver-platform; one more when there are findings",))
+    out += box(300, 416, 424, 58, "remote", "5  Approval: a person, never automatic (built)", ("approver-platform; one more when there are findings",))
     out += arrow(512, 390, 512, 412)
-    out += box(300, 492, 424, 58, "host", "8  Verify after the sync", ("only cmapi's keys, the field managers and", ), dashed=True)
+    out += box(300, 492, 424, 58, "host", "8  Verify after the sync (not built)", ("only cmapi's keys, the field managers and", ), dashed=True)
     out.append('<text x="312" y="545" font-size="11.5" fill="var(--muted)">Argo CD\'s tracking annotation may differ</text>')
 
     out += arrow(264, 140, 296, 140, "read", 280, 132)
@@ -92,14 +92,14 @@ def main():
     page = "\n".join([
         "<!-- SPDX-License-Identifier: MIT-0. Started from the diagram-kit template, https://github.com/ephico2real2/diagram-kit -->",
         "<title>cmapi: adoption</title>", FONTS, STYLE, "", '<div class="page">', "  <header>",
-        '    <div class="eyebrow">cmapi · story #26 · design</div>', "    <h1>Adoption: raw YAML, as it is, under tier custom</h1>",
+        '    <div class="eyebrow">cmapi · story #26 · built in part</div>', "    <h1>Adoption: raw YAML, as it is, under tier custom</h1>",
         '    <p class="lede">An existing namespace goes under GitOps with no change but cmapi\'s own keys. Each difference from the rules is a finding, never a change.</p>',
-        '    <p class="muted">Dashed: designed, not built (Wave 8). Solid: built. The namespace is the owner\'s sample of an existing one.</p>',
+        '    <p class="muted">Dashed: designed, not built. Solid: built (story #26, criterion 1). The namespace is the owner\'s sample of an existing one.</p>',
         "  </header>", "  <section>", "    <h2>The adoption flow</h2>", "    <figure>", '      <div class="fig-scroll">',
         f'        <svg viewBox="0 0 1080 {height}" role="img" aria-label="{e(aria)}">',
         '          <defs><marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>',
         f"          <g {SANS}>", svg, "          </g>", "        </svg>", "      </div>",
-        "      <figcaption>Dashed boxes: designed, not built. Dashed arrow: a state that the worker waits for, no traffic. D16 requires another live read on approval, at PR opening and in the required PR check: changed uid or resourceVersion fails with adoption-plan-stale; an opt-in label removed before merge cancels the request. The interval from the last check to sync remains uncovered. D3a keeps skipped-prefix keys whose omission would remove them on the cluster. docs/reviews/2026-11-14-issue-26-adoption/ holds each decision.</figcaption>",
+        "      <figcaption>Dashed boxes: designed, not built. Dashed arrow: a state that the worker waits for, no traffic. Built (D16): another live read after approval, at PR opening and in the required PR check, and in apply mode right before the apply: changed uid or resourceVersion fails with adoption-plan-stale; an opt-in label removed before merge cancels the request. The interval from the last check to sync remains uncovered. D3a keeps skipped-prefix keys whose omission would remove them on the cluster. docs/reviews/2026-11-14-issue-26-adoption/ holds each decision.</figcaption>",
         "    </figure>", "  </section>", "</div>"]) + "\n"
     out = ROOT / "docs/diagrams/adoption/source.html"
     out.parent.mkdir(parents=True, exist_ok=True)
