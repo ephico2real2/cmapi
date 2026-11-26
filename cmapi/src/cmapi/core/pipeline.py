@@ -643,6 +643,38 @@ class Pipeline:
             jobs.enqueue("channel_notify", request_id=rid, cluster_id=plan.cluster_id, payload={"kind": "pending"})
         return row
 
+    def restore_facts(self, cluster_id: str, env: str, ns: str, current: Mapping[str, str | None],
+                      restored: Mapping[str, str | None]) -> tuple[CapacityResult, dict[str, Any], dict[str, Any] | None]:
+        """The approval facts of a revert, which writes back the folder that Git held before a plan: "the revert is a new
+        request through the same approval rules" (docs/01, the state reverted). Taken as _plan_namespace takes them for a
+        change, from what Git holds now (#710) to what is restored: the capacity check, quotaIncreasePct and tierChange,
+        networkExposure, beyondTier, the live usage of a quota that Git holds, and the metadata facts (sensitiveKeyChanged).
+        Raises capacity-exceeded as a plan does."""
+        (old_rq, old_lrs), (new_rq, new_lrs) = ((own_quota(objects_of(f, "ResourceQuota"), ns), objects_of(f, "LimitRange"))
+                                                for f in (current, restored))
+        old_hard, hard = binding_hard(_hard(old_rq) or {}), binding_hard(_hard(new_rq) or {})
+        cpu_delta = float(qty(hard.get("requests.cpu", "0")) - qty(old_hard.get("requests.cpu", "0")))
+        mem_delta = float(qty(hard.get("requests.memory", "0")) - qty(old_hard.get("requests.memory", "0")))
+        cap = self.capacity.check(cluster_id, env, max(cpu_delta, 0), max(mem_delta, 0))
+        if cap.status == "exceeded":
+            raise Problem.unprocessable("capacity-exceeded", f"{cap.binding_resource} would exceed the cluster",
+                                        capacity=dict(cap.detail))
+        before, after = (metadata_of(namespace_doc(f)) for f in (current, restored))
+        old_tier, tier = before["label"].get("cmapi.net/tier"), after["label"].get("cmapi.net/tier")
+        approved = self.cfg.tiers.rendered_overrides(old_rq, old_lrs)
+        beyond = sorted(k for k, v in self.cfg.tiers.rendered_overrides(new_rq, new_lrs).items()
+                        if k not in approved or qty(approved[k]) != qty(v))
+        facts = {**self.cfg.tiers.compare(env, old_tier, old_hard, tier, hard).facts(),
+                 "capacity": cap.status, "capacityFresh": cap.fresh, "beyondTier": bool(beyond), "beyondTierKeys": beyond,
+                 "networkExposure": any(qty(hard.get(k, "0")) > qty(old_hard.get(k, "0")) for k in EXPOSURE_KEYS),
+                 **self.cfg.metadata.change_facts(before["label"], after["label"], before["annotation"], after["annotation"],
+                                                  existing=True)}
+        usage_view = None
+        if old_hard and (old_hard.keys() != hard.keys() or any(qty(old_hard[k]) != qty(hard[k]) for k in hard)):
+            usage_view, usage_facts = plan_usage(self.usage.namespace(cluster_id, ns), old_hard, hard)
+            facts.update(usage_facts)
+        return cap, facts, usage_view
+
 
 # The refusals of cmapi's own checks that are a verdict on the request (#302): its names and its expiry. A policy-violation
 # counts each of its errors by its source (cmapi's metadata check, or the validator's kubeconform and Kyverno).

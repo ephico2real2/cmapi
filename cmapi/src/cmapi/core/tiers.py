@@ -697,18 +697,19 @@ class TierCatalog:
         return custom, self.quota_for(env, custom, hard)
 
     def compare(self, env: str, current_tier: str | None, current_hard: Mapping[str, str],
-                new_tier: str, new_hard: Mapping[str, str],
+                new_tier: str | None, new_hard: Mapping[str, str],
                 used: Mapping[str, str] | None = None) -> QuotaChange:
-        """current_hard: what Git holds (#710). current_tier None, or a tier the catalog no longer has, ranks below every tier."""
+        """current_hard: what Git holds (#710). A tier that is None, or that the catalog no longer has, ranks below every tier,
+        and a key that a side does not hold is 0: a revert restores a folder as Git held it (Pipeline.size_restore)."""
         pct, delta, below = {}, {}, []
         for k in self.sizable:
-            old, new = qty(current_hard.get(k, "0")), qty(new_hard[k])
+            old, new = qty(current_hard.get(k, "0")), qty(new_hard.get(k, "0"))
             delta[k] = new - old
             pct[k] = float((new - old) / old * 100) if old else (100.0 if new else 0.0)
             if used and k in used and new < qty(used[k]):
                 below.append(k)
         cur_c = self.file.tiers.get(current_tier, TierDef(order=0)).custom
-        new_c = self.file.tiers[new_tier].custom
+        new_c = self.file.tiers.get(new_tier, TierDef(order=0)).custom
         if cur_c and new_c:
             change = "custom"
         elif new_c:
@@ -717,7 +718,7 @@ class TierCatalog:
             change = "from-custom"
         else:
             o_old = self.file.tiers[current_tier].order if current_tier in self.file.tiers else 0
-            o_new = self.file.tiers[new_tier].order
+            o_new = self.file.tiers[new_tier].order if new_tier in self.file.tiers else 0
             change = "up" if o_new > o_old else "down" if o_new < o_old else "same"
         return QuotaChange(tier_change=change, increase_pct=pct, delta=delta, below_used=below)
 
