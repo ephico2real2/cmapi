@@ -6617,7 +6617,7 @@ export interface operations {
             /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
-             *     Codes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.
+             *     Codes: `cluster-unreachable`, `validator-unavailable`, `validator-busy`, `idp-unavailable`.
              */
             503: {
                 headers: {
@@ -7564,7 +7564,7 @@ export interface operations {
             /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
-             *     Codes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.
+             *     Codes: `cluster-unreachable`, `validator-unavailable`, `validator-busy`, `idp-unavailable`.
              */
             503: {
                 headers: {
@@ -7903,7 +7903,7 @@ export interface operations {
             /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
-             *     Codes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.
+             *     Codes: `cluster-unreachable`, `validator-unavailable`, `validator-busy`, `idp-unavailable`.
              */
             503: {
                 headers: {
@@ -8265,7 +8265,7 @@ export interface operations {
             /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
-             *     Codes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.
+             *     Codes: `cluster-unreachable`, `validator-unavailable`, `validator-busy`, `idp-unavailable`.
              */
             503: {
                 headers: {
@@ -8604,7 +8604,7 @@ export interface operations {
             /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
-             *     Codes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.
+             *     Codes: `cluster-unreachable`, `validator-unavailable`, `validator-busy`, `idp-unavailable`.
              */
             503: {
                 headers: {

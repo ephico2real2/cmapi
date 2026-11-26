@@ -338,7 +338,7 @@
   "        return None",
   "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|337-342": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|339-344": [
   "            if permission:",
   "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
   "            op_id = f\"{self.plugin}_{fn.__name__}\"",
@@ -499,24 +499,24 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1332-1332": [
   "            raise Problem.forbidden(f\"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|177-179": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|178-180": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|265-265": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|266-266": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|271-271": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|272-272": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|279-279": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|280-280": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|516-516": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|523-523": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|600-600": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|607-607": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|89-89": [

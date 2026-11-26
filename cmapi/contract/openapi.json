@@ -11111,6 +11111,16 @@
                       "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   },
+                  "validator-busy": {
+                    "value": {
+                      "code": "validator-busy",
+                      "detail": "The policy check is busy: 1 running and 4 waiting in this pod; try again in 15 s",
+                      "retryAfter": 15,
+                      "status": 503,
+                      "title": "validator busy",
+                      "type": "https://cmapi.ephico2real.com/problems/validator-busy"
+                    }
+                  },
                   "validator-unavailable": {
                     "value": {
                       "code": "validator-unavailable",
@@ -11127,7 +11137,7 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.",
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `validator-busy`, `idp-unavailable`.",
             "headers": {
               "Retry-After": {
                 "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
@@ -12980,6 +12990,16 @@
                       "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   },
+                  "validator-busy": {
+                    "value": {
+                      "code": "validator-busy",
+                      "detail": "The policy check is busy: 1 running and 4 waiting in this pod; try again in 15 s",
+                      "retryAfter": 15,
+                      "status": 503,
+                      "title": "validator busy",
+                      "type": "https://cmapi.ephico2real.com/problems/validator-busy"
+                    }
+                  },
                   "validator-unavailable": {
                     "value": {
                       "code": "validator-unavailable",
@@ -12996,7 +13016,7 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.",
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `validator-busy`, `idp-unavailable`.",
             "headers": {
               "Retry-After": {
                 "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
@@ -13701,6 +13721,16 @@
                       "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   },
+                  "validator-busy": {
+                    "value": {
+                      "code": "validator-busy",
+                      "detail": "The policy check is busy: 1 running and 4 waiting in this pod; try again in 15 s",
+                      "retryAfter": 15,
+                      "status": 503,
+                      "title": "validator busy",
+                      "type": "https://cmapi.ephico2real.com/problems/validator-busy"
+                    }
+                  },
                   "validator-unavailable": {
                     "value": {
                       "code": "validator-unavailable",
@@ -13717,7 +13747,7 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.",
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `validator-busy`, `idp-unavailable`.",
             "headers": {
               "Retry-After": {
                 "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
@@ -14427,6 +14457,16 @@
                       "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   },
+                  "validator-busy": {
+                    "value": {
+                      "code": "validator-busy",
+                      "detail": "The policy check is busy: 1 running and 4 waiting in this pod; try again in 15 s",
+                      "retryAfter": 15,
+                      "status": 503,
+                      "title": "validator busy",
+                      "type": "https://cmapi.ephico2real.com/problems/validator-busy"
+                    }
+                  },
                   "validator-unavailable": {
                     "value": {
                       "code": "validator-unavailable",
@@ -14443,7 +14483,7 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.",
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `validator-busy`, `idp-unavailable`.",
             "headers": {
               "Retry-After": {
                 "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
@@ -15148,6 +15188,16 @@
                       "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
                     }
                   },
+                  "validator-busy": {
+                    "value": {
+                      "code": "validator-busy",
+                      "detail": "The policy check is busy: 1 running and 4 waiting in this pod; try again in 15 s",
+                      "retryAfter": 15,
+                      "status": 503,
+                      "title": "validator busy",
+                      "type": "https://cmapi.ephico2real.com/problems/validator-busy"
+                    }
+                  },
                   "validator-unavailable": {
                     "value": {
                       "code": "validator-unavailable",
@@ -15164,7 +15214,7 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.",
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `validator-busy`, `idp-unavailable`.",
             "headers": {
               "Retry-After": {
                 "description": "The seconds to wait before the next call: the same number as `retryAfter`.",

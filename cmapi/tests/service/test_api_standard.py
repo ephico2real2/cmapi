@@ -465,7 +465,7 @@ CREATE_ANSWERS = {
             "invalid-namespace-name", "expiration-not-allowed", "expiration-in-past", "on-behalf-of-not-allowed",
             "on-behalf-of-required"],
     "502": ["git-unavailable"],
-    "503": ["cluster-unreachable", "validator-unavailable", "idp-unavailable"],
+    "503": ["cluster-unreachable", "validator-unavailable", "validator-busy", "idp-unavailable"],     # validator-busy: #708
 }
 
 
@@ -500,7 +500,7 @@ def test_a_delete_renders_nothing_and_names_no_requester(spec):
     """plan_delete runs no validator, no capacity check and no render of a namespace, and sends no onBehalfOf."""
     codes = _codes(spec, "namespaces_delete_namespace", "422") | _codes(spec, "namespaces_delete_namespace", "503")
     assert codes.isdisjoint({"policy-violation", "capacity-exceeded", "unknown-serviceaccount", "no-change",
-                             "validator-unavailable", "unknown-user", "on-behalf-of-not-allowed"})
+                             "validator-unavailable", "validator-busy", "unknown-user", "on-behalf-of-not-allowed"})
     assert "on-behalf-of-required" in codes
 
 

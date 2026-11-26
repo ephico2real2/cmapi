@@ -39,6 +39,10 @@ REJECTIONS_UNRECORDED = Counter("cmapi_policy_rejections_unrecorded_total",
 AUTHZ_DENIED = Counter("cmapi_authz_denied_total", "Permission refusals", ["permission"])
 # #689: each 429 rate-limited, by the bucket class that refused it (read, write, place, suggest, export or team); never the caller.
 RATE_LIMITED = Counter("cmapi_rate_limited_total", "Calls refused 429 by a rate limit", ["limit"])
+# #708: the validator's slots (core/validate, ValidatorSlots). Each plan refused 503 validator-busy, by why: queue-full (refused
+# at once) or wait-timeout (no slot in CMAPI_VALIDATOR_WAIT_SECONDS); and how long each plan that got a slot waited for it.
+VALIDATOR_BUSY = Counter("cmapi_validator_busy_total", "Plans refused 503 validator-busy", ["reason"])
+VALIDATOR_WAIT = Histogram("cmapi_validator_wait_seconds", "Wait for a validator slot", buckets=(0.01, 0.1, 0.5, 1, 2.5, 5, 10, 15, 30, 60))
 ENV_NOT_SERVED = Counter("cmapi_environment_not_served_total", "Requests for another instance's environment", ["environment"])
 PLUGIN_DISABLED = Counter("cmapi_plugin_disabled_total", "Writes refused because plugins.yaml disables the plugin in the environment",
                           ["plugin", "environment"])

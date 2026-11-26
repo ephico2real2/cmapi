@@ -210,6 +210,12 @@ api:
     requests: {cpu: 100m, memory: 160Mi}
     limits: {cpu: "1", memory: 512Mi}
   logLevel: INFO
+  # The policy check's slots in each API pod (#708; docs/18, "The validator's slots"). One kyverno apply peaks at about
+  # 160 MiB and uses one CPU for seconds: raise concurrency only with the limits, by about 100 MiB and one CPU a slot.
+  validator:
+    concurrency: 1
+    queue: 4
+    waitSeconds: 15
 worker:
   replicas: 1
   resources:

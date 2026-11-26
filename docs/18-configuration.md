@@ -152,6 +152,50 @@ http:
   is the router's for every caller, so it would be one bucket for everyone; a site whose front door sees client addresses can
   add one at its edge.
 
+### The validator's slots
+
+Each plan (a create, a change, an expiry write, and their dry runs) runs kubeconform and then `kyverno apply` as child
+processes of the API (`core/validate/__init__.py`). They count against the API container's memory limit, and on cgroup v2 the
+kubelet sets `memory.oom.group`, so when one process passes the limit the kernel kills every process of the container
+(`singleProcessOOMKill`, default `false` on cgroup v2: "if true, will prevent the `memory.oom.group` flag from being set for
+container cgroups in cgroups v2"). On CRC twelve dry runs at once started twelve `kyverno` processes and killed the 512 MiB
+API (#708). The rate limits do not prevent it: one caller's `write` burst is 30.
+
+So each API process has slots (#708; OWASP API Security Top 10 2023, API4: an API is vulnerable when the "Maximum number of
+processes" limit is missing). A plan takes a slot before it runs either CLI and gives it back after:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CMAPI_VALIDATOR_CONCURRENCY` | `1` | Plans that run their CLIs at once in the process. 1 to 40 |
+| `CMAPI_VALIDATOR_QUEUE` | `4` | Plans that wait for a slot. A plan beyond them answers at once. 0 to 40 |
+| `CMAPI_VALIDATOR_WAIT_SECONDS` | `15` | How long a plan waits for a slot. 0 to 60 |
+
+- **The answer.** A plan that finds the queue full, or waits the whole wait, answers 503 `validator-busy` (RFC 9110, section
+  15.6.4: "the server is currently unable to handle the request due to a temporary overload [...] The server MAY send a
+  Retry-After header field") with `Retry-After` and `retryAfter`: the wait in whole seconds, at least 1. Nothing was done; the
+  same request can be sent again. A dry run is refused the same way.
+- **Why the queue is short.** A route of the API that is a plain `def` runs in AnyIO's worker threads, 40 by default, which
+  every such route shares, `/readyz` among them. A plan that waits holds one of them, so the queue keeps a burst of plans from
+  holding them all; the plans beyond it hold none. Google's SRE book ("Addressing Cascading Failures", "Queue management") keeps
+  "small queue lengths relative to the thread pool size (e.g., 50% or less)" and has the server "reject new requests" when the
+  queue is full. The bounds: 40 for the threads, and 60 s for the front door's `proxy_read_timeout`, nginx's default.
+- **Why one slot.** Measured on the CRC bundle (the policies of `deploy/manifests/environments/crc/20-config.yaml`, rendered for
+  `dev`), with the pinned CLI v1.20.0 for `linux/x86_64` in the image's UBI 9 base (`docs/reviews/2026-11-26-issue-708/`):
+  one `kyverno apply` peaked at **151.0 to 158.2 MiB RSS** in 8 runs, and used **2.6 to 5.4 s of one CPU**. Runs at once share
+  the binary's pages: the container's cgroup peaked at 173 to 180 MiB with one run (and the measuring Python), 248 to 260 MiB
+  with two, 413 MiB with four and 914 MiB with twelve. CRC's OOM report gave the API's own process 134 MiB. So the API with one
+  slot peaks near 310 MiB of its 512 MiB, two slots near 395 MiB, and four pass the limit. The API's CPU limit is 1, where two
+  runs at once took 6.7 s for 6.6 s of CPU: a second slot adds memory and no throughput. Go's own settings do not shrink it:
+  `GOGC=50` gave 145.7 MiB and `GOMEMLIMIT=96MiB` 154.2 MiB, since most of it is the CLI's fixed start.
+- **Raise the slots with the memory and CPU limits**: for each slot past the first, about 100 MiB (80 MiB measured, and room)
+  and one CPU. The worker runs one
+  job at a time, so it uses one slot whatever the setting.
+- **What an operator sees.** `cmapi_validator_busy_total{reason}` counts each 503 `validator-busy`, with `reason` `queue-full`
+  (refused at once) or `wait-timeout`; `cmapi_validator_wait_seconds` is how long each plan that got a slot waited for it. The
+  log line `validator_busy` (warning) names the reason, the cluster and the namespace. Waits near `CMAPI_VALIDATOR_WAIT_SECONDS`
+  and a rising `wait-timeout` say the pod needs more slots, and so more memory, or more replicas.
+- **The chart** sets the three from `api.validator.concurrency`, `.queue` and `.waitSeconds`.
+
 ### The policy engine
 
 `instance.policy` decides whether Kyverno runs, and in which mode, for each environment. The code is `cmapi/src/cmapi/core/policy.py`. The chart value is `instance.policy`.
@@ -946,6 +990,7 @@ The chart and the plain manifests also write `mode`, `snapshotInterval` and `tar
 | `CMAPI_BIND_PORT`, `CMAPI_METRICS_PORT` | `8080`, `9090` | The ports of the API and of the metrics |
 | `CMAPI_WORKER_POLL_SECONDS` | `2.0` | How often the worker looks for a due job |
 | `CMAPI_WORKER_ID` | The host name | The name of the worker in a lease |
+| `CMAPI_VALIDATOR_CONCURRENCY`, `CMAPI_VALIDATOR_QUEUE`, `CMAPI_VALIDATOR_WAIT_SECONDS` | `1`, `4`, `15` | The slots of the policy check in each process: how many plans run kubeconform and Kyverno at once, how many wait, and for how long, before 503 `validator-busy` with `Retry-After` (#708). A value out of range stops the start. See "The validator's slots" |
 | `CMAPI_KYVERNO_VERSION` | None | When set and a served environment runs Kyverno, the `kyverno` binary must be exactly this version (the whole `Version:` line of `kyverno version`, #395, #412), or cmapi does not start (`core/validate/__init__.py`). `GET /api/v1/admin/integrations` reports it as `policy.kyvernoVersion` (`core/policy.py`, `view`). The image sets it from `KYVERNO_VERSION` in `cmapi/Containerfile` (#390) |
 | `CMAPI_KUBECONFORM_SCHEMAS` | None | The `-schema-location` of kubeconform (`core/context.py`) |
 | `CMAPI_KUBERNETES_VERSION` | None | The `-kubernetes-version` of kubeconform (`core/context.py`) |
@@ -989,6 +1034,7 @@ The chart and the plain manifests also write `mode`, `snapshotInterval` and `tar
 | `database.cnpg.enabled`, `.name`, `.instances`, `.storage`, `.storageClass`, `.imageName`, `.resources`, `.parameters` | | CloudNativePG with 1 instance and 2Gi | The PostgreSQL cluster. See `docs/12` |
 | `database.existingSecret` | text | `""` | With CNPG off: a Secret with the key `uri`. Needed then |
 | `api.*`, `worker.*`, `portal.*`, `migrate.*` | | | `replicas`, `resources` and `logLevel` of each workload, and the `migrate` init container |
+| `api.validator.concurrency`, `.queue`, `.waitSeconds` | integers, number | `1`, `4`, `15` | `CMAPI_VALIDATOR_CONCURRENCY`, `_QUEUE` and `_WAIT_SECONDS` of the API (#708). Raise `concurrency` only with `api.resources.limits` (see "The validator's slots") |
 | `exposure` | `Route` or `Ingress` | `Route` | `Route` for OpenShift, `Ingress` for plain Kubernetes. `Ingress` needs `ingress.<site>.host` |
 | `route.*`, `ingress.*` | | Empty hosts | The hosts and the TLS of each site: `api`, `portal`, `mockup` |
 | `trustedCA.certificates` | text | `""` | A PEM bundle for Keycloak, Git and the database: ConfigMap `<release>-trust`, named by `CMAPI_CA_BUNDLE`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` and `PGSSLROOTCERT`. Not a cluster's trust (#434) |
