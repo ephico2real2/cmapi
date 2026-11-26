@@ -179,3 +179,16 @@ def test_a_change_can_remove_a_disallowed_key_that_git_holds_and_the_diff_shows_
     assert "old.invalid/key" not in planned_namespace(r)["labels"]
     assert r.json()["metadataDiff"]["labels"] == {"old.invalid/key": {"before": "legacy", "after": None, "source": "request"}}
     assert errors_of(patch(design_world, {"labels": {"old.invalid/key": "again"}})) == [("invalid_key", "old.invalid/key")]
+
+
+def test_a_fixed_key_that_git_holds_empty_is_reported_as_kept_since_a_change_cannot_replace_it(design_world):
+    """#732 (R1 F3): Git's value of a fixed or automatic key stays (#481), an empty one too, so its finding does not offer
+    the addition that a change of a missing key gets: the change that the finding would advertise is refused."""
+    create(design_world)
+    edit_git(design_world, lambda meta: meta["labels"].update({"name": "", "company.net/mnemonic": ""}))
+    assert missing_key_messages(patch(design_world, {"labels": {"company.net/cl": "0"}})) == [
+        "the required label name is empty in Git: a change keeps that value",
+        "the required label company.net/mnemonic is empty in Git: a change keeps that value"]
+    assert errors_of(patch(design_world, {"labels": {"name": NS}})) == [("derived_key", "name")]
+    assert errors_of(patch(design_world, {"labels": {"company.net/mnemonic": "abc"}})) == [
+        ("invalid_value", "company.net/mnemonic")]

@@ -85,3 +85,6 @@ def test_a_request_adds_the_missing_derived_name_with_its_derived_value_only(com
     right = change(company_world, {"name": NS}, dry_run=True)
     assert right.status_code == 200, right.text
     assert not any("label name" in m for m in missing(right.json()))
+    ns = yaml.safe_load(right.json()["files"][f"clusters/CRC/namespaces/{NS}/namespace.yaml"])
+    assert ns["metadata"]["labels"]["name"] == NS             # the renderer writes it: Git lacked it, so none is kept
+    assert right.json()["metadataDiff"]["labels"]["name"] == {"before": None, "after": NS, "source": "request"}

@@ -1161,10 +1161,11 @@ class MetadataKeys:
         if held is None and sent[kind][key] is not None:
             how = self._addition(kind, key, rule, sent[kind][key], sources)
             if how is None:
-                return []
+                error = self._syntax(key, sent[kind][key], kind)
+                return [error] if error else []
             keeps = how
         else:
-            keeps = f"a change keeps {held!r}" if held is not None else self.remedy(kind, key)
+            keeps = f"a change keeps {held!r}" if held is not None else self.remedy(kind, key, sources)
         if rule.derived:
             return [{"code": "derived_key", "key": key, "kind": kind, "detail": f"cmapi sets {key}: {keeps}"}]
         if sent[kind][key] is None and rule.required:
@@ -1176,22 +1177,24 @@ class MetadataKeys:
         """None when a change may add this missing key with this value (#732); else the remedy to say in the refusal."""
         if rule.derived:
             expected = sources.get(rule.derived)
-            return None if expected is not None and value == expected else self.remedy(kind, key, sources)
+            return None if expected and value == expected else self.remedy(kind, key, sources)
         namespace = sources.get("namespace")
         if rule.namespace_prefix and namespace and namespace.startswith(f"{value}-") and \
                 not self._breaks_own_rule(key, value, kind, sources):
             return None
         return self.remedy(kind, key, sources)
 
-    def remedy(self, kind: str, key: str, sources: Mapping[str, str] | None = None) -> str:
+    def remedy(self, kind: str, key: str, sources: Mapping[str, str]) -> str:
         """How a request adds a required key that a namespace lacks, in words (#732): the plan's finding and a refusal say it."""
         rule = self.rules[kind].get(key)
         if rule is None or not (rule.derived or rule.namespace_prefix or rule.namespace_suffix):
             return "a request can add it"
         if rule.derived:
-            expected = (sources or {}).get(rule.derived)
-            shown = f" ({expected})" if expected else ""
-            return f"a request can add it with the value cmapi derives from the {rule.derived}{shown}"
+            expected = sources.get(rule.derived)
+            if not expected or self._syntax(key, expected, kind):
+                # As at create, which fills nothing from an empty target and refuses a value that is not a valid label.
+                return f"a change cannot add it: the {rule.derived} gives no valid value"
+            return f"a request can add it with the value cmapi derives from the {rule.derived} ({expected})"
         if rule.namespace_prefix:
             return "a request can add it with the start of the namespace name"
         return "a change cannot add it: it is part of the namespace's fixed name"
