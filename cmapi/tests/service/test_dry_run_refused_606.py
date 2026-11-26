@@ -86,7 +86,9 @@ def test_every_write_without_a_dry_run_refuses_one(world):
             guarded.append(route.path_format)
             assert "refuse_dry_run" in calls, f"{route.path_format} takes no dryRun and does not refuse one"
             assert "dry-run-not-supported" in declared, f"{route.path_format} does not declare 400 dry-run-not-supported"
-    assert len(planned) == 6 and "/api/v1/requests/{request_id}:approve" in guarded, (planned, guarded)
+    # The six namespace writes, and POST /api/v1/capacity:place (#21): dryRun ranks and holds nothing.
+    assert len(planned) == 7 and "/api/v1/capacity:place" in planned, (planned, guarded)
+    assert "/api/v1/requests/{request_id}:approve" in guarded, guarded
 
 
 def test_the_writes_that_have_a_dry_run_still_answer_it(world):
