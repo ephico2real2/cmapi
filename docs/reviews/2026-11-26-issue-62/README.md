@@ -89,3 +89,29 @@ test feeds the request's own rendered quota through the watch's ADDED path).
 - the deadlock and scale tests together: 10 of 10, 5 times;
 - 5 of 5 mutants caught;
 - 261 related service tests and 843 core tests passed.
+
+## A double count found by CI's portal test (2026-11-26)
+
+**What happened:** after the review fixes, CI's portal check expected the recorded plan's cpu at 13% and read 31%. The coordinator did not change the test's expected value. An Opus agent recomputed the figure by hand, from a dump of the database and the ledger taken at the moment the plan is recorded.
+
+**What it found:** payments-dev is live at 8 cores, and its open change to large holds +24 cores. The medium plan adds +8. Both increases are sized from the quota that Git holds, so they are two alternative outcomes of one namespace: it ends at 32 or at 16, never at 40.
+- The check counted both, (8 + 24 + 8) / 128 = 0.3125.
+- The same double count turned a submit's 409 `change-pending` into 422 `capacity-exceeded` on a nearly full cluster.
+
+**The fix (`da0e36b`):**
+- `SimulatedCapacity.check(namespace=)` does not count holds on the namespace being changed.
+- Callers that pass it: the plan check, `reserve_check` and the revert's `restore_facts`.
+- Only the open request on a namespace can hold there: the Reservation states lie within the namespace lock's (`core/lifecycle.py`).
+- The new test fails before the fix (0.312, and 422 where 409 is right), and passes after.
+
+**The coordinator's line-by-line read:**
+- The filter is applied after the cluster filter and the `exclude` filter, so another namespace's hold is still counted. The test asserts this, with 24 cores reserved for payments-b.
+- `reserve_check` keeps the cluster lock.
+- The protocol in `ports.py` matches.
+- No other behaviour changes.
+
+**Runs:**
+- portal suite: 198 ok, 0 not ok;
+- contract, docs and standard tests: 206 passed;
+- the reservation tests: 23 passed;
+- oasdiff: no breaking change.
