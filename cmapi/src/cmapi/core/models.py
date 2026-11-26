@@ -347,9 +347,31 @@ class BeyondTier(Api):
                                                       "on top of the environment's rule")
 
 
+class MissingKey(Api):
+    kind: Literal["label", "annotation"] = Field(description="Whether the key is a label or an annotation", examples=["label"])
+    key: str = Field(description="A key that metadata-keys.yaml declares and the namespace lacks", examples=["cmapi.net/team"])
+    required: bool = Field(description="Whether the rules require it: until a request adds it, each plan lists it as a finding",
+                           examples=[True])
+    value: str | None = Field(description="The only value a request may add for a key that cmapi fills in (value.from) or that "
+                                          "starts the namespace name (namespacePrefix), as at create; null for a key whose "
+                                          "value the requester chooses by its rule in GET /api/v1/metadata-keys",
+                              examples=[None])
+
+
 class AdoptBody(RequestBody):
     justification: str | None = Field(default=None, description="Why the namespace is adopted, which the approvers read",
                                       examples=["Bring the team's namespace under cmapi"])
+    labels: dict[str, str] | None = Field(
+        default=None, description="Labels that the live namespace lacks, to add at the adoption (#739). Each is checked by "
+                                  "the rules of a create (GET /api/v1/metadata-keys): a key that cmapi fills in or that "
+                                  "starts the name only with its `value` in `missingKeys`. A key that the namespace already "
+                                  "has is 422 `adoption-key-held`: the adoption keeps every key it finds as it is. Each "
+                                  "required key added drops its `missing-required-key` finding. Leave it out to add none",
+        examples=[{"cmapi.net/team": "payments"}])
+    annotations: dict[str, str] | None = Field(
+        default=None, description="Annotations that the live namespace lacks, to add at the adoption, by the same rules as "
+                                  "`labels`",
+        examples=[None])
 
 
 AdoptionState = Literal["candidate", "skipped", "managed", "excluded", "unlabelled"]
@@ -368,6 +390,11 @@ class AdoptionStanding(Api):
                                   examples=[["company.net/provisioner=cluster-configs"]])
     application: str | None = Field(description="The Argo CD Application that tracks it, when another one does",
                                     examples=[None])
+    missing_keys: list[MissingKey] | None = Field(
+        default=None, description="For a candidate: each declared label and annotation it lacks, which the adoption may add "
+                                  "(`labels` and `annotations` of `:adopt`), required ones first. Null for a namespace that is "
+                                  "not a candidate", examples=[[{"kind": "label", "key": "cmapi.net/team", "required": True,
+                                                                 "value": None}]])
 
 
 class AdoptionList(Api):
@@ -471,6 +498,11 @@ class PlanUsage(Api):
     memory: UsageFigures = Field(description="Memory, in bytes")
 
 
+class SuppliedMetadata(Api):
+    labels: dict[str, str] = Field(description="Each label that the request adds, by key", examples=[{"cmapi.net/team": "payments"}])
+    annotations: dict[str, str] = Field(description="Each annotation that the request adds, by key", examples=[{}])
+
+
 class AdoptedObject(Api):
     kind: Literal["Namespace", "ResourceQuota", "LimitRange"] = Field(description="The object's kind", examples=["ResourceQuota"])
     name: str = Field(description="The object's name", examples=["abc-rnd-quota"])
@@ -507,6 +539,11 @@ class PlanAdoption(Api):
     snapshot_hash: str = Field(description="SHA-256 of the objects as read: the base of the policy checks at plan time and in "
                                            "the pull request's check, which never take it from the pull request",
                                examples=["5d1f0c9e2b7a4c3d8e6f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d"])
+    supplied: SuppliedMetadata = Field(description="The labels and annotations that the request adds to the namespace (#739), "
+                                                 "which it lacked: empty maps when it adds none")
+    missing_keys: list[MissingKey] = Field(description="Each declared key that the adopted namespace will still lack, which "
+                                                       "a later change request can add, required ones first",
+                                           examples=[[]])
 
 
 class PlanView(Api):
@@ -602,6 +639,10 @@ class GitMetadata(Api):
                                            "the cluster's environment. A system, reserved or adoption "
                                            "key is fixed, a key that allowOther admits is optional, and a key that no rule admits "
                                            "is fixed and removable (#484)")
+    missing_keys: list[MissingKey] = Field(description="Each declared key that Git lacks and a change request can add, required "
+                                                       "ones first, with the only value it may take where cmapi fills it in "
+                                                       "or the name starts with it (#732, #739): what an adopted namespace "
+                                                       "lacks", examples=[[]])
 
 
 class NamespaceView(ClusterScoped):

@@ -228,7 +228,8 @@ def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, 
     metadata-keys.yaml does not declare, so a form can lock it or offer its removal: `mode`, the `reason` to show,
     `sensitive`, and `removable` for a key that no rule admits, which a change may remove and never set (#484). An
     operator-only key's reason names this cluster's environment (#532). The other keys' `x-cmapi-edit` are in
-    `GET /api/v1/metadata-keys`. `sync` compares Git with the live namespace (#481): `pending` while a request holds it,
+    `GET /api/v1/metadata-keys`. Its `missingKeys` list each declared key that Git lacks, as an adopted namespace may, which a
+    change can add, with the one value of a key that cmapi fills in or that starts the name (#732, #739). `sync` compares Git with the live namespace (#481): `pending` while a request holds it,
     `drift` when a governed, extra or operator-only key differs (each in `driftedKeys`), `in-sync` when none does, and
     `unknown` when the cluster's watch is not fresh."""
     st = c.registry.get(cluster_id)
@@ -246,8 +247,11 @@ def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, 
     view = _namespace_view(c, cluster_id, obj, holders, live_fresh=live_fresh, git=git if git_doc is not None else None,
                            on_cluster=live is not None)
     environment = st.policy.environment if st.policy else None
+    # The keys that a change may add, as a PATCH checks them (#732): the request's target is the cluster's environment.
+    sources = {"namespace": ns, "environment": environment or "", "cluster": cluster_id, "instance": c.cfg.name}
     view["git"] = {"labels": git["label"], "annotations": git["annotation"],
-                   "edits": c.cfg.metadata.undeclared_edits(git, environment)} \
+                   "edits": c.cfg.metadata.undeclared_edits(git, environment),
+                   "missingKeys": c.cfg.metadata.missing_keys(git["label"], git["annotation"], sources)} \
         if git_doc else None
     view["etag"] = folder_etag(files)
     # Protection from the labels in Git, the input of a delete (plan_delete), not from the live object (#366).

@@ -31,6 +31,10 @@ ACTIONS: dict[str, str] = {
                                "Git); change it with a request instead. `tracked-elsewhere`: the Argo CD Application in "
                                "`application` owns it; take it out of that Application first. `excluded` or `terminating`: "
                                "it is never adopted.",
+    "adoption-key-held": "Leave out of `labels` and `annotations` each key that `keys` lists: the namespace has it, and an "
+                         "adoption keeps every key it finds as it is. Add only the keys of `missingKeys` (in the candidates list "
+                         "or the plan's `adoption`), then send the adoption again. To change a key the namespace has, send a "
+                         "change request after the adoption.",
     "not-pending": "Read the request. Only a request in the state `pending_approval` takes an approval or a rejection.",
     "invalid-transition": "Read the request. Its state does not permit this action.",
     "already-approved": "Do nothing. Your approval is recorded, and another person must give the next one.",

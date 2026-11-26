@@ -82,6 +82,8 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "reserved-namespace": (422, "kube-tools is reserved"),
     "invalid-namespace-name": (422, "Not a DNS-1123 label"),
     "no-change": (422, "The request changes nothing"),
+    "adoption-key-held": (422, "abc-rnd already has the label company.net/lob: an adoption keeps each key it finds as it is. "
+                               "Leave it out, and change it with a request after the adoption"),
     "identity-incomplete": (422, "The token has no employee_id claim"),
     "unknown-user": (422, "1009 is not an enabled user"),
     "invalid-team-dl": (422, "x@other.com is not an address in ['ephico2real.com']"),

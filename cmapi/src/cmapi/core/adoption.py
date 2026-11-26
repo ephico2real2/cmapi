@@ -181,6 +181,7 @@ class Standing:
     labelled: bool = False
     recognised: tuple[str, ...] = ()
     application: str | None = None
+    missing_keys: tuple[Mapping[str, Any], ...] = ()     # a candidate's: what :adopt may add (#739); see MetadataKeys.missing_keys
 
 
 def standing(ns: Mapping[str, Any], *, in_git: bool, environment: str, cluster_id: str, settings: AdoptionSettings,
@@ -370,19 +371,27 @@ def snapshot_hash(files: Mapping[str, str], identity: Iterable[Mapping[str, str]
     return hashlib.sha256(body.encode()).hexdigest()
 
 
-def adopted_files(snap: Snapshot, owner: Owner, keys: MetadataKeys) -> tuple[dict[str, str], list[dict[str, str]]]:
+def adopted_files(snap: Snapshot, owner: Owner, keys: MetadataKeys,
+                  added: Mapping[str, Mapping[str, str]] | None = None) -> tuple[dict[str, str], list[dict[str, str]]]:
     """D4 and D8: the folder of the adoption, and each system value that it writes over a value the namespace held.
 
     The Namespace keeps every label and annotation that D3 keeps, cmapi.net/adopt too (the owner's decision 6), and gets the
     renderer's system keys; each ResourceQuota and LimitRange keeps its content under its own name, in its own file, and gets
-    cmapi.net/managed, cluster-id and tier, with Prune=confirm. No tier hash: an adopted object is no rendering of a tier."""
+    cmapi.net/managed, cluster-id and tier, with Prune=confirm. No tier hash: an adopted object is no rendering of a tier.
+
+    `added` ({label: ..., annotation: ...}): the keys that the request adds to the Namespace (#739). The caller checked them,
+    and each is a key the namespace lacked, so no value it held changes. The snapshot itself stays as it was read (D6a)."""
     replaced: list[dict[str, str]] = []
     base = folder(owner.cluster_id, snap.namespace["metadata"]["name"])
+    added = added or {}
 
-    def stamp(doc: dict[str, Any], labels: Mapping[str, str], annotations: Mapping[str, str]) -> dict[str, Any]:
+    def stamp(doc: dict[str, Any], labels: Mapping[str, str], annotations: Mapping[str, str],
+              extra: Mapping[str, Mapping[str, str]] | None = None) -> dict[str, Any]:
         doc = json.loads(json.dumps(doc))
         meta = doc.setdefault("metadata", {})
-        held_l, held_a = dict(meta.get("labels") or {}), dict(meta.get("annotations") or {})
+        extra = extra or {}
+        held_l = {**(meta.get("labels") or {}), **(extra.get("label") or {})}
+        held_a = {**(meta.get("annotations") or {}), **(extra.get("annotation") or {})}
         for kind, held, mine in (("label", held_l, labels), ("annotation", held_a, annotations)):
             for key, value in mine.items():
                 if key in held and held[key] != value:
@@ -407,7 +416,7 @@ def adopted_files(snap: Snapshot, owner: Owner, keys: MetadataKeys) -> tuple[dic
     def dump(doc: Mapping[str, Any]) -> str:
         return kube_yaml.dump(doc, sort_keys=False, default_flow_style=False)
 
-    files = {base + "namespace.yaml": dump(stamp(snap.namespace, ns_labels, ns_annotations))}
+    files = {base + "namespace.yaml": dump(stamp(snap.namespace, ns_labels, ns_annotations, added))}
     for doc in (*snap.quotas, *snap.limits):
         files[base + object_file(doc["kind"], doc["metadata"]["name"])] = dump(stamp(doc, common, obj_annotations))
     return files, replaced
