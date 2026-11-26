@@ -242,9 +242,20 @@ class CapacityLedger:
         """What one namespace adds to `committed` now, per resource, in cores and bytes: 0 for a resource it does not bound."""
         with self._lock:
             figures = self._figures.get(namespace)
-        bounds = figures.bounds if figures else (None, None)
-        return {r: amount(b.hard) if b else Decimal(0) for r, b in zip(RESOURCES, bounds)}
+        return _committed(figures)
 
     def totals(self) -> LedgerTotals:
         with self._lock:
             return self._acc.totals(self._scoped)
+
+    def snapshot(self, namespaces: Iterable[str]) -> tuple[LedgerTotals, dict[str, dict[str, Decimal]]]:
+        """The totals and what each of `namespaces` commits, at one watch event. The capacity check tells a hold that the
+        ledger shows from these: read apart, a quota admitted between the two reads is in neither the totals nor the hold
+        (#725 review)."""
+        with self._lock:
+            return self._acc.totals(self._scoped), {ns: _committed(self._figures.get(ns)) for ns in namespaces}
+
+
+def _committed(figures: NamespaceFigures | None) -> dict[str, Decimal]:
+    bounds = figures.bounds if figures else (None, None)
+    return {r: amount(b.hard) if b else Decimal(0) for r, b in zip(RESOURCES, bounds)}

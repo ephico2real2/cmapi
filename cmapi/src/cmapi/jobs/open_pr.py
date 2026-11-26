@@ -110,12 +110,13 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
              "clusterId": row.cluster_id, "team": labels.get("cmapi.net/team") or row.team,
              "clusterLabels": dict(policy.labels), "automated": True, "reason": "revert",
              "capacity": "fits", "capacityFresh": True, "warnings": []}
-    cap, usage, beyond = CapacityResult("fits", True, None, {"source": "revert"}), None, {}
+    cap, usage, beyond, hold = CapacityResult("fits", True, None, {"source": "revert"}), None, {}, None
     findings = []
     if action != "delete":
         # What it writes back is a change of what Git holds now, sized and reviewed as any (#710). capacity-exceeded fails the
         # job as a Git outage does: the transaction is rolled back and the request stays sync_failed.
-        cap, restore_facts, usage, beyond = ctx.pipeline.restore_facts(row.cluster_id, row.env, row.namespace, now_files, prev)
+        cap, restore_facts, usage, beyond, hold = ctx.pipeline.restore_facts(row.cluster_id, row.env, row.namespace, now_files,
+                                                                             prev, session=s)
         facts.update(restore_facts, tier=labels.get("cmapi.net/tier"))
         # Its findings go to the approvers, as a plan's do ("when the plan has warnings", docs/01), since the PR check passes
         # an audit finding as one the approvers saw (pr_checks). An outage of the validator fails the job as a Git outage does.
@@ -140,7 +141,7 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
                                                     roles=frozenset({"cmapi-onboarding"})), None)
     plan = Plan(row.cluster_id, row.namespace, row.env, action, "namespaces", None, files, now_files, changes, requirement,
                 cap, facts, requester, findings, base_sha, reason="revert", usage=usage, warnings=facts["warnings"],
-                beyond_tier=ctx.pipeline.beyond_view(facts, beyond))
+                beyond_tier=ctx.pipeline.beyond_view(facts, beyond), hold=hold)
     new = ctx.pipeline.submit(who, plan, repo, jobs, idempotency_key=None, body_fingerprint="revert:" + row.request_id,
                               justification=f"Revert of {row.request_id}")
     repo.event(row, "revert_opened", "worker", new.request_id)
