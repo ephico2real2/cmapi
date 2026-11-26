@@ -654,6 +654,19 @@ class TierCatalog:
                 if k in asked and not _same(asked[k], mine.get(k))}
 
     @staticmethod
+    def limits_of(limit_ranges: Iterable[Mapping[str, Any]]) -> LimitRange:
+        """The values that rendered LimitRange objects hold, as limits_for gives them: the inverse of render() for limits."""
+        kinds = {api: kind for kind, api in LIMIT_KINDS.items()}
+        out: LimitRange = {}
+        for lr in limit_ranges:
+            for item in (lr.get("spec") or {}).get("limits") or []:
+                kind = kinds.get(item.get("type"))
+                for part in LIMIT_PARTS if kind else ():
+                    for res, value in (item.get(part) or {}).items():
+                        out.setdefault(kind, {}).setdefault(part, {})[res] = str(value)
+        return out
+
+    @staticmethod
     def rendered_overrides(rq: Mapping[str, Any] | None,
                            limit_ranges: Mapping[str, Any] | Iterable[Mapping[str, Any]] | None) -> dict[str, str]:
         """The approved beyond-tier values of a namespace, from its rendered objects: each key that the annotation
@@ -697,18 +710,19 @@ class TierCatalog:
         return custom, self.quota_for(env, custom, hard)
 
     def compare(self, env: str, current_tier: str | None, current_hard: Mapping[str, str],
-                new_tier: str, new_hard: Mapping[str, str],
+                new_tier: str | None, new_hard: Mapping[str, str],
                 used: Mapping[str, str] | None = None) -> QuotaChange:
-        """current_hard: what Git holds (#710). current_tier None, or a tier the catalog no longer has, ranks below every tier."""
+        """current_hard: what Git holds (#710). A tier that is None, or that the catalog no longer has, ranks below every tier,
+        and a key that a side does not hold is 0: a revert restores a folder as Git held it (Pipeline.restore_facts)."""
         pct, delta, below = {}, {}, []
         for k in self.sizable:
-            old, new = qty(current_hard.get(k, "0")), qty(new_hard[k])
+            old, new = qty(current_hard.get(k, "0")), qty(new_hard.get(k, "0"))
             delta[k] = new - old
             pct[k] = float((new - old) / old * 100) if old else (100.0 if new else 0.0)
             if used and k in used and new < qty(used[k]):
                 below.append(k)
         cur_c = self.file.tiers.get(current_tier, TierDef(order=0)).custom
-        new_c = self.file.tiers[new_tier].custom
+        new_c = self.file.tiers.get(new_tier, TierDef(order=0)).custom
         if cur_c and new_c:
             change = "custom"
         elif new_c:
@@ -716,8 +730,10 @@ class TierCatalog:
         elif cur_c:
             change = "from-custom"
         else:
-            o_old = self.file.tiers[current_tier].order if current_tier in self.file.tiers else 0
-            o_new = self.file.tiers[new_tier].order
+            # Below every tier: an order may be 0 or negative (TierDef.order is any unique int).
+            floor = min((t.order for t in self.file.tiers.values()), default=0) - 1
+            o_old = self.file.tiers[current_tier].order if current_tier in self.file.tiers else floor
+            o_new = self.file.tiers[new_tier].order if new_tier in self.file.tiers else floor
             change = "up" if o_new > o_old else "down" if o_new < o_old else "same"
         return QuotaChange(tier_change=change, increase_pct=pct, delta=delta, below_used=below)
 

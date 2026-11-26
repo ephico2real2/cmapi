@@ -123,7 +123,7 @@ def quotas_kept(quotas: list[dict[str, Any]], namespace: str, *, changes_quota: 
     return len(quotas) > 1 or not changes_quota
 
 
-def _own_limit_range(doc: Mapping[str, Any], namespace: str) -> bool:
+def own_limit_range(doc: Mapping[str, Any], namespace: str) -> bool:
     """A LimitRange that cmapi rendered: named <ns>-limits-<resource> (limit_object_name, #253) or the single <ns>-limits of
     before, and carrying the cmapi.net/tier-hash that every rendering of a tier writes (tiers.render; before #253 too). The
     name alone is not enough: a team's own LimitRange may be called <ns>-limits-gpu, and a change would remove it from Git and
@@ -231,7 +231,7 @@ class ManifestRenderer:
             rendered = {(d["kind"], d["metadata"]["name"]) for d in tier_objects}
             own = own_quota(quotas, spec.namespace)
             kept = [d for d in quotas if d is not own and ("ResourceQuota", _name(d)) not in rendered]
-            kept += [d for d in prev_objects if d.get("kind") == "LimitRange" and not _own_limit_range(d, spec.namespace)
+            kept += [d for d in prev_objects if d.get("kind") == "LimitRange" and not own_limit_range(d, spec.namespace)
                      and ("LimitRange", _name(d)) not in rendered]
         for d in tier_objects:
             d["metadata"]["labels"] = self.keys.ordered(d["metadata"]["labels"])

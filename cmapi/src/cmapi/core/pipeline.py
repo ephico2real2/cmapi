@@ -13,6 +13,7 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import date
+from decimal import Decimal
 from typing import Any, Mapping
 
 import yaml
@@ -21,7 +22,7 @@ from cmapi.capacity.usage import NoUsage, UsageSource, plan_usage
 from cmapi.core import kube_yaml
 from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, Requirement
 from cmapi.core.capacity_backend import SimulatedCapacity
-from cmapi.core.capacity_ledger import binding_hard
+from cmapi.core.capacity_ledger import binding_hard, quota_facts, totals_of
 from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeError
 from cmapi.core.config import InstanceConfig, environment_not_served
 from cmapi.core.db.models import ChangeRequestRow
@@ -39,8 +40,8 @@ from cmapi.core.observability import (AUTO_APPROVALS, AUTO_FALLBACKS, CHANGE_REQ
 from cmapi.core.ports import CapacityBackend, CapacityResult, Finding, Validator
 from cmapi.core.validate import ValidatorBusy, ValidatorUnavailable
 from cmapi.core.registry import ClusterRegistry
-from cmapi.core.render.manifests import (DELETED, ManifestRenderer, NamespaceSpec, diff_files, folder, objects_of, own_quota,
-                                         plan_hash, quotas_kept)
+from cmapi.core.render.manifests import (DELETED, ManifestRenderer, NamespaceSpec, diff_files, folder, objects_of,
+                                         own_limit_range, own_quota, plan_hash, quotas_kept)
 from cmapi.core.tiers import EXPOSURE_KEYS, QuotaChange, flatten_limits, qty
 from cmapi.plugins.expiration.rules import ExpiryInfo, utc_day, utc_today
 
@@ -464,11 +465,7 @@ class Pipeline:
         raised = [k for k in sorted(EXPOSURE_KEYS) if qty(hard.get(k, "0")) > qty(exposure_base.get(k, "0"))]
         facts.update({"beyondTier": bool(beyond), "beyondTierKeys": sorted(beyond), "networkExposure": bool(raised)})
         requirement = self._decide(facts)
-        beyond_view = None
-        if beyond:
-            added = self.cfg.approvals.added_for(facts, BEYOND_FACTS)
-            beyond_view = {"keys": [{"key": k, **beyond[k]} for k in sorted(beyond)],
-                           "approvals": [{"group": s.group, "count": s.count, "reason": s.reason} for s in added]}
+        beyond_view = self.beyond_view(facts, beyond)
         return Plan(cluster_id, ns, env, action, "namespaces", spec, files, prev_files, changes, requirement, cap, facts,
                     requester, findings, base_sha, reason=reason, etag=etag, warnings=[f.message for f in findings],
                     beyond_tier=beyond_view, metadata=metadata_view, metadata_diff=metadata_diff, usage=usage_view)
@@ -642,6 +639,77 @@ class Pipeline:
         else:
             jobs.enqueue("channel_notify", request_id=rid, cluster_id=plan.cluster_id, payload={"kind": "pending"})
         return row
+
+    def restore_facts(self, cluster_id: str, env: str, ns: str, current: Mapping[str, str | None],
+                      restored: Mapping[str, str | None]
+                      ) -> tuple[CapacityResult, dict[str, Any], dict[str, Any] | None, dict[str, dict[str, str | None]]]:
+        """The approval facts of a revert, which writes back the folder that Git held before a plan: "the revert is a new
+        request through the same approval rules" (docs/01, the state reverted). Taken as _plan_namespace takes them for a
+        change, from what Git holds now (#710) to what is restored: the capacity check, quotaIncreasePct and tierChange,
+        networkExposure, beyondTier, the live usage of a quota that Git holds, and the metadata facts (sensitiveKeyChanged).
+        Returns the check, the facts, the usage view and the values beyond the tier (beyond_view). Raises capacity-exceeded
+        as a plan does."""
+        (old_rq, old_lrs), (new_rq, new_lrs) = ((own_quota(objects_of(f, "ResourceQuota"), ns),
+                                                 [d for d in objects_of(f, "LimitRange") if own_limit_range(d, ns)])
+                                                for f in (current, restored))
+        old_hard, hard = binding_hard(_hard(old_rq) or {}), binding_hard(_hard(new_rq) or {})
+        # The cluster's commitment holds the quota that the namespace has now. After a failed sync that is Git's, the restored
+        # one or neither, so the restore is sized over the live quota that the ledger counts: over Git's, the revert of a
+        # lowering whose sync did not finish counted the quota still live twice (#718, reviewer 1's H1).
+        committed = totals_of(f for q in objects_of(restored, "ResourceQuota") if (f := quota_facts(q)) is not None).committed
+        live = self._live_committed(cluster_id, ns, current)
+        cap = self.capacity.check(cluster_id, env, max(float(committed["cpu"] - live["cpu"]), 0),
+                                  max(float(committed["memory"] - live["memory"]), 0))
+        if cap.status == "exceeded":
+            raise Problem.unprocessable("capacity-exceeded", f"{cap.binding_resource} would exceed the cluster",
+                                        capacity=dict(cap.detail))
+        before, after = (metadata_of(namespace_doc(f)) for f in (current, restored))
+        old_tier, tier = before["label"].get("cmapi.net/tier"), after["label"].get("cmapi.net/tier")
+        # Beyond the tier as a plan judges it: each restored value that today's tier does not give (TierCatalog.beyond). An
+        # object rendered while the catalog's default was its value names no key in cmapi.net/beyond-tier, so that record
+        # alone missed it (#718, reviewer 1's H3); it is what remains of a tier that the catalog no longer offers. A value
+        # that Git holds on the custom tier now was approved, and one that Git holds unchanged is not asked for again.
+        tiers = self.cfg.tiers
+        offered = {r.name: r for r in tiers.offered(env)}
+        if tier in offered:
+            beyond = tiers.beyond(env, tier, {k: v for k, v in (_hard(new_rq) or {}).items() if k not in ("cpu", "memory")},
+                                  tiers.limits_of(new_lrs))
+        else:
+            beyond = {k: {"tier": None, "requested": v} for k, v in tiers.rendered_overrides(new_rq, new_lrs).items()}
+        custom_before = old_tier in offered and offered[old_tier].custom
+        approved = ({**(_hard(old_rq) or {}), **flatten_limits(tiers.limits_of(old_lrs))} if custom_before
+                    else tiers.rendered_overrides(old_rq, old_lrs))
+        beyond = {k: v for k, v in beyond.items() if k not in approved or qty(approved[k]) != qty(v["requested"])}
+        facts = {**tiers.compare(env, old_tier, old_hard, tier, hard).facts(),
+                 "capacity": cap.status, "capacityFresh": cap.fresh, "beyondTier": bool(beyond), "beyondTierKeys": sorted(beyond),
+                 "networkExposure": any(qty(hard.get(k, "0")) > qty(old_hard.get(k, "0")) for k in EXPOSURE_KEYS),
+                 **self.cfg.metadata.change_facts(before["label"], after["label"], before["annotation"], after["annotation"],
+                                                  existing=True)}
+        usage_view = None
+        if old_hard and (old_hard.keys() != hard.keys() or any(qty(old_hard[k]) != qty(hard[k]) for k in hard)):
+            usage_view, usage_facts = plan_usage(self.usage.namespace(cluster_id, ns), old_hard, hard)
+            facts.update(usage_facts)
+        return cap, facts, usage_view, beyond
+
+    def _live_committed(self, cluster_id: str, ns: str, current: Mapping[str, str | None]) -> dict[str, Decimal]:
+        """What the namespace adds to the cluster's commitment now (CapacityLedger), or, with no ledger to read, what Git's
+        quotas bind: the capacity check then answers unknown whatever the delta."""
+        try:
+            ledger = self.registry.quota_watch(cluster_id)[1]
+        except Problem:
+            ledger = None
+        if ledger is not None:
+            return ledger.namespace_committed(ns)
+        return totals_of(f for q in objects_of(current, "ResourceQuota") if (f := quota_facts(q)) is not None).committed
+
+    def beyond_view(self, facts: Mapping[str, Any], beyond: Mapping[str, Mapping[str, str | None]]) -> dict[str, Any] | None:
+        """What an approver reads of the values beyond the tier (the request's beyondTier): each key, and the approvals that
+        the rules reading beyondTier add for these facts."""
+        if not beyond:
+            return None
+        added = self.cfg.approvals.added_for(facts, BEYOND_FACTS)
+        return {"keys": [{"key": k, **beyond[k]} for k in sorted(beyond)],
+                "approvals": [{"group": s.group, "count": s.count, "reason": s.reason} for s in added]}
 
 
 # The refusals of cmapi's own checks that are a verdict on the request (#302): its names and its expiry. A policy-violation
