@@ -51,6 +51,8 @@ export type CapacityPage = components["schemas"]["CapacityPage"];
 export type CapacityCluster = components["schemas"]["CapacityCluster"];
 export type CapacityGroup = components["schemas"]["CapacityGroup"];
 export type CapacityResource = components["schemas"]["CapacityResource"];
+export type AdoptionList = components["schemas"]["AdoptionList"];
+export type AdoptionStanding = components["schemas"]["AdoptionStanding"];
 
 /** What a section shows for one read. A 401 is not here: the client signs in again and the section never sees it. */
 export type Result<T> =
@@ -503,6 +505,83 @@ export function useSubmitPatch(): Outcome<ChangeRequest> & { submit: (change: Pl
   });
   const send = useOneAtATime(mutation.mutateAsync);
   return { ...outcomeOf(mutation), submit: (change, key) => send({ change, key }) };
+}
+
+/**
+ * GET .../adoption/candidates or .../adoption/skipped (story #26): where each namespace of the cluster stands for adoption,
+ * read now from the cluster. An empty cluster asks nothing.
+ */
+export function useAdoptionList(clusterId: string, which: "candidates" | "skipped", enabled = true): Result<AdoptionList> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["adoption", which, clusterId],
+    enabled: enabled && clusterId !== "",
+    staleTime: 0,
+    queryFn: async ({ signal }) => {
+      const params = { params: { path: { cluster_id: clusterId } }, signal };
+      const { data, error, response } = which === "candidates"
+        ? await api.GET("/api/v1/clusters/{cluster_id}/adoption/candidates", params)
+        : await api.GET("/api/v1/clusters/{cluster_id}/adoption/skipped", params);
+      if (!data) throw problemOf(response, error);
+      return data;
+    }
+  });
+  return { ...resultOf(query), reload: () => void query.refetch() };
+}
+
+/** One adoption as the person asked for it: the cluster, the namespace and the justification. */
+export interface PlannedAdoption {
+  clusterId: string;
+  ns: string;
+  justification: string;
+}
+
+/**
+ * POST .../namespaces/{ns}:adopt?dryRun=true: the plan of an adoption. Each Check asks the server again: the namespace, its
+ * objects and the folders of Git move. A refusal (409 namespace-not-adoptable) is the API's decision and is shown as such.
+ */
+export function useAdoptPlan(adoption: PlannedAdoption | null): Outcome<Plan> & { reload: () => void } {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: ["adopt-plan", adoption],
+    staleTime: 0,
+    gcTime: 0,
+    enabled: adoption !== null,
+    queryFn: async ({ signal }) => {
+      const { clusterId, ns, justification } = adoption!;
+      const { data, error, response } = await api.POST("/api/v1/clusters/{cluster_id}/namespaces/{ns}:adopt", {
+        params: { path: { cluster_id: clusterId, ns }, query: { dryRun: true } }, body: { justification }, signal
+      });
+      if (!data) throw problemOf(response, error);
+      if (response.status !== 200) throw new ApiProblem({ status: 500, code: "not-a-plan", detail: `The dry run answered ${response.status}, not 200.` });
+      return data as Plan;
+    }
+  });
+  if (adoption === null) return { state: "idle", reload: () => undefined };
+  if (query.isFetching) return { state: "sending", reload: () => void query.refetch() };
+  return { ...outcomeOf({ isPending: query.isFetching, isIdle: false, error: query.error, data: query.data }), reload: () => void query.refetch() };
+}
+
+/** POST .../namespaces/{ns}:adopt: submits the adoption with the caller's Idempotency-Key; the lists are stale after it. */
+export function useSubmitAdoption(): Outcome<ChangeRequest> & { submit: (adoption: PlannedAdoption, key: string) => Promise<ChangeRequest> } {
+  const api = useApi();
+  const client = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async ({ adoption, key }: { adoption: PlannedAdoption; key: string }) => {
+      const { clusterId, ns, justification } = adoption;
+      const { data, error, response } = await api.POST("/api/v1/clusters/{cluster_id}/namespaces/{ns}:adopt", {
+        params: { path: { cluster_id: clusterId, ns }, header: { "Idempotency-Key": key } }, body: { justification }
+      });
+      if (!data) throw problemOf(response, error);
+      return data as ChangeRequest;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["requests"], refetchType: "none" });
+      void client.invalidateQueries({ queryKey: ["adoption"] });
+    }
+  });
+  const send = useOneAtATime(mutation.mutateAsync);
+  return { ...outcomeOf(mutation), submit: (adoption, key) => send({ adoption, key }) };
 }
 
 /** GET /api/v1/tiers with no environment: the catalog of each environment that the instance serves. */
