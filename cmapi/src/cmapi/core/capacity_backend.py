@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any, Iterable, Mapping
 
 from sqlalchemy.orm import Session
@@ -109,23 +109,26 @@ def _ceil(value: Decimal, places: int) -> Decimal:
     return value.quantize(Decimal(1).scaleb(-places), rounding=ROUND_CEILING)
 
 
-def held(rows: Iterable[CapacityReservationRow], ledger: CapacityLedger) -> tuple[dict[str, Decimal], list[Any]]:
-    """What the holds add to the cluster's commitment, per resource, and the ids of those that no longer count: a hold whose
-    namespace the ledger already shows at its target binds there now (docs/02: "Committed quota counts it from then on, so
-    it is never counted twice")."""
+def _floor(value: Decimal, places: int) -> Decimal:
+    """Rounded down to the column's scale, so the exact quota, once live, reaches a stored target (1.1Gi is 1181116006.4
+    bytes: rounded up, the ledger's exact figure would never reach it, and the hold would be counted beside the quota)."""
+    return value.quantize(Decimal(1).scaleb(-places), rounding=ROUND_FLOOR)
+
+
+def held(rows: Iterable[CapacityReservationRow], live: Mapping[str, Mapping[str, Decimal]]) -> dict[str, Decimal]:
+    """What the holds add to the cluster's commitment, per resource. `live`: what each held namespace commits, read in the
+    same ledger snapshot as the totals (CapacityLedger.snapshot). A hold whose namespace the ledger already shows at its
+    target binds there now (docs/02: "Committed quota counts it from then on, so it is never counted twice"). Each reader
+    decides this from its own watch, and nothing is written: another API pod or the worker, whose watch may be behind, still
+    counts the hold until the lifecycle releases it (#725 review)."""
     out = {"cpu": Decimal(0), "memory": Decimal(0)}
-    observed = []
     for r in rows:
-        live = ledger.namespace_committed(r.namespace) if r.namespace else None
-        counted = False
+        shown = live.get(r.namespace) if r.namespace else None
         for res, amount, target in (("cpu", Decimal(r.cpu), r.target_cpu), ("memory", Decimal(r.memory), r.target_memory)):
-            if live is not None and target is not None and live[res] >= Decimal(target):
+            if shown is not None and target is not None and shown[res] >= Decimal(target):
                 continue
             out[res] += amount
-            counted = counted or amount > 0
-        if not counted:
-            observed.append(r.reservation_id)
-    return out, observed
+    return out
 
 
 class SimulatedCapacity:
@@ -147,10 +150,14 @@ class SimulatedCapacity:
         if read.state != "ok" or read.totals is None or read.ledger is None:
             return CapacityResult("unknown", False, None, {"reason": read.detail, "source": "simulated",
                                                            "clusterId": cluster_id})
-        reserved, _ = held(self._holds(cluster_id, session, exclude), read.ledger)
+        # The holds first, then the totals and the held namespaces in one ledger snapshot: a quota that lands meanwhile is
+        # then either committed or held, never neither (#725 review).
+        rows = self._holds(cluster_id, session, exclude)
+        totals, live = read.ledger.snapshot({r.namespace for r in rows if r.namespace})
+        reserved = held(rows, live)
         env = self.settings.env(environment)
         deltas = {"cpu": Decimal(str(cpu_delta)), "memory": Decimal(str(memory_delta))}
-        ratios = {r: (read.totals.committed[r] + reserved[r] + deltas[r]) / limit_of(qty(size[r]), env.overcommit[r])
+        ratios = {r: (totals.committed[r] + reserved[r] + deltas[r]) / limit_of(qty(size[r]), env.overcommit[r])
                   for r in deltas}
         worst = max(ratios, key=ratios.get)
         r = float(ratios[worst])                                   # compared as before #302, in floats
@@ -185,15 +192,15 @@ class SimulatedCapacity:
 
     def reserve(self, session: Session, request_id: str, cluster_id: str, hold: CapacityHold, term: timedelta) -> None:
         """Take the hold of a recorded request, after `reserve_check` in the same transaction. The hold's amounts are rounded up
-        to the columns' scale (millicores, bytes), never down."""
+        to the columns' scale (millicores, bytes), never down; its targets down, so that the live quota reaches them."""
         repo = ReservationRepo(session)
-        self._reclaim(repo, cluster_id)
+        repo.reclaim(cluster_id)
         now = utcnow()
         repo.hold(CapacityReservationRow(
             request_id=request_id, cluster_id=cluster_id, namespace=hold.namespace, cpu=_ceil(hold.cpu, 3),
             memory=int(_ceil(hold.memory, 0)), pods=hold.pods,
-            target_cpu=None if hold.target_cpu is None else _ceil(hold.target_cpu, 3),
-            target_memory=None if hold.target_memory is None else int(_ceil(hold.target_memory, 0)),
+            target_cpu=None if hold.target_cpu is None else _floor(hold.target_cpu, 3),
+            target_memory=None if hold.target_memory is None else int(_floor(hold.target_memory, 0)),
             created_at=now, expires_at=now + term))
 
     def confirm(self, session: Session, request_id: str, cluster_id: str, environment: str) -> CapacityResult | None:
@@ -206,28 +213,17 @@ class SimulatedCapacity:
         if own is None:
             return None
         repo.lock_cluster(cluster_id)
-        read = read_quotas(self.registry, cluster_id)
-        if read.ledger is None:
+        if read_quotas(self.registry, cluster_id).ledger is None:
             return None                       # not known: a person approved, and only auto-approval waits on a known answer
-        amounts, _ = held([own], read.ledger)
-        cap = self.check(cluster_id, environment, float(amounts["cpu"]), float(amounts["memory"]), session=session,
-                         exclude=request_id)
+        # Its own hold is active (RequestRepo.move took it again if it had lapsed): counted with every other hold, in the
+        # check's one snapshot, and not counted a second time as a delta.
+        cap = self.check(cluster_id, environment, 0, 0, session=session)
         if cap.status == "exceeded":
             raise capacity_exceeded(cap)
         return cap
 
     def release(self, session: Session, request_id: str, why: str) -> int:
         return ReservationRepo(session).release(request_id, why)
-
-    def _reclaim(self, repo: ReservationRepo, cluster_id: str) -> None:
-        """docs/02's "expired reservations are reclaimed", and the holds that the ledger shows, marked released with why."""
-        try:
-            ledger = self.registry.quota_watch(cluster_id)[1]
-        except Problem:
-            ledger = None
-        rows = repo.active(cluster_id)
-        _, observed = held(rows, ledger) if ledger is not None else ({}, [])
-        repo.reclaim(cluster_id, observed)
 
 
 def capacity_exceeded(cap: CapacityResult) -> Problem:

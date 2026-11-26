@@ -62,3 +62,30 @@ Nothing in the design was reopened.
 
 Not tested: a real cluster (CRC was restarting); the hold's `observed` path against a real watch event after an Argo CD sync (the
 test feeds the request's own rendered quota through the watch's ADDED path).
+
+## Review and the coordinator's rulings (2026-11-26)
+
+**Reviewers.**
+- **Reviewer 1:** Codex gpt-6.2-astra xhigh. Its sandbox could not reach PostgreSQL.
+- **Reviewer 2:** Opus 5.5 high, on PostgreSQL 16.15 (`review/`).
+
+| Codex finding | Ruling |
+|---|---|
+| H1a: a hold vanishes inside one check | **Fixed, Medium.** The holds are read first, then the totals and held namespaces under one ledger lock (`CapacityLedger.snapshot`). |
+| H1b: one pod's `observed` release ends the hold for every pod | **Fixed, Medium.** `reclaim` marks only expired holds, and each reader stops counting a hold from its own watch. |
+| H2: an expired hold bypasses the last approval | **Fixed, Medium**, the approval part. Every move into `approved` re-takes the last amounts. Measured on head: 200 at 132/128. The delivery part (`guard_delivery`) was cut as new design, and filed as a question for the owner, #728. |
+| H3: approve/retry and submit lock in opposite orders | **Fixed, Medium.** Measured `40P01`, so a 500 on `:retry`. `move` now takes the cluster lock first, and the retry answers 409 `change-pending`. |
+| H4: 0011 leaves requests in flight without holds | **Fixed, Medium.** 0011 fills their holds in the same transaction, under `LOCK TABLE change_requests IN SHARE MODE`, the project's in-migration fill pattern (docs/12 §4, as 0008 did). |
+| M1: target rounding | **Fixed, Low.** Targets are rounded down, and amounts stay rounded up. The partial-visibility part is not this PR's defect (#710 sizes against Git). |
+| M2: `merge_failed` renewal | **Refuted.** `merge_failed` is reachable only after `applied`, so the quota is already counted. A guard test pins it. |
+
+**Coordinator's decisions:**
+- **Accepted:** a hold stops counting per reader at observation (docs/02), and in the database at `synced` (docs/01). No code writes `released_why = observed` any more; docs/16 says so.
+- **Added:** docs/12 explains the 0011 rolling-update window.
+- **Cut from Codex:** unbounded NUMERIC columns (docs/02 fixes the schema), the min rule, the candidate check at submit, and the `sync_failed` fill.
+
+**Tests on PostgreSQL (reviewer 2):**
+- the review tests: 7 failed on head, 8 passed with the fix;
+- the deadlock and scale tests together: 10 of 10, 5 times;
+- 5 of 5 mutants caught;
+- 261 related service tests and 843 core tests passed.

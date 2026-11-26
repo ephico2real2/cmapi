@@ -202,6 +202,12 @@ class RequestRepo:
         self.s.refresh(row, attribute_names=["status"], with_for_update=True)
         before = S(row.status)
         t = transition(before, event, **kw)
+        holds = ReservationRepo(self.s)
+        if t.after is S.APPROVED:
+            # The last :approve and a :retry from failed check capacity again (SimulatedCapacity.confirm) under the cluster's
+            # lock. Taken here, before the namespace's unique index entry (the flush below) and any hold row is written, as
+            # submit takes it before both: in the other order a submit and a :retry wait on each other (#725 review).
+            holds.lock_cluster(row.cluster_id)
         if t.acquires_lock:
             holder = self.open_for(row.cluster_id, row.namespace)
             if holder is not None and holder.request_id != row.request_id:
@@ -221,10 +227,11 @@ class RequestRepo:
             self.s.rollback()
             raise Problem.conflict("change-pending", f"another request holds {row.namespace}") from exc
         # The capacity hold follows the lifecycle's Reservation column (docs/01), in the same transaction as the state.
-        holds = ReservationRepo(self.s)
         if t.releases_reservation:
             holds.release(row.request_id, t.after.value)
-        elif t.acquires_reservation:
+        elif t.acquires_reservation or t.after is S.APPROVED:
+            # approved: "capacity still fits" (docs/01). A hold that lapsed while the request waited is taken again, so that
+            # the caller's check counts it, and refuses the approval when another request took the room (#725 review).
             holds.reacquire(row.request_id, hold_term(row.requirement))
         elif holds_reservation(t.after):
             holds.rearm(row.request_id, hold_term(row.requirement))
@@ -463,19 +470,17 @@ class ReservationRepo:
         if last.released_at is None and last.expires_at > now:
             last.expires_at = now + term
             return last
+        if last.released_at is None:
+            last.released_at, last.released_why = now, "expired"      # lapsed: one active hold per request
         return self.hold(CapacityReservationRow(
             request_id=request_id, cluster_id=last.cluster_id, namespace=last.namespace, zone=last.zone, cpu=last.cpu,
             memory=last.memory, pods=last.pods, target_cpu=last.target_cpu, target_memory=last.target_memory,
             created_at=now, expires_at=now + term))
 
-    def reclaim(self, cluster_id: str, observed: Iterable[Any]) -> None:
-        """Mark what no longer counts as released: the cluster's expired holds, and the holds whose quota the ledger shows."""
+    def reclaim(self, cluster_id: str) -> None:
+        """docs/02's "expired reservations are reclaimed": mark the cluster's expired holds released. A hold that one reader's
+        ledger shows is not released here: each reader stops counting it from its own watch (capacity_backend.held)."""
         now = utcnow()
         self.s.execute(update(CapacityReservationRow).where(
             CapacityReservationRow.cluster_id == cluster_id, CapacityReservationRow.released_at.is_(None),
             CapacityReservationRow.expires_at <= now).values(released_at=now, released_why="expired"))
-        ids = list(observed)
-        if ids:
-            self.s.execute(update(CapacityReservationRow).where(
-                CapacityReservationRow.reservation_id.in_(ids), CapacityReservationRow.released_at.is_(None)
-            ).values(released_at=now, released_why="observed"))

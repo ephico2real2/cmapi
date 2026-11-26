@@ -158,6 +158,11 @@ server certificate's name is the one the pods will connect to (`verify-full` che
   cluster recreated under running pods): after a rotation, update the Secret and restart the api and the worker.
 - **Backups, HA, upgrades and credential rotation** belong to the server's operator, not to cmapi. cmapi holds no
   backup of its own data; the schema is reproducible from the migrations, the data is not.
+- **`0011` (#62), capacity reservations.** It adds `capacity_reservations`, and in the same transaction it fills a hold for
+  each create or update already in a reservation-holding state, so requests in flight keep their capacity after the upgrade.
+  **The window:** while a 0010 pod still runs beside the 0011 schema, that pod ends requests without releasing their holds,
+  so a hold can outlive its request by one term (it then expires and stops counting). Finish the rolling update promptly.
+
 - **Limits to watch.** `max_connections` on the server against the pods' pools (10 each), and the `lock_timeout`: a
   migration queued behind a long transaction gives up after 30 s and the pod restarts, which is the right behaviour.
 
