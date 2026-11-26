@@ -188,6 +188,24 @@ def test_a_namespace_that_names_no_tier_is_sized_from_git_too(world, monkeypatch
     assert facts["quotaIncreasePct"] == 700.0 and facts["tierChange"] == "same", facts
 
 
+def test_a_quota_that_git_does_not_hold_is_written_from_nothing(world, monkeypatch):
+    """Decision 3. Git's Namespace names tier small, and neither its folder nor the cluster holds <ns>-quota. The label change
+    renders the tier's quota: the capacity check counts all of it, and quotaIncreasePct is 100, as compare gives a key with
+    no old value. Before the fix the check counted nothing (the catalog was the baseline), and the fallback `old_hard or
+    hard` made the percentage 0."""
+    client, ctx, git, kube, validator, keys = world
+    created(world)
+    del git.branches["main"][QUOTA_FILE]
+    git._sha("main")
+    kube.delete("ResourceQuota", NAME, OWN)
+    asked = capacity_deltas(world, monkeypatch)
+    r = patch(world, LABEL, dry_run=False)
+    assert r.status_code == 202, r.text
+    assert asked == [(8.0, float(16 * 2**30))], asked
+    facts = stored_facts(world, r.json()["requestId"])
+    assert facts["quotaIncreasePct"] == 100.0 and facts["tierChange"] == "same", facts
+
+
 @pytest.mark.parametrize("names_tier", [True, False])
 def test_network_exposure_is_counted_from_what_git_holds(test_config, tmp_path, fresh_db, keys, monkeypatch, names_tier):
     """The catalog now gives tier small one load balancer; Git holds 0, from the older catalog. A label change renders the

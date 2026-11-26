@@ -71,7 +71,7 @@ nothing had changed. A label change does render it again. Measured by the "befor
 
 - **Before** (`cmapi/src` stashed in the worktree): 5 failed, 2 passed. The two that pass are guards, and they pass on
   purpose: no drift (Git equals the catalog), and network exposure with a tier label, whose base was already Git.
-- **After:** 7 passed.
+- **After:** 7 passed (8 with reviewer 2's fallback case).
 - **Related service suites:** 17 files, including `test_multidoc_quota_250`, `test_usage_verdicts_310`,
   `test_usage_review_707`, `test_api_contract`, `test_flow`, `test_custom_tier_change` and `test_doc_citations`. Result:
   480 passed and 1 failed. The failure was `test_doc_citations`: the run started before `--relocate` moved two docs/14
@@ -94,3 +94,25 @@ The runs are in `workbench/cmapi/wt-710-outputs/` (`before.txt`, `after.txt`, `s
 - `quotaBelowRequested` is still always false. `compare` gets no usage. That is #256, open.
 - `examples/local/app.py`, the local reference app, still takes the old quota from the catalog. It has an in-memory store and
   is never deployed. Filed as #713 (Low, Backlog).
+
+## Review and the coordinator's rulings (2026-11-26)
+
+**Reviewers.**
+- **Reviewer 1:** Codex gpt-6.2-astra xhigh (`review/reviewer-1-codex.md`). Its sandbox could not reach PostgreSQL.
+- **Reviewer 2:** Opus 5.5 high, on PostgreSQL 16.15 (`review/reviewer-2-opus.md`).
+
+**The PR's change is correct.** All seven Codex findings predate it: each measured the same on base. The rulings:
+
+- **In this PR:**
+  - reviewer 2's PostgreSQL case for a quota Git does not hold, which catches a revived `old_hard or hard` fallback that the PR's own 7 cases missed;
+  - **#715 (Medium):** short names are normalised, `binding_hard`, per docs/16:219-220;
+  - **Codex M1 (Low, in the changed lines):** a first quota does not read live usage (docs/01:42).
+- **Separate issue, next:** **#716 (Medium):** the revert gets the same capacity check and approval facts (docs/01:260). Reviewer 2's patch is saved in `workbench/cmapi/pending-716/`.
+- **Rejected:** Codex H3. A create over a stray file is sized and approved as a create, so nothing is bypassed.
+- **Backlog:** #717.
+
+**Records:** the docs/02 sentence is edited in the export only. The live Claude Doc needs the same edit, and the coordinator tracks it in `LIVE-DOCS-PENDING.md`.
+
+**Run:**
+- the drift, short-name, first-quota, #250, #707, #310, custom-tier, contract, flow and citation tests: **149 passed**;
+- `tests/core` in the reference venv: **818 passed, 113 skipped**.

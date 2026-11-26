@@ -21,6 +21,7 @@ from cmapi.capacity.usage import NoUsage, UsageSource, plan_usage
 from cmapi.core import kube_yaml
 from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, Requirement
 from cmapi.core.capacity_backend import SimulatedCapacity
+from cmapi.core.capacity_ledger import binding_hard
 from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeError
 from cmapi.core.config import InstanceConfig, environment_not_served
 from cmapi.core.db.models import ChangeRequestRow
@@ -413,8 +414,9 @@ class Pipeline:
         # update request: the plan diff shows old and new values, increases go through the capacity check and reserve the
         # delta, [...] and the approval rules apply as for any quota change" (docs/02, "Changing a tier"). A label change
         # renders the tier too, so a catalog that grew since must not reach Git as a raise of zero. A create has nothing in
-        # Git; a custom value that Git holds was approved, so no bound is checked again (#214).
-        old_hard = dict(old_quota or {}) if action != "create" and not quotas_held else {}
+        # Git; a custom value that Git holds was approved, so no bound is checked again (#214). A short name (`cpu`, `memory`)
+        # is the same resource as its long one, and the smaller binds (binding_hard, #393).
+        old_hard = binding_hard(old_quota) if action != "create" and not quotas_held else {}
         cpu_delta = float(qty(hard.get("requests.cpu", "0")) - qty(old_hard.get("requests.cpu", "0")))
         mem_delta = float(qty(hard.get("requests.memory", "0")) - qty(old_hard.get("requests.memory", "0")))
         cap = self.capacity.check(cluster_id, env, max(cpu_delta, 0), max(mem_delta, 0))
@@ -422,9 +424,9 @@ class Pipeline:
             raise Problem.unprocessable("capacity-exceeded", f"{cap.binding_resource} would exceed the cluster",
                                         capacity=dict(cap.detail))
         # A quota change on an existing namespace reads its live 14-day usage (docs/01, "Quota changes on existing namespaces");
-        # a create never does ("Thanos on onboarding: Never queried"), nor a change that leaves the quota as it is.
+        # nothing else does: "Never queried while creating a namespace or setting its first quota" (docs/01, Thanos on onboarding).
         usage_view, usage_facts = None, {}
-        if action != "create" and not quotas_held:
+        if old_hard:  # empty for a create, for quotas that Git keeps as they are, and for a first quota
             # Compare the hard limits in Git with what will be rendered. The tier catalog can change
             # between requests, and a change can move only pods, limits, or another quota resource.
             if old_hard.keys() != hard.keys() or any(qty(old_hard[k]) != qty(hard[k]) for k in hard):

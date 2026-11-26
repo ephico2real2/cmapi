@@ -499,24 +499,24 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1332-1332": [
   "            raise Problem.forbidden(f\"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|180-182": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|181-183": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|268-268": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|269-269": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|274-274": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|275-275": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|282-282": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|283-283": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|533-533": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|535-535": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|617-617": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|619-619": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|89-89": [

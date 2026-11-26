@@ -87,6 +87,17 @@ def _bound(hard: Mapping[str, Any], used: Mapping[str, Any], resource: str) -> B
     return Bound(value, None)
 
 
+def binding_hard(hard: Mapping[str, Any] | None) -> dict[str, str]:
+    """A quota's hard values with each short name (`cpu`, `memory`) folded into its long name, the smaller of the two: the
+    limit that admission enforces and the ledger counts (#393). The planner sizes a change from this, so a quota in Git that
+    bounds CPU by `cpu` alone, or by a `cpu` tighter than its `requests.cpu`, is not read as no bound (#710)."""
+    out = {k: str(v) for k, v in (hard or {}).items()}
+    for long, short in REQUEST_KEYS.values():
+        if short in out:
+            out[long] = min(out.get(long, out[short]), out[short], key=qty)
+    return out
+
+
 def quota_facts(obj: Mapping[str, Any]) -> QuotaFacts | None:
     """The facts of a quota that cmapi manages, or None for any other quota."""
     meta = obj.get("metadata") or {}
