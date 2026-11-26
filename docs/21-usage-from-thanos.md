@@ -91,8 +91,10 @@ binds `cluster-monitoring-view` to every authenticated user, and the import chec
   `resourceAttributes` `apiGroup: monitoring.coreos.com`, `name: k8s`, `namespace: openshift-monitoring`,
   `resource: prometheuses`, `subresource: api`, and kube-rbac-proxy maps `GET` to the verb `get`. The platform Role
   `cluster-monitoring-metrics-api` is the narrowest documented role that holds it. Both sources are identical on
-  `release-4.18` and `release-4.22`, which is why the same three objects serve OpenShift 4.18 and 4.22
-  (`docs/reviews/2026-11-26-reader-thanos-baseline/README.md`, "The sources, OpenShift 4.18 and later"). The only live
+  `release-4.18` and `release-4.22`, which is why the same three objects serve OpenShift 4.18 and later
+  (`docs/reviews/2026-11-26-reader-thanos-baseline/README.md`, "The sources, OpenShift 4.18 and later"). Reviewer 1 of #734
+  also read the operator and proxy branches of 4.19, 4.20, 4.21 and 5.0, and found the same Role, Route and proxy check
+  (`docs/reviews/2026-11-26-reader-thanos-baseline/review/reviewer-1-codex.md`, "OpenShift compatibility"). The only live
   evidence is CRC 4.22.14.
 - **The old binding is retired.** The cluster-wide `cmapi-reader-monitoring` binding of `cluster-monitoring-view` is gone from
   the baseline, and an upgrade deletes it by name: `oc delete clusterrolebinding cmapi-reader-monitoring --ignore-not-found`
