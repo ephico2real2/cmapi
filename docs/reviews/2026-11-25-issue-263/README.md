@@ -84,3 +84,5 @@ cluster until a bot PR merges and an operator confirms the prune (`awaiting_prun
 - `tests/core`: **775 passed, 113 skipped**.
 
 CI is the full-suite gate.
+
+**After #700 merged (2026-11-26).** The coordinator merged main again. The docs/14 conflict was citation numbers. It corrected `pipeline.py:516` and `:600` and docs/16's `SwitchRepo.value` (`repo.py:344`), reading each target. Expiry, pool-starvation, rate-limit, flow, authz and citation tests: **126 passed**.
