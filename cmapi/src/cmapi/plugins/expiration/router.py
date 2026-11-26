@@ -8,11 +8,12 @@ every namespace of every cluster is one Git read per row. The two agree because 
 cmapi request, and that request holds the namespace (`openRequest`, one open request per namespace) from its plan until the
 cluster has the new date (synced). While a request is open the row says so and a change is refused with 409 change-pending;
 and a change planned on a date that Git no longer has is refused with 412 by its etag. The database is not a source of the
-date: it records the notices sent for a date (`expiration_notices`), which is what `noticesSent` counts.
+date: it records the notices sent for a date (`expiration_notices`, written by the worker's expire_check), which is what
+`noticesSent` counts.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Annotated, Any, Callable, Mapping
 
 from fastapi import Depends, Query
@@ -28,7 +29,7 @@ from cmapi.core.identity.claims import Identity
 from cmapi.core.listquery import Lister, ListQuery, Sorts
 from cmapi.core.models import ExpirationPage
 from cmapi.core.observability import log
-from cmapi.plugins.expiration.rules import ExpiryInfo
+from cmapi.plugins.expiration.rules import ExpiryInfo, utc_day, utc_today
 from cmapi.routers import Cursor, Limit, ctx, require
 
 router = DocumentedRouter("expiration", prefix="/api/v1", version=__version__, group="Namespaces and metadata",
@@ -61,16 +62,13 @@ Sort = Annotated[str, Query(examples=["urgency"],
 
 
 def today() -> date:
-    """The day that the list counts from. The same clock as the pipeline's plan of :extend and :set (core/pipeline.py)."""
-    return date.today()
+    """The day that the list counts from: the UTC date, the same day as the pipeline's plan of :extend and :set and the
+    daily expire_check (`utc_today`, #321). A test fixes the list's day here."""
+    return utc_today()
 
 
 def _created(meta: Mapping[str, Any]) -> date | None:
-    stamp = meta.get("creationTimestamp")
-    try:
-        return datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).date() if stamp else None
-    except ValueError:
-        return None
+    return utc_day(meta.get("creationTimestamp"))
 
 
 def _expires(cluster_id: str, name: str, raw: str | None) -> date | None:

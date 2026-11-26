@@ -2345,7 +2345,7 @@
             "type": "object"
           },
           "today": {
-            "description": "The day that `daysLeft` and `state` are counted from: the day the API plans an extension from",
+            "description": "The day that `daysLeft` and `state` are counted from: the day the API plans an extension from, and the day the daily expiry check counts from. Today's date in UTC, whatever the server's time zone",
             "examples": [
               "2026-11-16"
             ],

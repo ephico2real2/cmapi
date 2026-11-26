@@ -63,7 +63,7 @@ A role is a client role on the client of the instance: `cmapi-nonprod`, `cmapi-s
 | `audit:export` | | | | | | | yes | | 0 |
 | `approvals:relay` | | | | | | | | yes | 0 |
 
-`namespaces:protect` is what makes an operator (#366). No route declares it: the routes check it inside, in the environment of the object. It lets a caller set and remove the operator-only labels and annotations of `metadata-keys.yaml` (`cmapi.net/protected` and `do-not-delete`; a requester gets 403), cancel another person's request, and read employee IDs in the directory (`cmapi/src/cmapi/core/authz.py:160-166`, `cmapi/src/cmapi/core/pipeline.py:277`). It is a permission, not a role name: a role of `authz-roles.yaml` that inherits `cmapi-operator` is an operator, and a role that grants it in some environments makes an operator there only. A file that lists `permissions:` for `cmapi-operator` itself must name `namespaces:protect`, or that role is no longer an operator.
+`namespaces:protect` is what makes an operator (#366). No route declares it: the routes check it inside, in the environment of the object. It lets a caller set and remove the operator-only labels and annotations of `metadata-keys.yaml` (`cmapi.net/protected` and `do-not-delete`; a requester gets 403), cancel another person's request, and read employee IDs in the directory (`cmapi/src/cmapi/core/authz.py:160-166`, `cmapi/src/cmapi/core/pipeline.py:279`). It is a permission, not a role name: a role of `authz-roles.yaml` that inherits `cmapi-operator` is an operator, and a role that grants it in some environments makes an operator there only. A file that lists `permissions:` for `cmapi-operator` itself must name `namespaces:protect`, or that role is no longer an operator.
 
 Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin cannot approve with those roles alone: `requests:approve` is only in `cmapi-approver`. On CRC the group `app-cmapi-rbac-operator` also gives `cmapi-approver`.
 
@@ -81,7 +81,7 @@ Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin ca
 
 ### Which route needs which permission
 
-Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:330-335`). A `HEAD` is answered by the route of its `GET`, so it needs the same permission and gets the same 401 or 403 (#605).
+Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:337-342`). A `HEAD` is answered by the route of its `GET`, so it needs the same permission and gets the same 401 or 403 (#605).
 
 | Permission | Routes |
 |---|---|
@@ -148,7 +148,7 @@ Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.
 
 ### Step 2: the claims
 
-`Identity.from_claims` reads the verified token (`cmapi/src/cmapi/core/identity/claims.py:50-67`).
+`Identity.from_claims` reads the verified token (`cmapi/src/cmapi/core/identity/claims.py:62-81`).
 
 | Claim | Becomes | Note |
 |---|---|---|
@@ -175,17 +175,22 @@ A role can have a list of environments. The route checks the permission again wh
 
 | Route group | Where the environment comes from | Source |
 |---|---|---|
-| Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:263`, `:514` |
+| Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:265`, `:516` |
 | Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:196`, `:236` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:103`, `:116`, `:130` |
 | Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:151`, `:182`, `:200`, `:225`, `:257` |
 | Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:135` |
 | List requests | Only the environments where the caller has `requests:read` | `requests.py:29` |
 | List quotas | Only the environments where the caller has `objects:read` | `cmapi/src/cmapi/plugins/quotas/__init__.py:49` |
-| List expirations | Only the environments where the caller has `objects:read`; where expiration is off, only a namespace that kept a date (#479) | `cmapi/src/cmapi/plugins/expiration/router.py:117` |
+| List expirations | Only the environments where the caller has `objects:read`; where expiration is off, only a namespace that kept a date (#479) | `cmapi/src/cmapi/plugins/expiration/router.py:115` |
 | List policy results (#302) | Only the clusters of the environments where the caller has `objects:read`; of those, only the results on namespaces that cmapi manages, of the bundle's policies that are on the cluster. The rest is counted in `hidden`, with no name | `cmapi/src/cmapi/plugins/policies/router.py`, `results` |
 | Capacity (#302) | Only the clusters of the environments where the caller has `capacity:read`; the groups are summed from those clusters only, and the others are counted in `hiddenClusters`, with no name. No namespace is named. `env` in another environment answers 403 `environment-forbidden`; `clusterId` outside the scope answers 404 `cluster-not-found`, as an unknown cluster does | `cmapi/src/cmapi/plugins/capacity/router.py`, `capacity` |
 | List refusals (#302) | Only the environments where the caller has `requests:read`, the audience of `GET /api/v1/requests`. A row names who asked by username only, never the email, the employee ID or the justification (the owner, 2026-11-17) | `cmapi/src/cmapi/plugins/policies/router.py`, `rejections` |
+
+The delete that the worker's daily `expire_check` opens after an expiry's grace (#263) has no caller and no token, so no role
+is checked for it. Its requester is `cmapi-expire-check`, a service identity that no person holds
+(`cmapi/src/cmapi/core/pipeline.py`, `plan_expiry_delete`). It is the normal delete request: the approval rules decide it,
+and an operator confirms the prune. Since no person is its requester, no approver is refused as the requester.
 
 If a role gives the permission in another environment only, the answer is 403 `environment-forbidden`: "Your roles grant namespaces:create only in ['rnd'], not dev" (`authz.py:181-184`). A list does not refuse: it leaves out the rows of the other environments.
 
@@ -207,7 +212,7 @@ An approval rule names a group by its short name, for example `approver-platform
 
 ### Step 6: the identity of a requester
 
-A write that makes a request also checks who the requester is (`cmapi/src/cmapi/core/identity/checks.py`, called from `pipeline.py:175-177`). These refusals are 422, because the token is valid and the request cannot be recorded:
+A write that makes a request also checks who the requester is (`cmapi/src/cmapi/core/identity/checks.py`, called from `pipeline.py:177-179`). These refusals are 422, because the token is valid and the request cannot be recorded:
 
 | Code | When |
 |---|---|
@@ -260,7 +265,7 @@ not in the design:     one shared submitter account: loses attribution and the s
 1. The person has an LDAP account. An administrator of the directory puts the account in the group `app-cmapi-rbac-requester` (`docs/11`, "The groups").
 2. The LDAP federation of realm `cmapi` reads the group. It places the group under `/cmapi`, so the token carries the path `/cmapi/app-cmapi-rbac-requester` (`docs/15`, "The LDAP federation"; `docs/14`, "The contract in one table").
 3. Keycloak gives the members of that group the client role `cmapi-requester` on `cmapi-nonprod` (`10-realm-import.yaml:391-445`).
-4. cmapi reads the role from the token (`claims.py:54`). It looks up the permissions of the role (`authz.py:21-44`).
+4. cmapi reads the role from the token (`claims.py:68`). It looks up the permissions of the role (`authz.py:21-44`).
 
 The role `cmapi-requester` has these permissions (from the table "The roles and their permissions" above):
 
@@ -276,13 +281,13 @@ When a person calls, cmapi records the request under the caller of the token. Th
 
 | Value | Where it comes from | Where it is kept |
 |---|---|---|
-| `sub` | The claim `sub` (`claims.py:56`) | The database. Self-approval compares it (`approvals.py:339-340`) |
-| Username | The claim `preferred_username` (`claims.py:52`) | The database, and as a label of the namespace (`claims.py:3-5`) |
-| `email` | The claim `email` (`claims.py:60`) | The database |
-| `employee_id` | The claim `employee_id` (`claims.py:64`) | The database |
-| Given, middle and family name | The claims of the same names (`claims.py:61-63`) | The database |
+| `sub` | The claim `sub` (`claims.py:70`) | The database. Self-approval compares it (`approvals.py:339-340`) |
+| Username | The claim `preferred_username` (`claims.py:78`) | The database, and as a label of the namespace (`claims.py:3-5`) |
+| `email` | The claim `email` (`claims.py:74`) | The database |
+| `employee_id` | The claim `employee_id` (`claims.py:78`) | The database |
+| Given, middle and family name | The claims of the same names (`claims.py:75-77`) | The database |
 
-The record is `Identity.record` (`claims.py:43-48`). It is in the database only, and never in Git: the comment of the method says so, and so does step 2 above. Git holds the plan.
+The record is `Identity.record` (`claims.py:55-60`). It is in the database only, and never in Git: the comment of the method says so, and so does step 2 above. Git holds the plan.
 
 A person calls as themselves. If a person sends `onBehalfOf`, cmapi refuses with 422 `on-behalf-of-not-allowed` (`checks.py:74-78`). This is step 6.
 
@@ -306,15 +311,15 @@ The users filter of realm `cmapi` is `(uid=cmapi.*)` (`docs/15`, "The LDAP feder
 
 ### Tools that act for people
 
-A tool signs in with the client credentials grant. It is a service client, or an account that holds a role in `identity.automationRoles`. The default role is `cmapi-onboarding`, and `cmapi-automation` holds it (`checks.py:1-15`; `docs/15`, "The clients"). The tool is the caller. Three cases follow (`checks.py:70-95`, called from `pipeline.py:269`):
+A tool signs in with the client credentials grant. It is a service client, or an account that holds a role in `identity.automationRoles`. The default role is `cmapi-onboarding`, and `cmapi-automation` holds it (`checks.py:1-15`; `docs/15`, "The clients"). The tool is the caller. Three cases follow (`checks.py:70-95`, called from `pipeline.py:271`):
 
 | Case | What cmapi does | Source |
 |---|---|---|
-| The tool sends no `onBehalfOf` | The tool is the requester. The request is recorded as automated. If `identity.requireOnBehalfOf` is `true`, the tool must name a person, and without one the answer is 422 `on-behalf-of-required` | `checks.py:83-88`; `problem_docs.py:78` |
+| The tool sends no `onBehalfOf` | The tool is the requester. The request is recorded as automated. If `identity.requireOnBehalfOf` is `true`, the tool must name a person, and without one the answer is 422 `on-behalf-of-required` | `checks.py:83-88`; `problem_docs.py:90` |
 | The tool sends `onBehalfOf`: a username or an employee ID | cmapi looks the value up in the directory. The person must be enabled, or the answer is 422 `unknown-user`. The person is recorded as the requester and the tool as the caller. The request is recorded as automated | `checks.py:89-95` |
-| A person sends `onBehalfOf` | 422 `on-behalf-of-not-allowed` | `checks.py:74-78`; `problem_docs.py:77` |
+| A person sends `onBehalfOf` | 422 `on-behalf-of-not-allowed` | `checks.py:74-78`; `problem_docs.py:89` |
 
-Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:568`, `approvals.py:339-340`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:232-234`, `approvals.py:337-338`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
+Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:600`, `approvals.py:339-340`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:232-234`, `approvals.py:337-338`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
 
 With `onBehalfOf`, cmapi trusts the tool to name the person. The directory proves that the person exists and is enabled. It does not prove that the person signed in.
 

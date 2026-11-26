@@ -2084,7 +2084,7 @@ export interface components {
             /**
              * Today
              * Format: date
-             * @description The day that `daysLeft` and `state` are counted from: the day the API plans an extension from
+             * @description The day that `daysLeft` and `state` are counted from: the day the API plans an extension from, and the day the daily expiry check counts from. Today's date in UTC, whatever the server's time zone
              * @example 2026-11-16
              */
             today: string;

@@ -27,6 +27,7 @@ from datetime import date, timedelta
 import httpx
 import pytest
 
+from cmapi.plugins.expiration.rules import utc_today
 from test_expirations import created_namespace, write
 from test_flow import NS, OLA, auth, run_jobs
 
@@ -224,7 +225,7 @@ def test_the_expiry_writes_do_not_compare_the_justification_and_a_change_does(wo
     (plugins/namespaces/router.py, _expiry_write), so a retry that changes only it gets the original request, with the
     first justification. A change's fingerprint holds its whole body, so there the same retry is 409."""
     client, ctx, git, kube, validator, keys = world
-    tag = created_namespace(client, ctx, keys, expiresAt=(date.today() + timedelta(days=10)).isoformat())
+    tag = created_namespace(client, ctx, keys, expiresAt=(utc_today() + timedelta(days=10)).isoformat())
     key = str(uuid.uuid4())
     first = write(client, keys, "extend", {"days": 7, "justification": "One sprint"}, tag, key=key)
     assert first.status_code == 202, first.text

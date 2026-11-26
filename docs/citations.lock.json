@@ -338,7 +338,7 @@
   "        return None",
   "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|330-335": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|337-342": [
   "            if permission:",
   "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
   "            op_id = f\"{self.plugin}_{fn.__name__}\"",
@@ -401,7 +401,7 @@
   "    if directory is None:",
   "        raise Problem.unprocessable(\"unknown-user\", \"No directory is configured\")",
   "    person = directory.get_user(on_behalf_of) or directory.find_by_employee_id(on_behalf_of)",
-  "    if person is None or not person.enabled:",
+  "    if person is None or not person.enabled or is_reserved(person.sub, person.username):",
   "        raise Problem.unprocessable(\"unknown-user\", f\"{on_behalf_of} is not an enabled user\",",
   "                                    onBehalfOf=on_behalf_of)",
   "    return Requester(person=person, caller=caller, automated=True)"
@@ -430,7 +430,7 @@
   "    if directory is None:",
   "        raise Problem.unprocessable(\"unknown-user\", \"No directory is configured\")",
   "    person = directory.get_user(on_behalf_of) or directory.find_by_employee_id(on_behalf_of)",
-  "    if person is None or not person.enabled:",
+  "    if person is None or not person.enabled or is_reserved(person.sub, person.username):",
   "        raise Problem.unprocessable(\"unknown-user\", f\"{on_behalf_of} is not an enabled user\",",
   "                                    onBehalfOf=on_behalf_of)",
   "    return Requester(person=person, caller=caller, automated=True)"
@@ -446,7 +446,7 @@
   "database with the request. Claims come from the cmapi-identity client scope (employee_id,",
   "middle_name) and the standard OIDC claims."
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|43-48": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|55-60": [
   "    def record(self) -> dict[str, Any]:",
   "        \"\"\"What change_requests stores about the requester (database only, never Git).\"\"\"",
   "        return {\"sub\": self.sub, \"username\": self.username, \"email\": self.email,",
@@ -454,11 +454,13 @@
   "                \"familyName\": self.family_name, \"employeeId\": self.employee_id,",
   "                \"kind\": self.kind, \"clientId\": self.client_id}"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|50-67": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|62-81": [
   "    @classmethod",
   "    def from_claims(cls, claims: Mapping[str, Any], audience: str) -> \"Identity\":",
   "        username = claims.get(\"preferred_username\", claims[\"sub\"])",
   "        service = username.startswith(\"service-account-\")",
+  "        if is_reserved(claims[\"sub\"], username.removeprefix(\"service-account-\")):",
+  "            raise Problem(401, \"unauthenticated\", f\"The identity {EXPIRY_NAME} is cmapi's own and no token may carry it\")",
   "        roles = claims.get(\"resource_access\", {}).get(audience, {}).get(\"roles\", [])",
   "        return cls(",
   "            sub=claims[\"sub\"],",
@@ -474,24 +476,21 @@
   "            groups=frozenset(claims.get(\"groups\", [])),",
   "        )"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|52-52": [
-  "        username = claims.get(\"preferred_username\", claims[\"sub\"])"
- ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|54-54": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|68-68": [
   "        roles = claims.get(\"resource_access\", {}).get(audience, {}).get(\"roles\", [])"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|56-56": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|70-70": [
   "            sub=claims[\"sub\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|60-60": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|74-74": [
   "            email=claims.get(\"email\"),"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|61-63": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|75-77": [
   "            given_name=claims.get(\"given_name\"),",
   "            middle_name=claims.get(\"middle_name\"),",
   "            family_name=claims.get(\"family_name\"),"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|64-64": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|78-78": [
   "            employee_id=claims.get(\"employee_id\"),"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|124-124": [
@@ -500,30 +499,30 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1332-1332": [
   "            raise Problem.forbidden(f\"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|175-177": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|177-179": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|263-263": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|265-265": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|269-269": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|271-271": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|277-277": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|279-279": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|514-514": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|516-516": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|568-568": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|600-600": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|77-77": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|89-89": [
   "    \"on-behalf-of-not-allowed\": \"Remove `onBehalfOf`. A person calls as themselves.\","
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|78-78": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|90-90": [
   "    \"on-behalf-of-required\": \"Name the person in `onBehalfOf`. A service client must say for whom it calls.\","
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/views.py|25-27": [
@@ -580,7 +579,7 @@
   "        return get_swagger_ui_oauth2_redirect_html()",
   ""
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|117-117": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|115-115": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|196-196": [
@@ -883,13 +882,13 @@
   "            log.warning(\"jwks_key_skipped\", kid=str(kid)[:100], error=why, members=sorted(str(m)[:20] for m in k)[:20])",
   "        return keys"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|54-54": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|68-68": [
   "        roles = claims.get(\"resource_access\", {}).get(audience, {}).get(\"roles\", [])"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|64-64": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|78-78": [
   "            employee_id=claims.get(\"employee_id\"),"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|66-66": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|80-80": [
   "            groups=frozenset(claims.get(\"groups\", [])),"
  ],
  "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|199-200": [
@@ -1096,7 +1095,7 @@
  "docs/16-data-model.md|cmapi/src/cmapi/core/db/repo.py|369-369": [
   "    def save(self, issuer: str, keys: list[dict[str, Any]]) -> None:"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/identity/claims.py|43-48": [
+ "docs/16-data-model.md|cmapi/src/cmapi/core/identity/claims.py|55-60": [
   "    def record(self) -> dict[str, Any]:",
   "        \"\"\"What change_requests stores about the requester (database only, never Git).\"\"\"",
   "        return {\"sub\": self.sub, \"username\": self.username, \"email\": self.email,",

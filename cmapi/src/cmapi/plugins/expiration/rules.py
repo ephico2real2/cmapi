@@ -17,17 +17,40 @@ States (GET /api/v1/expirations?state=):
 
 Notices: on each run the nearest threshold at or above the days left is sent if it has not been,
 so a short expiry still gets its 1-day notice and a missed run never sends a stale 14-day one.
+
+Days are UTC days (#321). `cmapi.net/expires-at` is a date with no zone, and every date it is compared with is a UTC date:
+today is `utc_today()`, and a namespace's creation day is the UTC date of its `creationTimestamp`, which Kubernetes writes
+in UTC (metav1.Time marshals `t.UTC()` as RFC 3339). RFC 3339, section 4.1: "true interoperability is best achieved by
+using Coordinated Universal Time (UTC)". The host's local date (`date.today()`) is never used: on a host east or west of UTC
+it is another day for part of each day, and the plan, the list and the daily check would disagree.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
 
 from cmapi.core.errors import Problem
+
+
+def utc_today() -> date:
+    """Today's UTC date: the one day that the planner, GET /expirations and expire_check count from (#321)."""
+    return datetime.now(timezone.utc).date()
+
+
+def utc_day(stamp: Any) -> date | None:
+    """The UTC date of an RFC 3339 timestamp such as `creationTimestamp`, or None when it is missing or not one. A stamp with
+    no offset is read as UTC, as Kubernetes writes every stamp."""
+    if not stamp:
+        return None
+    try:
+        moment = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+        return (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).date()
+    except (ValueError, OverflowError):                 # OverflowError: an offset that moves the day past year 1 or 9999
+        return None
 
 
 @dataclass(frozen=True)
