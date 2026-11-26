@@ -54,3 +54,33 @@ cluster until a bot PR merges and an operator confirms the prune (`awaiting_prun
   once); the job on `date.today()` (the UTC test); grace recorded only on the date itself (the missed-run test).
 - The service tests that compared server dates with the local `date.today()` now use `utc_today()`: on this Mac in the
   evening (UTC is the next day) two of them failed after the fix (`daysLeft` 19 against 20), because they encoded the bug.
+
+## Review and the coordinator's rulings (2026-11-26)
+
+**Reviewers.** Two, because this writes delete requests.
+- **Reviewer 1:** Codex gpt-6.2-astra xhigh (`review/reviewer-1-codex.md`). Its sandbox could not reach PostgreSQL.
+- **Reviewer 2:** Opus 5.5 high, which measured every finding on PostgreSQL 16.15 (`review/reviewer-2-opus.md`).
+
+| Finding | Ruling |
+|---|---|
+| H1. The expiry delete did not check prune confirmation | **Fixed, High, as amended by reviewer 2.** A live namespace without Prune=confirm got an `auto:expired-namespace` delete. Argo CD reads Prune=confirm from the **live** object (gitops-engine `sync_context.go` @5baed56 l.1409). For the expiry delete, the live object must now be managed and carry Prune=confirm, or the answer is 409 `prune-confirmation-missing` and the job holds the delete. Codex's Git-side checks were cut: protection comes from Git (#366), and head already checks it. |
+| H2. An extension across UTC midnight | **Fixed, Medium.** The namespace is re-read under its lock in `_open_delete`. The outcome was a delete that people approve, never an unattended one. Codex's lock on every `:extend` and `:set` was dropped: the one-open-request index covers an extension in flight. |
+| H3. Mail in clear text, and STARTTLS without verification | **Fixed, High, security. Older than this PR: #701.** The fix uses `trusted_context()` (CERT_REQUIRED, host name checked) and adds `tls: starttls\|implicit` (RFC 8314 §3 and §3.3). Clear text is refused, with no option to turn verification off. Codex's `ssl.create_default_context()` was rejected: in the pods it trusts only `SSL_CERT_FILE`, Keycloak's CA, so 1 CA against 187. |
+| M1. A token could carry the worker's identity | **Fixed, security.** Measured: a client token named `service-account-cmapi-expire-check` cancelled the worker's delete. The name is now reserved: 401 for such a token, and `unknown-user` in the directory. |
+| M2. The −1 marker was never read | **Fixed.** A rejected expiry delete is no longer reopened the next day. It is logged as `expiry_delete_held`. |
+| M3. Address from the snapshot | **Rejected as Medium.** It follows the SMTP-off rule. Backlog #702. |
+| M4. Send before commit | **Rejected.** The notice is at-least-once, the standard outbox behaviour (RFC 5321 §4.5.3.2.6). Codex's "hold ambiguous" ledger would hold a delete for good. The docstring's exactly-once claim is corrected. |
+| M5. Relay text persisted | **Rejected.** smtplib's error carries the server's reply, never the credentials, and no API serves it. |
+| M6. `examples/local/app.py` uses the local date | **Low, Backlog #702.** |
+| Low. `utc_day` overflow; `LeaseLost` caught per namespace | **Fixed.** |
+
+**The coordinator:**
+- applied reviewer 2's final patch with `patch -p1 -F0`;
+- merged main (#695): the one docs/14 conflict was citation numbers. It relocated 12 citations, corrected 3 identity citations and the two `pipeline.py` ones by hand, and read every target.
+
+**Run:**
+- expiry, expirations, auth, authz, form, rate-limit and api-standard tests: **274 passed**;
+- the review's expiry and email tests: **38 passed**;
+- `tests/core`: **775 passed, 113 skipped**.
+
+CI is the full-suite gate.
