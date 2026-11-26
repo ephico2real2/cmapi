@@ -1,4 +1,4 @@
-"""The `file:line` citations of docs/14, docs/15 and docs/16 point at the code that they name (#178, BUG-47).
+"""The `file:line` citations of docs/14, docs/15, docs/16 and docs/21 point at the code that they name (#178, BUG-47).
 
 scripts/doc-citations.py holds each citation to the text in docs/citations.lock.json. The first test is the check on this
 tree. The others run the script on a small copy, to show that the check can fail and that --relocate repairs a move.
@@ -31,12 +31,12 @@ def test_each_citation_of_the_documents_is_the_text_that_was_recorded_for_it():
 
 @pytest.fixture
 def copy(tmp_path) -> Path:
-    """A repository with the three documents, one of them with three citations, and their lock."""
+    """A repository with the four documents, one of them with three citations, and their lock."""
     (tmp_path / "docs").mkdir()
     (tmp_path / "pkg").mkdir()
     (tmp_path / "pkg/code.py").write_text(CODE)
     (tmp_path / "docs/14-authorization.md").write_text(DOC)
-    for name in ("15-keycloak-integration.md", "16-data-model.md"):
+    for name in ("15-keycloak-integration.md", "16-data-model.md", "21-usage-from-thanos.md"):
         (tmp_path / "docs" / name).write_text("No citation here. The database is on `127.0.0.1:55432`.\n")
     for cmd in (["init", "-q"], ["add", "-A"]):
         subprocess.run(["git", "-C", str(tmp_path), *cmd], check=True, capture_output=True)

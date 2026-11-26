@@ -1115,5 +1115,895 @@
  ],
  "docs/16-data-model.md|cmapi/src/cmapi/jobs/channel_notify.py|30-30": [
   "        s.add(ApprovalNotificationRow(request_id=row.request_id, channel=ch.name, kind=kind,"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/sweep.py|87-87": [
+  "        measured = usage.cluster(st.cluster_id, idle_days=t.idle_days, ceiling=t.quota_tight_at, at=at)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|101-109": [
+  "def parse_answer(cluster_id: str, status: int, body: Any, redact: Callable[[str], str] = lambda text: text) -> list[dict[str, Any]]:",
+  "    \"\"\"The vector of a Prometheus HTTP API answer, or MetricsUnavailable: an error, a warning, or a body of another shape.",
+  "",
+  "    The Querier's own error and warnings are kept, because they say why (a query timeout, a store that did not answer). They",
+  "    are text the server returns, so `redact` (the client's, #420) takes the token out of the whole text before it is cut: it",
+  "    reaches the plan, analysis_sweeps.detail and the worker's log. The Prometheus HTTP API (read 2026-11-25): \"Every successful",
+  "    API request returns a 2xx status code\", and `warnings` is a key of the envelope.\"\"\"",
+  "    def said(text: str) -> str:",
+  "        return redact(f\"{cluster_id}: the Thanos Querier {text}\")[:300]"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|101-126": [
+  "def parse_answer(cluster_id: str, status: int, body: Any, redact: Callable[[str], str] = lambda text: text) -> list[dict[str, Any]]:",
+  "    \"\"\"The vector of a Prometheus HTTP API answer, or MetricsUnavailable: an error, a warning, or a body of another shape.",
+  "",
+  "    The Querier's own error and warnings are kept, because they say why (a query timeout, a store that did not answer). They",
+  "    are text the server returns, so `redact` (the client's, #420) takes the token out of the whole text before it is cut: it",
+  "    reaches the plan, analysis_sweeps.detail and the worker's log. The Prometheus HTTP API (read 2026-11-25): \"Every successful",
+  "    API request returns a 2xx status code\", and `warnings` is a key of the envelope.\"\"\"",
+  "    def said(text: str) -> str:",
+  "        return redact(f\"{cluster_id}: the Thanos Querier {text}\")[:300]",
+  "",
+  "    if not isinstance(body, dict):",
+  "        raise MetricsUnavailable(f\"{cluster_id}: the Thanos Querier answered {status} with no JSON object\")",
+  "    if not 200 <= status < 300 or body.get(\"status\") != \"success\":",
+  "        raise MetricsUnavailable(said(f\"answered {status}: {body.get('errorType')}: {body.get('error')}\"))",
+  "    if body.get(\"warnings\"):",
+  "        raise MetricsUnavailable(said(f\"warned: {body['warnings']}\"))",
+  "    data = body.get(\"data\")",
+  "    if not isinstance(data, dict) or data.get(\"resultType\") != \"vector\" or not isinstance(data.get(\"result\"), list):",
+  "        raise MetricsUnavailable(f\"{cluster_id}: the Thanos Querier answered no instant vector\")",
+  "    for series in data[\"result\"]:",
+  "        # A member of another shape is a broken answer, never a missing sample: it fails the read, as an error does.",
+  "        value = series.get(\"value\") if isinstance(series, dict) else None",
+  "        if (not isinstance(value, list) or len(value) != 2 or not isinstance(value[1], str)",
+  "                or not isinstance(series.get(\"metric\"), dict)):",
+  "            raise MetricsUnavailable(f\"{cluster_id}: the Thanos Querier answered a vector member of another shape\")",
+  "    return data[\"result\"]"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|29-29": [
+  "ROUTE_PATH = \"/apis/route.openshift.io/v1/namespaces/openshift-monitoring/routes/thanos-querier\""
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|35-36": [
+  "        # By client, not by cluster ID: a replaced import (a new client) reads the Route again, and a dropped one is forgotten.",
+  "        self._routes: WeakKeyDictionary[Any, str] = WeakKeyDictionary()"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|38-54": [
+  "    def _base_url(self, cluster_id: str, policy_url: str | None, client: Any) -> str:",
+  "        if policy_url:",
+  "            return policy_url.rstrip(\"/\")",
+  "        cached = self._routes.get(client)",
+  "        if cached:",
+  "            return cached",
+  "        try:",
+  "            route = client.get(ROUTE_PATH)",
+  "        except (ClusterUnreachable, KubeError, BadResponse) as exc:",
+  "            # KubeClient redacts its token from each of these before it is raised (#420).",
+  "            raise MetricsUnavailable(f\"{cluster_id}: the thanos-querier Route could not be read: {str(exc)[:200]}\") from exc",
+  "        spec = (route or {}).get(\"spec\")",
+  "        host = spec.get(\"host\") if isinstance(spec, dict) else None",
+  "        if not isinstance(host, str) or not host:",
+  "            raise MetricsUnavailable(f\"{cluster_id}: openshift-monitoring has no thanos-querier Route with a host\")",
+  "        self._routes[client] = f\"https://{host}\"",
+  "        return self._routes[client]"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|39-40": [
+  "        if policy_url:",
+  "            return policy_url.rstrip(\"/\")"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|46-52": [
+  "        except (ClusterUnreachable, KubeError, BadResponse) as exc:",
+  "            # KubeClient redacts its token from each of these before it is raised (#420).",
+  "            raise MetricsUnavailable(f\"{cluster_id}: the thanos-querier Route could not be read: {str(exc)[:200]}\") from exc",
+  "        spec = (route or {}).get(\"spec\")",
+  "        host = spec.get(\"host\") if isinstance(spec, dict) else None",
+  "        if not isinstance(host, str) or not host:",
+  "            raise MetricsUnavailable(f\"{cluster_id}: openshift-monitoring has no thanos-querier Route with a host\")"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|56-64": [
+  "    def check_grants(self, cluster_id: str) -> None:",
+  "        \"\"\"MetricsUnavailable while the cluster's import check names a usage finding (#724). PromUsage asks it before it",
+  "        serves a cached answer, so a finding hides the answer cached before it: docs/02, \"while any of them stands the",
+  "        cluster's usage is unavailable\".\"\"\"",
+  "        try:",
+  "            st = self.registry.snapshot(cluster_id)",
+  "        except Problem:",
+  "            return                          # no such cluster: there is no finding to apply",
+  "        _refuse_findings(cluster_id, st.usage_findings)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|66-77": [
+  "    def query(self, cluster_id: str, promql: str, at: datetime | None = None) -> list[dict[str, Any]]:",
+  "        \"\"\"The `result` of an instant vector query. MetricsUnavailable on anything that is not a clean answer.\"\"\"",
+  "        try:",
+  "            # A copy under the registry's lock: the client and the findings of its own import check (#724).",
+  "            st = self.registry.snapshot(cluster_id)",
+  "        except Problem as exc:",
+  "            raise MetricsUnavailable(f\"{cluster_id}: {exc.detail}\") from exc",
+  "        client = st.client                  # once: the registry clears it when the cluster drops (#402)",
+  "        if client is None:",
+  "            raise MetricsUnavailable(f\"{cluster_id} is {st.status}: no client for its Thanos Querier\")",
+  "        _refuse_findings(cluster_id, st.usage_findings)",
+  "        base = self._base_url(cluster_id, st.policy.thanos_url if st.policy else None, client)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|66-91": [
+  "    def query(self, cluster_id: str, promql: str, at: datetime | None = None) -> list[dict[str, Any]]:",
+  "        \"\"\"The `result` of an instant vector query. MetricsUnavailable on anything that is not a clean answer.\"\"\"",
+  "        try:",
+  "            # A copy under the registry's lock: the client and the findings of its own import check (#724).",
+  "            st = self.registry.snapshot(cluster_id)",
+  "        except Problem as exc:",
+  "            raise MetricsUnavailable(f\"{cluster_id}: {exc.detail}\") from exc",
+  "        client = st.client                  # once: the registry clears it when the cluster drops (#402)",
+  "        if client is None:",
+  "            raise MetricsUnavailable(f\"{cluster_id} is {st.status}: no client for its Thanos Querier\")",
+  "        _refuse_findings(cluster_id, st.usage_findings)",
+  "        base = self._base_url(cluster_id, st.policy.thanos_url if st.policy else None, client)",
+  "        # `timeout`: the Querier stops evaluating when the caller has stopped waiting (Prometheus HTTP API, \"Evaluation timeout\").",
+  "        params: dict[str, Any] = {\"query\": promql, \"partial_response\": \"false\", \"dedup\": \"true\",",
+  "                                  \"timeout\": f\"{self.timeout:g}s\"}",
+  "        if at is not None:",
+  "            params[\"time\"] = f\"{at.timestamp():.3f}\"",
+  "        try:",
+  "            r = client.monitoring_get(f\"{base}/api/v1/query\", params, self.timeout)",
+  "        except ClusterUnreachable as exc:",
+  "            raise MetricsUnavailable(str(exc)[:300]) from exc",
+  "        try:",
+  "            body = r.json()",
+  "        except (ValueError, RecursionError) as exc:     # JSONDecodeError, UnicodeDecodeError; a body nested past the limit",
+  "            raise MetricsUnavailable(f\"{cluster_id}: the Thanos Querier answered {r.status_code} with no JSON\") from exc",
+  "        return parse_answer(cluster_id, r.status_code, body, client.redact)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|79-80": [
+  "        params: dict[str, Any] = {\"query\": promql, \"partial_response\": \"false\", \"dedup\": \"true\",",
+  "                                  \"timeout\": f\"{self.timeout:g}s\"}"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|84-84": [
+  "            r = client.monitoring_get(f\"{base}/api/v1/query\", params, self.timeout)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/thanos.py|94-98": [
+  "def _refuse_findings(cluster_id: str, findings: list[str]) -> None:",
+  "    \"\"\"The import check found the reader without its own grants (#724): an answer allowed only by another grant, such as one",
+  "    to every user, is not used.\"\"\"",
+  "    if findings:",
+  "        raise MetricsUnavailable(f\"{cluster_id}: {'; '.join(findings)}\"[:300])"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/usage.py|168-176": [
+  "NOT_CONFIGURED = \"No usage source is configured on this instance (capacity.yaml usage.source is none), so there is no 14-day usage.\"",
+  "",
+  "",
+  "class NoUsage:",
+  "    \"\"\"capacity.yaml `usage.source: none`: every answer is insufficient data, and says why.\"\"\"",
+  "    configured = False",
+  "",
+  "    def namespace(self, cluster_id: str, namespace: str) -> NamespaceUsage:",
+  "        return NamespaceUsage(\"insufficient-data\", NOT_CONFIGURED, None)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/usage.py|213-230": [
+  "    @staticmethod",
+  "    def _run(metrics: MetricsSource, cluster_id: str, queries: Mapping[str, str], at: datetime,",
+  "             timeout: float) -> dict[str, list[dict[str, Any]]]:",
+  "        \"\"\"Every query at the one instant `at`, all of them within `timeout` seconds, the Route's discovery included;",
+  "        MetricsUnavailable when any fails or the time runs out, so no answer mixes data and gaps. Each query has a thread of",
+  "        its own, so the deadline is the slowest query's. A query still running at the deadline is not waited for: its answer",
+  "        is dropped, and its thread ends with the transport's own deadline (monitoring_get).\"\"\"",
+  "        pool = ThreadPoolExecutor(max_workers=len(queries), thread_name_prefix=\"usage\")",
+  "        try:",
+  "            futures = {name: pool.submit(metrics.query, cluster_id, q, at) for name, q in queries.items()}",
+  "            done, pending = wait(futures.values(), timeout=timeout, return_when=FIRST_EXCEPTION)",
+  "            for f in done:",
+  "                f.result()                  # the first failure, as the source raised it",
+  "            if pending:",
+  "                raise MetricsUnavailable(f\"{cluster_id}: no answer to every query within {timeout:g} seconds\")",
+  "            return {name: f.result() for name, f in futures.items()}",
+  "        finally:",
+  "            pool.shutdown(wait=False, cancel_futures=True)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/usage.py|232-254": [
+  "    def namespace(self, cluster_id: str, namespace: str) -> NamespaceUsage:",
+  "        # The cache's age is the monotonic clock's, so a step of the wall clock never stretches the 10 minutes; `clock` (the",
+  "        # wall clock) gives only the instant every query is evaluated at.",
+  "        started = time.monotonic()",
+  "        with self._lock:",
+  "            hit = self._cache.get((cluster_id, namespace))",
+  "        at = datetime.fromtimestamp(self.clock(), timezone.utc)",
+  "        try:",
+  "            if hit and started - hit[0] < self.cache_seconds:",
+  "                if self.check_cached is not None:",
+  "                    self.check_cached(cluster_id)",
+  "                return hit[1]",
+  "            answers = self._run(self.metrics, cluster_id, usage_queries(selector(namespace)), at, LIVE_TIMEOUT_SECONDS)",
+  "        except MetricsUnavailable as exc:",
+  "            # Not cached: the next plan asks again. docs/02: \"the plan carries usage: unavailable\".",
+  "            return NamespaceUsage(\"unavailable\", f\"Thanos did not answer: {exc}\", None, evaluated_at=at)",
+  "        result = _assemble(answers, at).get(namespace) or NamespaceUsage(",
+  "            \"insufficient-data\", \"Thanos has no running-pod sample of this namespace in the last 14 days.\", None, evaluated_at=at)",
+  "        with self._lock:",
+  "            # Expired answers go as a new one comes in, so the cache holds at most the namespaces planned in 10 minutes.",
+  "            self._cache = {k: v for k, v in self._cache.items() if started - v[0] < self.cache_seconds}",
+  "            self._cache[(cluster_id, namespace)] = (started, result)",
+  "        return result"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/usage.py|240-243": [
+  "            if hit and started - hit[0] < self.cache_seconds:",
+  "                if self.check_cached is not None:",
+  "                    self.check_cached(cluster_id)",
+  "                return hit[1]"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/usage.py|256-264": [
+  "    def cluster(self, cluster_id: str, *, idle_days: int, ceiling: float, at: datetime) -> dict[str, NamespaceUsage]:",
+  "        \"\"\"Every namespace that any figure names. MetricsUnavailable when a query fails: docs/03, \"A failed or warned query",
+  "        gives that cluster's namespaces insufficient-data for the day\"; the sweep writes that.\"\"\"",
+  "        # Eight in flight at most, as before; each batch has docs/03's \"120-second timeout per query\".",
+  "        queries = list(sweep_queries(idle_days, ceiling).items())",
+  "        answers: dict[str, list[dict[str, Any]]] = {}",
+  "        for i in range(0, len(queries), SWEEP_BATCH):",
+  "            answers.update(self._run(self.sweep_metrics, cluster_id, dict(queries[i:i + SWEEP_BATCH]), at, SWEEP_TIMEOUT_SECONDS))",
+  "        return _assemble(answers, at)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/usage.py|307-327": [
+  "def usage_source_name(raw: Mapping[str, Any] | None) -> str:",
+  "    \"\"\"capacity.yaml `usage.source`, one of SOURCES, `none` when unset. A value of another kind stops the start.\"\"\"",
+  "    block = (raw or {}).get(\"usage\") or {}",
+  "    if not isinstance(block, Mapping) or set(block) - {\"source\"}:",
+  "        raise ValueError(\"capacity.yaml: usage takes the one key source\")",
+  "    source = block.get(\"source\", \"none\")",
+  "    if source not in SOURCES:",
+  "        raise ValueError(f\"capacity.yaml: usage.source is one of {list(SOURCES)}, not {source!r}\")",
+  "    return source",
+  "",
+  "",
+  "def usage_source(raw: Mapping[str, Any] | None, registry: Any) -> UsageSource:",
+  "    \"\"\"capacity.yaml `usage.source`: `thanos` reads each cluster's Thanos Querier (thanos.py), `none` (the default) reads",
+  "    nothing and says so. None is the default so that an instance whose readers lack the monitoring grants of the baseline",
+  "    (examples/baseline, #724), or a cluster with monitoring off (CRC, #489), shows insufficient data instead of a failure on",
+  "    every plan. With `thanos`, the registry's import check names each missing grant (core/registry.py, #724).\"\"\"",
+  "    if usage_source_name(raw) == \"none\":",
+  "        return NoUsage()",
+  "    from cmapi.capacity.thanos import ThanosQuerier       # the adapter, imported only when an instance names it",
+  "    live = ThanosQuerier(registry)",
+  "    return PromUsage(live, sweep_metrics=ThanosQuerier(registry, SWEEP_TIMEOUT_SECONDS), check_cached=live.check_grants)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/usage.py|323-324": [
+  "    if usage_source_name(raw) == \"none\":",
+  "        return NoUsage()"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/usage.py|340-369": [
+  "def plan_usage(u: NamespaceUsage, old_hard: Mapping[str, str], new_hard: Mapping[str, str]) -> tuple[dict[str, Any], dict[str, Any]]:",
+  "    \"\"\"The plan's \"Live usage \u00b7 last 14 days\" (mockups/portal/Main.dc.html, qc.usage) and its approval facts.",
+  "",
+  "    Each resource: now, 7-day average, 14-day p95 and peak, the quota now and planned, and the planned quota over the peak.",
+  "    The figures are null unless the state is ok: insufficient data is said, never shown as numbers to judge by. The facts are",
+  "    `usage` (the state) and, when the usage is known, `requestToPeakRatio`: the largest planned quota over the 14-day peak of",
+  "    a resource the change raises (docs/02, approval-rules.yaml: \"requestToPeakRatio > 3   # namespace peak over 14 days, read",
+  "    live when the change is planned\").\"\"\"",
+  "    ok = u.state == \"ok\"",
+  "    rows: dict[str, Any] = {}",
+  "    ratios: list[float] = []",
+  "    for r in RESOURCES:",
+  "        key = QUOTA_KEYS[r]",
+  "        before = qty(old_hard[key]) if key in old_hard else None",
+  "        after = qty(new_hard[key]) if key in new_hard else None",
+  "        f = u.figures(r) if ok else None",
+  "        over = float(after) / f.peak if f and f.peak and after is not None else None",
+  "        rows[r] = {\"now\": _whole(r, f.now if f else None), \"avg7d\": _whole(r, f.avg7d if f else None),",
+  "                   \"p95\": _whole(r, f.p95 if f else None), \"peak\": _whole(r, f.peak if f else None),",
+  "                   \"quota\": _whole(r, before), \"newQuota\": _whole(r, after),",
+  "                   \"newOverPeak\": round(over, 2) if over is not None else None}",
+  "        if over is not None and before is not None and after is not None and after > before:",
+  "            ratios.append(over)",
+  "    view = {\"state\": u.state, \"reason\": u.reason, \"window\": WINDOW,",
+  "            \"coverage\": u.coverage,",
+  "            \"evaluatedAt\": u.evaluated_at.isoformat() if u.evaluated_at else None, \"units\": dict(UNITS), **rows}",
+  "    facts: dict[str, Any] = {\"usage\": u.state}",
+  "    if ratios:",
+  "        facts[\"requestToPeakRatio\"] = max(ratios)",
+  "    return view, facts"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/usage.py|49-49": [
+  "CACHE_SECONDS = 600                             # docs/02: live usage \"cached 10 minutes\""
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/usage.py|53-53": [
+  "LIVE_TIMEOUT_SECONDS = 10.0     # docs/02: \"A quota change on an existing namespace makes one live query, with a 10-second timeout\""
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/usage.py|54-54": [
+  "SWEEP_TIMEOUT_SECONDS = 120.0   # docs/03, \"Running the sweep\": \"a 120-second timeout per query\""
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/capacity/usage.py|96-106": [
+  "def usage_queries(sel: str) -> dict[str, str]:",
+  "    \"\"\"The figures of the plan's \"Live usage \u00b7 last 14 days\": now, 7-day average, 14-day p95 and peak, and the coverage.\"\"\"",
+  "    out: dict[str, str] = {}",
+  "    for r, expr in ((\"cpu\", CPU), (\"memory\", MEMORY)):",
+  "        e = expr.format(sel=sel)",
+  "        out[f\"{r}.now\"] = e",
+  "        out[f\"{r}.avg7d\"] = f\"avg_over_time(({e})[7d:5m])\"",
+  "        out[f\"{r}.p95\"] = f\"quantile_over_time(0.95, ({e})[{WINDOW}:5m])\"",
+  "        out[f\"{r}.peak\"] = f\"max_over_time(({e})[{WINDOW}:5m])\"",
+  "    out[\"coverage\"] = f\"count_over_time(({RUNNING.format(sel=sel)})[{WINDOW}:5m])\"",
+  "    return out"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|124-126": [
+  "        self._monitoring: httpx.Client | None = None    # made on the first monitoring_get (#310)",
+  "        self._monitoring_lock = threading.Lock()        # a plan's queries run in parallel: one client, made once",
+  "        self._closed = False"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|139-144": [
+  "    def close(self) -> None:",
+  "        self._client.close()",
+  "        with self._monitoring_lock:",
+  "            self._closed = True                     # a query still running for a replaced client makes no new one",
+  "            if self._monitoring is not None:",
+  "                self._monitoring.close()"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|150-153": [
+  "        server's tls-server-name, when the import names one, is left out of the trust. The cluster's trust mode holds",
+  "        for its Route as for its API (docs/02, \"TLS: one mode per cluster\"): on OpenShift the reader's caData, its",
+  "        ServiceAccount's ca.crt, holds the default ingress CA that signs the Route",
+  "        (cluster-kube-controller-manager-operator, manageServiceAccountCABundle: \"include the ca bundle needed to"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|159-161": [
+  "            require_https(url, \"The Thanos Querier URL\")",
+  "        except ValueError as exc:",
+  "            raise ClusterUnreachable(f\"{self.cluster_id}: {exc}\") from None"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|166-168": [
+  "                verify = self._verify",
+  "                if isinstance(self._trust, Trust) and self._trust.server_name and verify is not False:",
+  "                    verify = replace(self._trust, server_name=None).verify()"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|169-169": [
+  "                self._monitoring = httpx.Client(verify=verify, headers={\"Authorization\": self._client.headers[\"Authorization\"]})"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|175-180": [
+  "                for chunk in r.iter_bytes():",
+  "                    body += chunk",
+  "                    if len(body) > MONITORING_MAX_BYTES:",
+  "                        raise ClusterUnreachable(f\"{self.cluster_id}: the Thanos answer is over {MONITORING_MAX_BYTES:,} bytes\")",
+  "                    if time.monotonic() > deadline:",
+  "                        raise ClusterUnreachable(f\"{self.cluster_id}: the Thanos answer took over {timeout:g} seconds\")"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|184-186": [
+  "        except (httpx.HTTPError, httpx.InvalidURL) as exc:",
+  "            CLUSTER_CALLS.labels(self.cluster_id, \"error\").inc()",
+  "            raise ClusterUnreachable(self.redact(f\"{self.cluster_id}: {type(exc).__name__}: {exc}\")) from exc"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|191-193": [
+  "    def redact(self, text: str) -> str:",
+  "        \"\"\"`text` without this client's token in any form; the whole text, before anything cuts it (#420).\"\"\"",
+  "        return redact(text, self._forms)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|252-259": [
+  "    def request_reader_token(self, duration: int) -> tuple[str, str]:",
+  "        path = \"/api/v1/namespaces/cmapi-system/serviceaccounts/cmapi-reader/token\"",
+  "        r = self._request(\"POST\", path, sensitive=True, json={\"apiVersion\": \"authentication.k8s.io/v1\", \"kind\": \"TokenRequest\",",
+  "                                              \"spec\": {\"expirationSeconds\": duration}})",
+  "        if not r.is_success:",
+  "            raise KubeError(r.status_code, path, \"reader TokenRequest failed\")",
+  "        body = self._object(r, path, sensitive=True)",
+  "        return self._text(body, r, path, \"status\", \"token\"), self._text(body, r, path, \"status\", \"expirationTimestamp\")"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|261-263": [
+  "    def whoami(self) -> str:",
+  "        \"\"\"OpenShift's users/~ names the identity; on plain Kubernetes a SelfSubjectReview does.\"\"\"",
+  "        path = \"/apis/user.openshift.io/v1/users/~\""
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|273-283": [
+  "    def access_review(self, namespace: str, user: str, groups: list[str], attributes: Mapping[str, str]) -> bool | None:",
+  "        \"\"\"Whether `user` with exactly `groups` may do `attributes` in `namespace`, by a LocalSubjectAccessReview (#724).",
+  "",
+  "        The API server judges the spec's user and groups as written (kubernetes pkg/registry/authorization/util/helpers.go,",
+  "        AuthorizationAttributesFrom: `Groups: spec.Groups`), so a group the caller leaves out, system:authenticated, grants",
+  "        nothing here. The namespaced kind needs only `create localsubjectaccessreviews` in that namespace (its API type:",
+  "        \"Having a namespace scoped resource makes it much easier to grant namespace scoped policy that includes permissions",
+  "        checking\"). None when the answer is no with an `evaluationError`: an authorizer failed to decide (\"EvaluationError is",
+  "        an indication that some error occurred during the authorization check\", authorization/v1 types.go), so the grant",
+  "        is unknown, not missing; a yes stands. A refusal is KubeError, an answer without a boolean `status.allowed`",
+  "        BadResponse.\"\"\""
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|273-297": [
+  "    def access_review(self, namespace: str, user: str, groups: list[str], attributes: Mapping[str, str]) -> bool | None:",
+  "        \"\"\"Whether `user` with exactly `groups` may do `attributes` in `namespace`, by a LocalSubjectAccessReview (#724).",
+  "",
+  "        The API server judges the spec's user and groups as written (kubernetes pkg/registry/authorization/util/helpers.go,",
+  "        AuthorizationAttributesFrom: `Groups: spec.Groups`), so a group the caller leaves out, system:authenticated, grants",
+  "        nothing here. The namespaced kind needs only `create localsubjectaccessreviews` in that namespace (its API type:",
+  "        \"Having a namespace scoped resource makes it much easier to grant namespace scoped policy that includes permissions",
+  "        checking\"). None when the answer is no with an `evaluationError`: an authorizer failed to decide (\"EvaluationError is",
+  "        an indication that some error occurred during the authorization check\", authorization/v1 types.go), so the grant",
+  "        is unknown, not missing; a yes stands. A refusal is KubeError, an answer without a boolean `status.allowed`",
+  "        BadResponse.\"\"\"",
+  "        path = f\"/apis/authorization.k8s.io/v1/namespaces/{namespace}/localsubjectaccessreviews\"",
+  "        r = self._request(\"POST\", path, json={\"apiVersion\": \"authorization.k8s.io/v1\", \"kind\": \"LocalSubjectAccessReview\",",
+  "                                              \"metadata\": {\"namespace\": namespace},",
+  "                                              \"spec\": {\"user\": user, \"groups\": list(groups),",
+  "                                                       \"resourceAttributes\": {**attributes, \"namespace\": namespace}}})",
+  "        if r.status_code >= 400:",
+  "            raise self._error(r.status_code, path, r.text)",
+  "        status = self._object(r, path).get(\"status\")",
+  "        allowed = status.get(\"allowed\") if isinstance(status, Mapping) else None",
+  "        if not isinstance(allowed, bool):",
+  "            raise BadResponse(path, r.status_code, \"no boolean status.allowed\")",
+  "        if not allowed and status.get(\"evaluationError\"):",
+  "            return None",
+  "        return allowed"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|299-305": [
+  "    def served(self, group_version: str) -> bool:",
+  "        \"\"\"Whether the API server serves a group version, from discovery (GET /apis/<group>/<version>).",
+  "",
+  "        Discovery is open to every authenticated identity (system:discovery), so it tells \"not installed\" (404) from \"not",
+  "        granted\": a list of a kind that the API server does not serve answers 403 to an identity without the grant, because",
+  "        authorization runs before the 404 (measured on CRC, #302 design A).\"\"\"",
+  "        r = self._request(\"GET\", f\"/apis/{group_version}\")"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|399-399": [
+  "    KINDS = (\"Namespace\", \"ResourceQuota\", \"LimitRange\")"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|40-40": [
+  "    \"ServiceAccount\": (\"/api/v1/serviceaccounts\", True),"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|41-41": [
+  "    \"RoleBinding\": (\"/apis/rbac.authorization.k8s.io/v1/rolebindings\", True),"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/nodes.py|106-106": [
+  "        self.watch = WatchCache(client, (KIND,), clock, project=lambda kind, obj: reduce_node(obj), admit=self._admit,"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/nodes.py|33-33": [
+  "KIND = \"Node\""
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/policyreports.py|37-37": [
+  "REPORT_KINDS = (\"PolicyReport\", \"ClusterPolicyReport\")"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/policyreports.py|38-38": [
+  "POLICY_KINDS = (\"ValidatingPolicy\",)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/pipeline.py|253-259": [
+  "    def workload_counts(self, cluster_id: str, ns: str) -> tuple[int, int]:",
+  "        \"\"\"Pods and PVCs in a namespace, for the delete thresholds. A live read: unknown is 503, never 0.\"\"\"",
+  "        client = self.registry.cache(cluster_id).client",
+  "        try:",
+  "            # `items` without a default: KubeClient.list refuses an answer without it (#421), so none counts as 0 workloads.",
+  "            return (len(client.list(\"Pod\", namespace=ns)[\"items\"]),",
+  "                    len(client.list(\"PersistentVolumeClaim\", namespace=ns)[\"items\"]))"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/pipeline.py|449-456": [
+  "        # A quota change on an existing namespace reads its live 14-day usage (docs/01, \"Quota changes on existing namespaces\");",
+  "        # nothing else does: \"Never queried while creating a namespace or setting its first quota\" (docs/01, Thanos on onboarding).",
+  "        usage_view, usage_facts = None, {}",
+  "        if old_hard:  # empty for a create, for quotas that Git keeps as they are, and for a first quota",
+  "            # Compare the hard limits in Git with what will be rendered. The tier catalog can change",
+  "            # between requests, and a change can move only pods, limits, or another quota resource.",
+  "            if old_hard.keys() != hard.keys() or any(qty(old_hard[k]) != qty(hard[k]) for k in hard):",
+  "                usage_view, usage_facts = plan_usage(self.usage.namespace(cluster_id, ns), old_hard, hard)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|142-143": [
+  "            if finding == USAGE_NO_MONITORING:",
+  "                return \"No grant can fix this: the cluster has no OpenShift monitoring, so its usage stays unavailable.\""
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|144-146": [
+  "            if finding.startswith(USAGE_UNCHECKED) and GRANT_CHECK not in finding:",
+  "                # The API server or one of its authorizers failed, which no grant fixes (#724): the next check asks again.",
+  "                return \"Check the cluster's API server and its authorizers; the next import check, or :probe, asks again.\""
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|147-147": [
+  "            return USAGE_FIX"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|502-502": [
+  "            usage = self._usage_grants(client, st.policy) if self.usage_grants else []"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|508-514": [
+  "                cache = WatchCache(client, admit=ledger.admit, dropped=ledger.dropped)",
+  "                with self._lock:",
+  "                    # Together, under the lock `quota_watch` reads them under: a read never pairs one cache with another's ledger.",
+  "                    st.client, st.ledger, st.cache = client, ledger, cache",
+  "                    # Readers can query this client while its watches start. Publish its own decision with it.",
+  "                    forms = _diagnostic_forms(secret)",
+  "                    st.usage_findings = [redact(f, forms) for f in usage]"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|564-564": [
+  "            client.list(\"Namespace\")"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|575-603": [
+  "    def _usage_grants(client: KubeClient, policy: ClusterPolicy | None) -> list[str]:",
+  "        \"\"\"The findings of the reader's own grants for the cluster's Thanos Querier, [] when it holds them (#724).",
+  "",
+  "        Asked of the API server by a LocalSubjectAccessReview in openshift-monitoring, for the reader with its ServiceAccount",
+  "        groups and without system:authenticated, so only a grant to the reader or its ServiceAccount groups counts, never one",
+  "        to every user. The live query does not prove that: the Querier's kube-rbac-proxy reviews the token's own user, groups",
+  "        included. The Route is read only without a clusters.yaml thanosUrl (capacity/thanos.py). A cluster that serves no",
+  "        monitoring.coreos.com/v1 has no OpenShift monitoring, and one finding says so. A check that cannot be asked is a",
+  "        finding too: an unknown grant is not taken as held.\"\"\"",
+  "        try:",
+  "            if not client.served(\"monitoring.coreos.com/v1\"):",
+  "                return [USAGE_NO_MONITORING]",
+  "        except (KubeError, ClusterUnreachable, BadResponse) as exc:",
+  "            return [USAGE_UNCHECKED + str(exc)[:200]]",
+  "        reads = [QUERY_READ] if policy and policy.thanos_url else [ROUTE_READ, QUERY_READ]",
+  "        missing: list[str] = []",
+  "        try:",
+  "            for attributes, grant in reads:",
+  "                allowed = client.access_review(MONITORING_NAMESPACE, READER_IDENTITY, READER_GROUPS, attributes)",
+  "                if allowed is None:          # the authorizer failed to decide: not a missing grant",
+  "                    return [USAGE_UNCHECKED + \"the API server reported an authorization evaluation error\"]",
+  "                if not allowed:",
+  "                    missing.append(f\"{USAGE_FINDING}missing grant in {MONITORING_NAMESPACE}: {grant}\")",
+  "        except KubeError as exc:",
+  "            cause = f\"missing grant in {MONITORING_NAMESPACE}: {GRANT_CHECK}\" if exc.status == 403 else str(exc)[:200]",
+  "            return [USAGE_UNCHECKED + cause]",
+  "        except (ClusterUnreachable, BadResponse) as exc:",
+  "            return [USAGE_UNCHECKED + str(exc)[:200]]",
+  "        return missing"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|585-586": [
+  "            if not client.served(\"monitoring.coreos.com/v1\"):",
+  "                return [USAGE_NO_MONITORING]"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|589-589": [
+  "        reads = [QUERY_READ] if policy and policy.thanos_url else [ROUTE_READ, QUERY_READ]"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|59-67": [
+  "# The reader's reads of the cluster's Thanos Querier for usage.source thanos (#724), each with the grant of the baseline that gives",
+  "# it (examples/baseline/cmapi-reader-rbac.yaml). The Route: capacity/thanos.py's ROUTE_PATH, when clusters.yaml has no thanosUrl.",
+  "# The query: the Querier's kube-rbac-proxy allows get on prometheuses/api \"k8s\" in openshift-monitoring",
+  "# (cluster-monitoring-operator release-4.18 and release-4.22, assets/thanos-querier/kube-rbac-proxy-web-secret.yaml).",
+  "MONITORING_NAMESPACE = \"openshift-monitoring\"",
+  "ROUTE_READ = ({\"verb\": \"get\", \"group\": \"route.openshift.io\", \"resource\": \"routes\", \"name\": \"thanos-querier\"},",
+  "              \"get on Route thanos-querier (Role and RoleBinding cmapi-reader-thanos-route)\")",
+  "QUERY_READ = ({\"verb\": \"get\", \"group\": \"monitoring.coreos.com\", \"resource\": \"prometheuses\", \"subresource\": \"api\", \"name\": \"k8s\"},",
+  "              \"get on prometheuses/api k8s (RoleBinding cmapi-reader-metrics-api of Role cluster-monitoring-metrics-api)\")"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|594-595": [
+  "                if allowed is None:          # the authorizer failed to decide: not a missing grant",
+  "                    return [USAGE_UNCHECKED + \"the API server reported an authorization evaluation error\"]"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|597-597": [
+  "                    missing.append(f\"{USAGE_FINDING}missing grant in {MONITORING_NAMESPACE}: {grant}\")"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|598-600": [
+  "        except KubeError as exc:",
+  "            cause = f\"missing grant in {MONITORING_NAMESPACE}: {GRANT_CHECK}\" if exc.status == 403 else str(exc)[:200]",
+  "            return [USAGE_UNCHECKED + cause]"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|601-602": [
+  "        except (ClusterUnreachable, BadResponse) as exc:",
+  "            return [USAGE_UNCHECKED + str(exc)[:200]]"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|69-71": [
+  "# The reader's groups as a ServiceAccount, without system:authenticated: a grant to every user (on CRC, another project's",
+  "# ClusterRoleBinding of cluster-monitoring-view) is not cmapi's and must not hide a missing one of its own (#724).",
+  "READER_GROUPS = [\"system:serviceaccounts\", \"system:serviceaccounts:cmapi-system\"]"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|731-737": [
+  "    def probe(self, cluster_id: str) -> dict[str, Any]:",
+  "        \"\"\"Recheck this cluster's held import and publish its normal diagnostics before releasing the relist lock.\"\"\"",
+  "        with self._refresh_lock:",
+  "            st = self.get(cluster_id)",
+  "            if items := self._imports.get(cluster_id):",
+  "                self._check_import(st, items)",
+  "            return st.view()"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|74-74": [
+  "USAGE_NO_MONITORING = USAGE_FINDING + \"the cluster serves no monitoring.coreos.com/v1, so it has no OpenShift monitoring\""
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|75-76": [
+  "USAGE_FIX = (\"Apply the reader's openshift-monitoring grants of examples/baseline/cmapi-reader-rbac.yaml on the cluster; until \"",
+  "             \"then its usage is unavailable.\")"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/sync.py|98-98": [
+  "        app = self.client.get(f\"/apis/argoproj.io/v1alpha1/namespaces/{self.namespace}/applications/{self.application}\")"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/jobs/watch_sync.py|138-138": [
+  "            app = ArgoCdSignal(reader, ctx.delivery.argocd_namespace,"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/tests/service/test_reader_thanos_grants_724.py|428-470": [
+  "def test_a_namespace_is_created_and_its_quota_changed_without_the_grants(test_config, fresh_db, keys, monkeypatch, tmp_path):",
+  "    \"\"\"The whole write path on PostgreSQL, with usage.source thanos and neither grant (#724). docs/02: \"Namespace creation and",
+  "    placement never call Thanos\", and the cluster stays connected: the create is auto-approved and synced with no monitoring",
+  "    call. A quota change then carries usage unavailable with the finding as the reason, and the platform approval",
+  "    (\"If Thanos cannot answer, the plan carries usage: unavailable and the change needs a platform approval\").\"\"\"",
+  "    import shutil",
+  "",
+  "    from conftest import FakeKube, build_world",
+  "    from test_flow import NS, OLA, auth, run_jobs",
+  "",
+  "    config = tmp_path / \"config\"",
+  "    shutil.copytree(test_config, config)",
+  "    with (config / \"capacity.yaml\").open(\"a\") as f:",
+  "        f.write(\"usage: {source: thanos}\\n\")",
+  "    served, monitoring = FakeKube.served, []",
+  "    monkeypatch.setattr(FakeKube, \"served\", lambda self, gv: gv == \"monitoring.coreos.com/v1\" or served(self, gv))",
+  "    monkeypatch.setattr(FakeKube, \"access_review\", lambda self, *args: False)",
+  "    monkeypatch.setattr(FakeKube, \"monitoring_get\", lambda self, *args: monitoring.append(args))",
+  "    monkeypatch.setattr(FakeKube, \"get\", lambda self, path: monitoring.append(path))",
+  "    with build_world(config, keys, monkeypatch) as (api, ctx, git, kube, *_):",
+  "        st = ctx.registry.get(\"CRC\")",
+  "        assert st.status == \"connected\" and len(st.usage_findings) == 2",
+  "        h = auth(keys, \"ola\", **OLA)",
+  "        r = api.post(\"/api/v1/clusters/CRC/namespaces\", json=NS, headers=h)",
+  "        assert r.status_code == 202, r.text",
+  "        assert r.json()[\"status\"] == \"approved\"",
+  "        run_jobs(ctx)",
+  "        assert api.get(f\"/api/v1/requests/{r.json()['requestId']}\", headers=h).json()[\"status\"] == \"synced\"",
+  "        assert \"Namespace//payments-dev\" in kube.applied",
+  "        assert monitoring == []",
+  "        ns = api.get(\"/api/v1/clusters/CRC/namespaces/payments-dev\", headers=h)",
+  "        assert ns.status_code == 200, ns.text",
+  "        etag = {\"If-Match\": ns.json()[\"etag\"]}",
+  "        plan = api.patch(\"/api/v1/clusters/CRC/namespaces/payments-dev?dryRun=true\", json={\"tier\": \"medium\"},",
+  "                         headers={**auth(keys, \"ola\", **OLA), **etag})",
+  "        assert plan.status_code == 200, plan.text",
+  "        assert plan.json()[\"usage\"][\"state\"] == \"unavailable\" and st.usage_findings[0] in plan.json()[\"usage\"][\"reason\"]",
+  "        change = api.patch(\"/api/v1/clusters/CRC/namespaces/payments-dev\", json={\"tier\": \"medium\"},",
+  "                           headers={**auth(keys, \"ola\", **OLA), **etag})",
+  "        assert change.status_code == 202, change.text",
+  "        assert change.json()[\"status\"] == \"pending_approval\"",
+  "        slots = change.json()[\"approval\"][\"slots\"]",
+  "        assert {\"group\": \"approver-platform\", \"count\": 1, \"reason\": \"Live usage unavailable\"} in slots"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/tests/service/test_reader_thanos_grants_724.py|99-107": [
+  "def test_crc_and_the_design_grant_what_the_baseline_grants():",
+  "    \"\"\"One grant in three places: the baseline, CRC's reader and docs/02's \"What the baseline creates on every cluster\".\"\"\"",
+  "    baseline = monitoring_grants(load(BASELINE))",
+  "    crc = monitoring_grants(load(ROOT / \"deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml\"))",
+  "    design = (ROOT / \"docs/02-technical-design-v2.md\").read_text()",
+  "    block = design.split(\"**What the baseline creates on every cluster.\", 1)[1].split(\"```yaml\", 1)[1].split(\"```\", 1)[0]",
+  "    assert crc == baseline",
+  "    assert monitoring_grants(load(block)) == baseline",
+  "    assert \"cluster-monitoring-view\" not in block"
+ ],
+ "docs/21-usage-from-thanos.md|deploy/baseline-crc.sh|12-12": [
+  "oc delete clusterrolebinding cmapi-reader-monitoring --ignore-not-found"
+ ],
+ "docs/21-usage-from-thanos.md|deploy/crc-proof.sh|228-231": [
+  "granted cmapi-reader-thanos-route get openshift-monitoring route.openshift.io routes \"\" thanos-querier",
+  "granted cmapi-reader-metrics-api get openshift-monitoring monitoring.coreos.com prometheuses api k8s",
+  "# The import check's own review of the two (core/registry.py, #724): a LocalSubjectAccessReview in openshift-monitoring.",
+  "granted cmapi-reader-grant-check create openshift-monitoring authorization.k8s.io localsubjectaccessreviews \"\" \"\""
+ ],
+ "docs/21-usage-from-thanos.md|deploy/crc-proof.sh|232-233": [
+  "scope=$(sar get openshift-user-workload-monitoring monitoring.coreos.com prometheuses api k8s) || fail \"monitoring scope review failed\"",
+  "case \"$scope\" in \"false \"*) ;; *) fail \"expected get on prometheuses/api k8s to be refused outside openshift-monitoring: $scope\";; esac"
+ ],
+ "docs/21-usage-from-thanos.md|deploy/crc-proof.sh|235-263": [
+  "# Use the CA source of crc-reader-import.sh and the query options of ThanosQuerier.",
+  "thanos=$(oc_ get route thanos-querier -n openshift-monitoring -o 'jsonpath={.spec.host}' --as=system:serviceaccount:cmapi-system:cmapi-reader)",
+  "[ -n \"$thanos\" ] || fail \"the reader could not discover the Thanos Route host\"",
+  "reader_query() (",
+  "  local ca_file reader_token",
+  "  ca_file=$(mktemp) || return 1",
+  "  trap 'rm -f \"$ca_file\"' EXIT",
+  "  oc_ get configmap kube-root-ca.crt -n cmapi-system -o 'jsonpath={.data.ca\\.crt}' >\"$ca_file\" || return 1",
+  "  reader_token=$(oc_ create token cmapi-reader -n cmapi-system --duration=10m) || return 1",
+  "  printf 'header = \"Authorization: Bearer %s\"\\n' \"$reader_token\" | curl -sS -m 15 --fail --cacert \"$ca_file\" --config - --get \\",
+  "    --data-urlencode 'query=count(kube_resourcequota)' --data-urlencode partial_response=false --data-urlencode dedup=true --data-urlencode timeout=10s \\",
+  "    \"https://$thanos/api/v1/query\"",
+  ")",
+  "quotas=$(reader_query | python3 -c '",
+  "import json, sys",
+  "body = json.load(sys.stdin)",
+  "if body.get(\"status\") != \"success\" or body.get(\"warnings\"):",
+  "    sys.exit(\"Thanos returned an error or warning\")",
+  "data = body[\"data\"]",
+  "if data.get(\"resultType\") != \"vector\" or len(data[\"result\"]) != 1:",
+  "    sys.exit(\"expected one count series\")",
+  "series = data[\"result\"][0]",
+  "if series.get(\"metric\") != {} or len(series[\"value\"]) != 2:",
+  "    sys.exit(\"invalid count series\")",
+  "count = series[\"value\"][1]",
+  "if not isinstance(count, str) or not count.isascii() or not count.isdecimal() or int(count) < 1:",
+  "    sys.exit(\"expected a positive quota count\")",
+  "print(count)') || fail \"the Thanos Querier did not return a clean positive quota count for the reader\"",
+  "say \"the reader has the two cmapi Thanos grants in openshift-monitoring: count(kube_resourcequota) = $quotas\""
+ ],
+ "docs/21-usage-from-thanos.md|deploy/crc-proof.sh|264-269": [
+  "# And cmapi's own import check finds them (#724): CRC is connected, with no finding of the usage grants on GET /api/v1/clusters.",
+  "usage_check=$(printf 'header = \"Authorization: Bearer %s\"\\n' \"$tok_viewer\" | c --config - \"$API/api/v1/clusters\" \\",
+  "  | python3 -c 'import json,sys; c={i[\"clusterId\"]: i for i in json.load(sys.stdin)[\"items\"]}[\"CRC\"]; print(c[\"status\"], \"; \".join(f for f in c[\"findings\"] if f.startswith(\"usage: \")))') \\",
+  "  || fail \"GET /api/v1/clusters did not name cluster CRC\"",
+  "[ \"$usage_check\" = \"connected \" ] || fail \"cmapi's import check of CRC is not connected without usage findings: $usage_check\"",
+  "say \"cmapi's import check finds the reader's own usage grants on CRC: no usage finding\""
+ ],
+ "docs/21-usage-from-thanos.md|deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml|27-42": [
+  "rules:",
+  "  - apiGroups: [\"\"]",
+  "    resources: [namespaces, resourcequotas, limitranges]",
+  "    verbs: [get, list, watch]",
+  "  - apiGroups: [\"\"]                      # allocatable, zones and readiness, watched for the Capacity tab (#302, core/clients/nodes.py)",
+  "    resources: [nodes]",
+  "    verbs: [get, list, watch]",
+  "  - apiGroups: [\"\"]                      # counted for the delete thresholds (pods > 20, pvcs > 10)",
+  "    resources: [pods, persistentvolumeclaims]",
+  "    verbs: [list]",
+  "  - apiGroups: [wgpolicyk8s.io]          # Kyverno's policy reports, watched for the Policies tab (#302, core/clients/policyreports.py)",
+  "    resources: [policyreports, clusterpolicyreports]",
+  "    verbs: [get, list, watch]",
+  "  - apiGroups: [policies.kyverno.io]     # the bundle on the cluster: each policy's digest, actions and readiness (#302)",
+  "    resources: [validatingpolicies]",
+  "    verbs: [get, list, watch]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|112-126": [
+  "apiVersion: rbac.authorization.k8s.io/v1",
+  "kind: Role",
+  "metadata: {name: cmapi-reader-renew, namespace: cmapi-system}",
+  "rules:",
+  "  - apiGroups: [\"\"]",
+  "    resources: [serviceaccounts/token]",
+  "    resourceNames: [cmapi-reader]",
+  "    verbs: [create]",
+  "---",
+  "apiVersion: rbac.authorization.k8s.io/v1",
+  "kind: RoleBinding",
+  "metadata: {name: cmapi-reader-renew, namespace: cmapi-system}",
+  "roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-reader-renew}",
+  "subjects:",
+  "  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|13-17": [
+  "# Existing managed namespaces bind this name to the reader. Keep the reserved role inert.",
+  "apiVersion: rbac.authorization.k8s.io/v1",
+  "kind: ClusterRole",
+  "metadata: {name: cmapi-token-issuer}",
+  "rules: []"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|19-59": [
+  "apiVersion: rbac.authorization.k8s.io/v1",
+  "kind: ClusterRole",
+  "metadata: {name: cmapi-reader}",
+  "rules:",
+  "  - apiGroups: [\"\"]",
+  "    resources: [namespaces, nodes, resourcequotas, limitranges, serviceaccounts]",
+  "    verbs: [get, list, watch]",
+  "  - apiGroups: [\"\"]                      # counted for the delete thresholds (pods > 20, pvcs > 10)",
+  "    resources: [pods, persistentvolumeclaims]",
+  "    verbs: [list]",
+  "  - apiGroups: [rbac.authorization.k8s.io]",
+  "    resources: [roles, rolebindings, clusterroles, clusterrolebindings]",
+  "    verbs: [get, list, watch]",
+  "  - apiGroups: [security.openshift.io]",
+  "    resources: [securitycontextconstraints]",
+  "    verbs: [get, list, watch]",
+  "  - apiGroups: [user.openshift.io]",
+  "    resources: [users, groups, identities]",
+  "    verbs: [get, list, watch]",
+  "  - apiGroups: [quota.openshift.io]",
+  "    resources: [clusterresourcequotas]",
+  "    verbs: [get, list, watch]",
+  "  - apiGroups: [redhatcop.redhat.io]",
+  "    resources: [groupsyncs, namespaceconfigs, groupconfigs]",
+  "    verbs: [get, list]",
+  "  - apiGroups: [config.openshift.io]",
+  "    resources: [oauths]",
+  "    resourceNames: [cluster]",
+  "    verbs: [get]",
+  "  - apiGroups: [argoproj.io]",
+  "    resources: [applications]",
+  "    verbs: [get, list, watch]",
+  "  - apiGroups: [wgpolicyk8s.io]          # Kyverno policy reports, for the Policies tab",
+  "    resources: [policyreports, clusterpolicyreports]",
+  "    verbs: [get, list, watch]",
+  "  - apiGroups: [policies.kyverno.io]      # CEL policy kinds: readiness and bundle tag",
+  "    resources: [validatingpolicies, mutatingpolicies, generatingpolicies, deletingpolicies, imagevalidatingpolicies]",
+  "    verbs: [get, list, watch]",
+  "  - apiGroups: [kyverno.io]               # legacy ClusterPolicy family, counted separately",
+  "    resources: [clusterpolicies, policies]",
+  "    verbs: [get, list]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|23-25": [
+  "  - apiGroups: [\"\"]",
+  "    resources: [namespaces, nodes, resourcequotas, limitranges, serviceaccounts]",
+  "    verbs: [get, list, watch]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|26-28": [
+  "  - apiGroups: [\"\"]                      # counted for the delete thresholds (pods > 20, pvcs > 10)",
+  "    resources: [pods, persistentvolumeclaims]",
+  "    verbs: [list]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|29-31": [
+  "  - apiGroups: [rbac.authorization.k8s.io]",
+  "    resources: [roles, rolebindings, clusterroles, clusterrolebindings]",
+  "    verbs: [get, list, watch]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|3-4": [
+  "# Upgrade an existing managed cluster: after applying this file, retire the old cmapi-owned binding with",
+  "# oc delete clusterrolebinding cmapi-reader-monitoring --ignore-not-found"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|32-34": [
+  "  - apiGroups: [security.openshift.io]",
+  "    resources: [securitycontextconstraints]",
+  "    verbs: [get, list, watch]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|35-37": [
+  "  - apiGroups: [user.openshift.io]",
+  "    resources: [users, groups, identities]",
+  "    verbs: [get, list, watch]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|38-40": [
+  "  - apiGroups: [quota.openshift.io]",
+  "    resources: [clusterresourcequotas]",
+  "    verbs: [get, list, watch]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|41-43": [
+  "  - apiGroups: [redhatcop.redhat.io]",
+  "    resources: [groupsyncs, namespaceconfigs, groupconfigs]",
+  "    verbs: [get, list]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|44-47": [
+  "  - apiGroups: [config.openshift.io]",
+  "    resources: [oauths]",
+  "    resourceNames: [cluster]",
+  "    verbs: [get]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|48-50": [
+  "  - apiGroups: [argoproj.io]",
+  "    resources: [applications]",
+  "    verbs: [get, list, watch]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|5-11": [
+  "apiVersion: v1",
+  "kind: Namespace",
+  "metadata: {name: cmapi-system}",
+  "---",
+  "apiVersion: v1",
+  "kind: ServiceAccount",
+  "metadata: {name: cmapi-reader, namespace: cmapi-system}"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|51-53": [
+  "  - apiGroups: [wgpolicyk8s.io]          # Kyverno policy reports, for the Policies tab",
+  "    resources: [policyreports, clusterpolicyreports]",
+  "    verbs: [get, list, watch]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|54-56": [
+  "  - apiGroups: [policies.kyverno.io]      # CEL policy kinds: readiness and bundle tag",
+  "    resources: [validatingpolicies, mutatingpolicies, generatingpolicies, deletingpolicies, imagevalidatingpolicies]",
+  "    verbs: [get, list, watch]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|57-59": [
+  "  - apiGroups: [kyverno.io]               # legacy ClusterPolicy family, counted separately",
+  "    resources: [clusterpolicies, policies]",
+  "    verbs: [get, list]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|61-65": [
+  "apiVersion: rbac.authorization.k8s.io/v1",
+  "kind: ClusterRoleBinding",
+  "metadata: {name: cmapi-reader}",
+  "roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cmapi-reader}",
+  "subjects: [{kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}]"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|69-83": [
+  "apiVersion: rbac.authorization.k8s.io/v1",
+  "kind: Role",
+  "metadata: {name: cmapi-reader-thanos-route, namespace: openshift-monitoring}",
+  "rules:",
+  "  - apiGroups: [route.openshift.io]",
+  "    resources: [routes]",
+  "    resourceNames: [thanos-querier]",
+  "    verbs: [get]",
+  "---",
+  "apiVersion: rbac.authorization.k8s.io/v1",
+  "kind: RoleBinding",
+  "metadata: {name: cmapi-reader-thanos-route, namespace: openshift-monitoring}",
+  "roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-reader-thanos-route}",
+  "subjects:",
+  "  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|88-93": [
+  "apiVersion: rbac.authorization.k8s.io/v1",
+  "kind: RoleBinding",
+  "metadata: {name: cmapi-reader-metrics-api, namespace: openshift-monitoring}",
+  "roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cluster-monitoring-metrics-api}",
+  "subjects:",
+  "  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}"
+ ],
+ "docs/21-usage-from-thanos.md|examples/baseline/cmapi-reader-rbac.yaml|97-110": [
+  "apiVersion: rbac.authorization.k8s.io/v1",
+  "kind: Role",
+  "metadata: {name: cmapi-reader-grant-check, namespace: openshift-monitoring}",
+  "rules:",
+  "  - apiGroups: [authorization.k8s.io]",
+  "    resources: [localsubjectaccessreviews]",
+  "    verbs: [create]",
+  "---",
+  "apiVersion: rbac.authorization.k8s.io/v1",
+  "kind: RoleBinding",
+  "metadata: {name: cmapi-reader-grant-check, namespace: openshift-monitoring}",
+  "roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-reader-grant-check}",
+  "subjects:",
+  "  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}"
  ]
 }
