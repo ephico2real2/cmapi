@@ -513,10 +513,10 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|280-280": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|523-523": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|526-526": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|607-607": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|610-610": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|89-89": [

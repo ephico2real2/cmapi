@@ -11114,7 +11114,7 @@
                   "validator-busy": {
                     "value": {
                       "code": "validator-busy",
-                      "detail": "The policy check is busy: 1 running and 4 waiting in this pod; try again in 15 s",
+                      "detail": "The policy check is temporarily busy. Try again after the delay in Retry-After.",
                       "retryAfter": 15,
                       "status": 503,
                       "title": "validator busy",
@@ -12993,7 +12993,7 @@
                   "validator-busy": {
                     "value": {
                       "code": "validator-busy",
-                      "detail": "The policy check is busy: 1 running and 4 waiting in this pod; try again in 15 s",
+                      "detail": "The policy check is temporarily busy. Try again after the delay in Retry-After.",
                       "retryAfter": 15,
                       "status": 503,
                       "title": "validator busy",
@@ -13724,7 +13724,7 @@
                   "validator-busy": {
                     "value": {
                       "code": "validator-busy",
-                      "detail": "The policy check is busy: 1 running and 4 waiting in this pod; try again in 15 s",
+                      "detail": "The policy check is temporarily busy. Try again after the delay in Retry-After.",
                       "retryAfter": 15,
                       "status": 503,
                       "title": "validator busy",
@@ -14460,7 +14460,7 @@
                   "validator-busy": {
                     "value": {
                       "code": "validator-busy",
-                      "detail": "The policy check is busy: 1 running and 4 waiting in this pod; try again in 15 s",
+                      "detail": "The policy check is temporarily busy. Try again after the delay in Retry-After.",
                       "retryAfter": 15,
                       "status": 503,
                       "title": "validator busy",
@@ -15191,7 +15191,7 @@
                   "validator-busy": {
                     "value": {
                       "code": "validator-busy",
-                      "detail": "The policy check is busy: 1 running and 4 waiting in this pod; try again in 15 s",
+                      "detail": "The policy check is temporarily busy. Try again after the delay in Retry-After.",
                       "retryAfter": 15,
                       "status": 503,
                       "title": "validator busy",

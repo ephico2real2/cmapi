@@ -22,6 +22,8 @@ from conftest import build_world
 from test_flow import NS, OLA, auth
 
 URL = "/api/v1/clusters/CRC/namespaces"
+# The detail of every 503 validator-busy: no slot count, queue or wait of the pod (RFC 9457, section 5).
+DETAIL = "The policy check is temporarily busy. Try again after the delay in Retry-After."
 POLICY = ("apiVersion: policies.kyverno.io/v1\nkind: ValidatingPolicy\nmetadata:\n  name: p\nspec:\n  matchConstraints:\n"
           "    resourceRules:\n    - apiGroups: ['']\n      apiVersions: [v1]\n      operations: [CREATE, UPDATE]\n"
           "      resources: [namespaces]\n")
@@ -117,7 +119,7 @@ def test_twelve_dry_runs_at_once_run_one_kyverno_at_a_time_and_the_rest_answer_5
             assert r.headers["content-type"] == "application/problem+json", r.headers
             assert body["code"] == "validator-busy" and body["retryAfter"] == 15, body
             assert r.headers["Retry-After"] == "15"
-            assert body["detail"] == "The policy check is busy: 1 running and 4 waiting in this pod; try again in 15 s"
+            assert body["detail"] == DETAIL
         else:
             assert planned(r), r.text
 
@@ -131,7 +133,7 @@ def test_a_dry_run_that_waits_longer_than_the_wait_answers_503_with_retry_after(
         r = dry_run(client, keys)
     assert r.status_code == 503, r.text
     assert r.json()["code"] == "validator-busy" and r.json()["retryAfter"] == 1 and r.headers["Retry-After"] == "1", r.text
-    assert "came free in 0.3 s" in r.json()["detail"]
+    assert r.json()["detail"] == DETAIL
     assert busy_count("wait-timeout") - before == 1
     # The slot is free again: the same dry run is the plan, as it was before #708.
     r = dry_run(client, keys)
@@ -192,3 +194,74 @@ def test_the_defaults_are_one_slot_four_waiting_and_fifteen_seconds(monkeypatch)
     assert (s.validator_concurrency, s.validator_queue, s.validator_wait_seconds) == (1, 4, 15.0)
     slots = V.ValidatorSlots()
     assert (slots.concurrency, slots.queue, slots.wait_seconds, slots.retry_after) == (1, 4, 15.0, 15)
+
+
+@pytest.mark.parametrize("queue, reason", [(0, "queue-full"), (1, "wait-timeout")])
+def test_a_busy_answer_names_no_slot_count_or_wait(world, real_validator, queue, reason):
+    """RFC 9457, section 5: the details of a problem "must also be scrutinized". The pod's slots, queue and wait are its
+    configuration, so the detail is one sentence for each reason; Retry-After carries the delay."""
+    client, ctx, git, kube, validator, keys = world
+    slots = V.ValidatorSlots(1, queue=queue, wait_seconds=0)
+    real_validator(slots=slots)
+    before = busy_count(reason)
+    with slots.hold():
+        r = dry_run(client, keys)
+    assert (r.status_code, r.headers["Retry-After"], r.headers["content-type"]) == (503, "1", "application/problem+json")
+    body = r.json()
+    assert (body["code"], body["retryAfter"], body["detail"]) == ("validator-busy", 1, DETAIL), body
+    assert busy_count(reason) == before + 1
+
+
+def test_a_metadata_refusal_with_no_free_slot_is_its_422_and_counts_no_503(world, real_validator):
+    """A plan that the metadata rules refuse still runs the check for its findings; with no slot free, the answer stays that
+    422, so cmapi_validator_busy_total does not count a 503 that no client was sent."""
+    client, ctx, git, kube, validator, keys = world
+    slots = V.ValidatorSlots(1, queue=0, wait_seconds=0)
+    real_validator(slots=slots)
+    before = busy_count("queue-full")
+    body = {**NS, "annotations": {"cmapi.net/team-dl": "payments@example.org"}}
+    with slots.hold():
+        r = client.post(f"{URL}?dryRun=true", json=body, headers=auth(keys, "ola", **OLA))
+    assert (r.status_code, r.json()["code"]) == (422, "policy-violation"), r.text
+    assert busy_count("queue-full") == before
+
+
+def test_readyz_answers_while_twelve_dry_runs_hold_the_validator(world, real_validator):
+    """The CRC burst again, with the readiness probe polled throughout: each plan answers 200 or 503 validator-busy with
+    Retry-After, and /readyz answers 200 within the probe's timeoutSeconds (3, deploy/helm/cmapi/templates/api.yaml), since
+    the slots keep the waiting plans to 1 + 4 of AnyIO's 40 threads."""
+    import time
+
+    client, ctx, git, kube, validator, keys = world
+    state = real_validator(seconds=1.0)
+    start, done = threading.Barrier(13, timeout=30), threading.Event()
+    probes: list[tuple[int, float]] = []
+
+    def one(_: int):
+        start.wait()
+        return dry_run(client, keys)
+
+    def probe():
+        start.wait()
+        while not done.is_set():
+            t = time.monotonic()
+            r = client.get("/readyz")
+            probes.append((r.status_code, time.monotonic() - t))
+            time.sleep(0.05)
+
+    poller = threading.Thread(target=probe)
+    poller.start()
+    try:
+        with ThreadPoolExecutor(12) as pool:
+            answers = list(pool.map(one, range(12)))
+    finally:
+        done.set()
+        poller.join(30)
+    assert int((state / "peak").read_text()) == 1
+    for r in answers:
+        if r.status_code == 503:
+            assert r.json()["code"] == "validator-busy" and r.headers["Retry-After"] == "15", r.text
+        else:
+            assert planned(r), r.text
+    assert len(probes) >= 10 and all(code == 200 for code, _ in probes), probes
+    assert max(s for _, s in probes) < 3, f"/readyz took {max(s for _, s in probes):.2f} s"

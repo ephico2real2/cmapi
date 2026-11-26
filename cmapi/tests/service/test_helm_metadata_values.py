@@ -301,3 +301,28 @@ def test_the_schema_types_each_stanza_as_the_loader_reads_it():
 
     assert {name: kind(stanzas[name]) for name in metadata._LIST_STANZAS} == dict.fromkeys(metadata._LIST_STANZAS, "array")
     assert {name: kind(stanzas[name]) for name in metadata._MAP_STANZAS} == dict.fromkeys(metadata._MAP_STANZAS, "object")
+
+
+@pytest.mark.parametrize("key, invalid", [
+    ("concurrency", 0), ("concurrency", 41), ("concurrency", 1.5),
+    ("queue", -1), ("queue", 41), ("queue", True),
+    ("waitSeconds", -0.5), ("waitSeconds", 60.5), ("waitSeconds", "inf"), ("waitSecond", 3),
+])
+def test_validator_values_out_of_settings_range_stop_the_render(tmp_path, key, invalid):
+    """api.validator (#708) has the bounds of Settings (validator_concurrency 1 to 40, validator_queue 0 to 40,
+    validator_wait_seconds 0 to 60), so Helm refuses a value that would stop the API at its start, and a misspelt key."""
+    result = _helm("template", tmp_path, {"api": {"validator": {key: invalid}}})
+    assert result.returncode != 0 and "validator" in result.stderr, result.stderr
+
+
+@pytest.mark.parametrize("slots, queue, wait", [(1, 0, 0), (2, 4, 0.5), (40, 40, 60)])
+def test_validator_values_in_range_reach_the_api_settings(tmp_path, slots, queue, wait):
+    from cmapi.settings import Settings
+
+    result = _helm("template", tmp_path, {"api": {"validator": {"concurrency": slots, "queue": queue, "waitSeconds": wait}}})
+    assert result.returncode == 0, result.stderr
+    api, = [c for obj in yaml.safe_load_all(result.stdout) if obj and obj["kind"] == "Deployment"
+            and obj["metadata"]["name"] == "cmapi-api" for c in obj["spec"]["template"]["spec"]["containers"]]
+    env = {e["name"].removeprefix("CMAPI_").lower(): e["value"] for e in api["env"] if e["name"].startswith("CMAPI_VALIDATOR_")}
+    s = Settings(**env)
+    assert (s.validator_concurrency, s.validator_queue, s.validator_wait_seconds) == (slots, queue, wait)

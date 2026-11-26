@@ -168,7 +168,7 @@ def test_each_holder_reports_its_wait(tmp_path):
 
 
 @pytest.mark.parametrize("concurrency, queue, wait", [(0, 4, 15), (1, -1, 15), (1, 4, -1), (1, 4, float("inf")),
-                                                      (1, 4, float("nan"))])
+                                                      (1, 4, float("nan")), (1.5, 0, 0), (1, 0.5, 0), (True, 0, 0)])
 def test_slots_refuse_a_bound_that_is_not_one(concurrency, queue, wait):
     with pytest.raises(ValueError, match="validator slots need"):
         V.ValidatorSlots(concurrency, queue, wait)
@@ -177,3 +177,44 @@ def test_slots_refuse_a_bound_that_is_not_one(concurrency, queue, wait):
 @pytest.mark.parametrize("wait, retry_after", [(0, 1), (0.2, 1), (15, 15), (14.5, 15)])
 def test_retry_after_is_the_wait_in_whole_seconds_at_least_one(wait, retry_after):
     assert V.ValidatorSlots(1, 0, wait).retry_after == retry_after
+
+
+def test_timeout_restores_the_entire_queue():
+    # A queue of one must admit another waiter after *every* timeout, even while
+    # the original holder is still running. A leaked admission becomes queue-full.
+    slots = V.ValidatorSlots(1, queue=1, wait_seconds=0)
+    for _ in range(2):
+        with slots.hold():
+            for _ in range(3):
+                with pytest.raises(V.ValidatorBusy) as exc, slots.hold():
+                    pytest.fail("two holders occupied one slot")
+                assert exc.value.reason == "wait-timeout"
+
+
+def test_failed_observer_restores_both_permits():
+    def broken(_):
+        raise RuntimeError("observation failed")
+
+    slots = V.ValidatorSlots(1, queue=0, wait_seconds=0, on_wait=broken)
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="observation failed"), slots.hold():
+            pytest.fail("observer failed before the block")
+
+
+def test_one_admission_covers_both_commands(tmp_path, monkeypatch):
+    waits = []
+    slots = V.ValidatorSlots(1, queue=0, wait_seconds=0, on_wait=waits.append)
+    v, _ = validator(tmp_path, seconds=0, slots=slots)
+    run = v._run
+    commands = []
+
+    def while_holding(cmd):
+        with pytest.raises(V.ValidatorBusy), slots.hold():
+            pytest.fail("CLI invoked outside admission")
+        commands.append(Path(cmd[0]).name)
+        return run(cmd)
+
+    monkeypatch.setattr(v, "_run", while_holding)
+    v.validate(FILES, "C", "dev")
+    assert commands == ["kubeconform", "kyverno"]
+    assert len(waits) == 1

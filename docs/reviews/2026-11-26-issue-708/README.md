@@ -159,3 +159,27 @@ The outputs are in the implementer's `wt-708-outputs/` (`before-core.txt`, `befo
 
 Opus 5.5 at `high` (the implementer) wrote the code, the tests, docs/18's section, the chart values and this record. The
 reviewers' records go beside it.
+
+## Review and the coordinator's rulings (2026-11-26)
+
+**Reviewers.**
+- **Reviewer 1:** Codex gpt-6.2-astra xhigh. Its sandbox had no PostgreSQL.
+- **Reviewer 2:** Opus 5.5 high, on PostgreSQL 16, with the real pinned kyverno v1.20.0 and kubeconform v0.6.7 in the image's UBI 9 base under podman.
+
+| Codex finding | Ruling |
+|---|---|
+| Medium 1: process-group kill on timeout | **Refuted by measurement.** Under strace, each CLI is one process: 1 execve, threads only (`CLONE_THREAD`), and no forks. Head already kills and reaps a hung CLI and frees its slot (2.90 s against a 2 s timeout). `killpg` would not prevent zombies under PID 1 without an init either. Backlog. |
+| Medium 2: the Helm schema omits `api.validator` | **Fixed, Low** (in the changed lines). |
+| Low 1: fractional or bool permits | **Fixed.** Integers only. `1.5` let 5 of 5 holders in. |
+| Low 2: the 503 detail discloses slot counts | **Fixed** with `public_detail`. The problem-doc retry guidance ("Nothing was done") is kept. |
+| Low 3: the busy counter counts on a 422 | **Fixed.** |
+| Low 4: the version probe runs outside the slots | **Not a defect.** It runs once at startup, before uvicorn serves; 72 MiB. |
+| Low 5: the metric-scan test fails | **Fixed, Medium.** CI was red on head. |
+
+**Reviewer 2 also:**
+- relocated the two docs/14 citations that Codex's patch broke;
+- added `test_readyz_answers_while_twelve_dry_runs_hold_the_validator`.
+
+**The burst on PostgreSQL** (final tree, 3 runs): 5 × 200 and 7 × 503 `validator-busy` with `Retry-After: 15` each time, a kyverno peak of 1, and every `/readyz` 200 (max 0.645 s).
+
+The Low items are in the Backlog issue named in the PR.

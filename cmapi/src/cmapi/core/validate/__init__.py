@@ -69,6 +69,10 @@ class ValidatorBusy(ValidatorUnavailable):
     """Every slot of this process is taken and its queue is full, or no slot came free in time (#708). Not a verdict on the
     files: retry after `retry_after` seconds. A ValidatorUnavailable, so a caller that retries those retries this too."""
 
+    # The answer's detail (RFC 9457, section 5: the details "must also be scrutinized"): the slot counts and the wait of
+    # this pod stay in the exception's message, for the worker's job error, and out of the HTTP answer.
+    public_detail = "The policy check is temporarily busy. Try again after the delay in Retry-After."
+
     def __init__(self, message: str, *, reason: str, retry_after: int):
         super().__init__(message)
         self.reason, self.retry_after = reason, retry_after
@@ -84,15 +88,19 @@ class ValidatorSlots:
 
     Two bounded semaphores (Python's threading docs: "In any situation where the size of the resource is fixed, you should
     use a bounded semaphore"). `_admitted` counts the holders and the waiters and is taken without blocking, so a burst past
-    them is refused at once and holds no thread of the server's pool: the sync routes, /readyz among them, share AnyIO's 40
-    worker threads. `_running` is the slots, taken with the timeout. `on_wait` gets the seconds that each holder waited for
-    its slot: the metric is wired in core/context.py, since the reference code imports this module with no metrics library."""
+    them is refused without waiting, and its thread goes back to the server's pool with the 503: the sync routes, /readyz
+    among them, share AnyIO's 40 worker threads. `_running` is the slots, taken with the timeout. `on_wait` gets the
+    seconds that each holder waited for its slot: the metric is wired in core/context.py, since the reference code imports
+    this module with no metrics library."""
 
     def __init__(self, concurrency: int = 1, queue: int = 4, wait_seconds: float = 15.0,
                  on_wait: Callable[[float], None] | None = None):
-        if concurrency < 1 or queue < 0 or not math.isfinite(wait_seconds) or wait_seconds < 0:
-            raise ValueError("validator slots need a concurrency of at least 1, a queue of at least 0 and a finite wait of "
-                             f"at least 0 seconds, not {concurrency}, {queue} and {wait_seconds}")
+        # Whole numbers only: threading.Semaphore stops a holder only at a value of exactly 0, so a concurrency of 1.5 never
+        # stops one. type() is not isinstance(), so a bool is refused too.
+        if (type(concurrency) is not int or concurrency < 1 or type(queue) is not int or queue < 0
+                or not math.isfinite(wait_seconds) or wait_seconds < 0):
+            raise ValueError("validator slots need a whole concurrency of at least 1, a whole queue of at least 0 and a "
+                             f"finite wait of at least 0 seconds, not {concurrency!r}, {queue!r} and {wait_seconds!r}")
         self.concurrency, self.queue, self.wait_seconds = concurrency, queue, wait_seconds
         # Retry-After is delay-seconds, a whole number (RFC 9110, section 10.2.3): the wait rounded up, at least 1.
         self.retry_after = max(1, math.ceil(wait_seconds))

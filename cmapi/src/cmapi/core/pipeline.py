@@ -385,11 +385,14 @@ class Pipeline:
             try:
                 findings = self.validator.validate(files, cluster_id, env, previous=prev_files)
             except ValidatorBusy as exc:
+                if refusal is not None:
+                    raise  # the metadata 422 found above is the answer (the handler below), so no 503 is counted
                 # Every slot of this pod is taken (#708): the plan is not refused, it is to be sent again.
                 VALIDATOR_BUSY.labels(exc.reason).inc()
                 log.warning("validator_busy", reason=exc.reason, retry_after=exc.retry_after, cluster_id=cluster_id,
                             namespace=ns)
-                raise Problem(503, "validator-busy", str(exc)[:300], extra={"retryAfter": exc.retry_after}) from exc
+                raise Problem(503, "validator-busy", ValidatorBusy.public_detail,
+                              extra={"retryAfter": exc.retry_after}) from exc
             except ValidatorUnavailable as exc:
                 raise Problem(503, "validator-unavailable", str(exc)[:300], extra={"retryAfter": 60}) from exc
         except Exception as exc:

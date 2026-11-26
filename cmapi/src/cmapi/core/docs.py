@@ -107,7 +107,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "capacity-service-unavailable": (503, "cmapi-capacity cannot be reached"),
     "git-unavailable": (502, "The Git host answered 500"),
     "validator-unavailable": (503, "kubeconform did not start"),
-    "validator-busy": (503, "The policy check is busy: 1 running and 4 waiting in this pod; try again in 15 s"),
+    "validator-busy": (503, "The policy check is temporarily busy. Try again after the delay in Retry-After."),
     "internal-error": (500, "The service failed. Give the X-Request-Id of this answer to the platform team"),
     "docs-assets-missing": (503, "The Swagger UI bundle is not in /opt/app-root/static"),
 }

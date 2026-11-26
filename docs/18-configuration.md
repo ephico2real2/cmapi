@@ -176,7 +176,8 @@ processes" limit is missing). A plan takes a slot before it runs either CLI and 
   same request can be sent again. A dry run is refused the same way.
 - **Why the queue is short.** A route of the API that is a plain `def` runs in AnyIO's worker threads, 40 by default, which
   every such route shares, `/readyz` among them. A plan that waits holds one of them, so the queue keeps a burst of plans from
-  holding them all; the plans beyond it hold none. Google's SRE book ("Addressing Cascading Failures", "Queue management") keeps
+  holding them all; a plan beyond it holds its thread only until its 503. Leave threads for the other routes when raising the
+  slots and the queue. Google's SRE book ("Addressing Cascading Failures", "Queue management") keeps
   "small queue lengths relative to the thread pool size (e.g., 50% or less)" and has the server "reject new requests" when the
   queue is full. The bounds: 40 for the threads, and 60 s for the front door's `proxy_read_timeout`, nginx's default.
 - **Why one slot.** Measured on the CRC bundle (the policies of `deploy/manifests/environments/crc/20-config.yaml`, rendered for
@@ -188,13 +189,14 @@ processes" limit is missing). A plan takes a slot before it runs either CLI and 
   runs at once took 6.7 s for 6.6 s of CPU: a second slot adds memory and no throughput. Go's own settings do not shrink it:
   `GOGC=50` gave 145.7 MiB and `GOMEMLIMIT=96MiB` 154.2 MiB, since most of it is the CLI's fixed start.
 - **Raise the slots with the memory and CPU limits**: for each slot past the first, about 100 MiB (80 MiB measured, and room)
-  and one CPU. The worker runs one
-  job at a time, so it uses one slot whatever the setting.
+  and one CPU, for each API server process: the API runs one in its container (`cmapi-api`, `uvicorn.run` with no workers).
+  The worker runs one job at a time, so it uses one slot whatever the setting.
 - **What an operator sees.** `cmapi_validator_busy_total{reason}` counts each 503 `validator-busy`, with `reason` `queue-full`
   (refused at once) or `wait-timeout`; `cmapi_validator_wait_seconds` is how long each plan that got a slot waited for it. The
   log line `validator_busy` (warning) names the reason, the cluster and the namespace. Waits near `CMAPI_VALIDATOR_WAIT_SECONDS`
   and a rising `wait-timeout` say the pod needs more slots, and so more memory, or more replicas.
-- **The chart** sets the three from `api.validator.concurrency`, `.queue` and `.waitSeconds`.
+- **The chart** sets the three from `api.validator.concurrency`, `.queue` and `.waitSeconds`, and its `values.schema.json`
+  holds the same bounds, so `helm install`, `upgrade`, `lint` and `template` refuse a value out of range or a misspelt key.
 
 ### The policy engine
 

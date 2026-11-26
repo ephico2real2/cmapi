@@ -138,3 +138,20 @@ def test_a_comment_whose_answer_was_lost_is_not_posted_again():
         provider.comment(pr, "cmapi: merge failed; :retry merges it")
     provider.comment(pr, "cmapi: merge failed; :retry merges it")
     assert kept == ["cmapi: merge failed; :retry merges it"]
+
+
+def test_pr_checks_uses_the_worker_contexts_validator_slots(tmp_path, monkeypatch):
+    """#708: the worker's PR check runs the CLIs through its context's validator, so a held slot stops it before kubeconform."""
+    from cmapi.core.render.manifests import plan_hash
+    from cmapi.core.validate import CliValidator, ValidatorBusy, ValidatorSlots
+
+    checks = importlib.import_module("cmapi.jobs.pr_checks")
+    r = row()
+    r.env, r.plan_hash = "dev", plan_hash(r.plan["files"])
+    git = NS(external_ci=False, pr_status=lambda pr: PrStatus("open", {}), changed_paths=lambda head: set(),
+             tree_files=lambda head, folder: r.plan["files"], branch_head=lambda branch: HEAD, read_folder=lambda f: ({}, HEAD))
+    slots = ValidatorSlots(1, queue=0, wait_seconds=0)
+    ctx = NS(git=git, pipeline=NS(validator=CliValidator(tmp_path, slots=slots)))
+    monkeypatch.setattr(CliValidator, "_kubeconform", lambda *a: pytest.fail("PR check bypassed worker admission"))
+    with slots.hold(), pytest.raises(ValidatorBusy, match="busy"):
+        checks._pr_checks(ctx, Repo(), Jobs(), r, NS())
