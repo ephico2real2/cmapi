@@ -257,7 +257,7 @@ The figure is `docs/diagrams/data-model/source.html`, drawn to diagram-kit's `/v
 Written by `scripts/db-schema-doc.py` from the test database of the service suite (PostgreSQL 16 on `127.0.0.1:55432`, macOS, 2026-11-13; written again on 2026-11-23 for migrations `0008` (#592) and `0009` (#603)). The test `tests/service/test_data_model_doc.py` fails when this part differs from the database. To write it again: `CMAPI_DATABASE_URL=... python scripts/db-schema-doc.py`, and replace the text between the two marker lines.
 
 <!-- schema:begin -->
-Migration head: `0009`. Tables: 10.
+Migration head: `0010`. Tables: 12.
 
 ### `admin_switches`
 
@@ -271,6 +271,23 @@ Migration head: `0009`. Tables: 10.
 | Constraint or index | Kind | Definition |
 |---|---|---|
 | `admin_switches_pkey` | Primary key | `PRIMARY KEY (name)` |
+
+### `analysis_sweeps`
+
+| Column | Type | Null | Default |
+|---|---|---|---|
+| `cluster_id` | varchar(63) | no |  |
+| `day` | date | no |  |
+| `evaluated_at` | timestamptz | no |  |
+| `status` | varchar(10) | no |  |
+| `step` | varchar(5) | no |  |
+| `namespaces` | integer | yes |  |
+| `detail` | text | yes |  |
+
+| Constraint or index | Kind | Definition |
+|---|---|---|
+| `ck_sweep_status` | Check | `CHECK (((status)::text = ANY ((ARRAY['complete'::character varying, 'partial'::character varying, 'failed'::character varying])::text[])))` |
+| `analysis_sweeps_pkey` | Primary key | `PRIMARY KEY (cluster_id, day)` |
 
 ### `approval_notifications`
 
@@ -432,6 +449,26 @@ Migration head: `0009`. Tables: 10.
 | Constraint or index | Kind | Definition |
 |---|---|---|
 | `jwks_keys_pkey` | Primary key | `PRIMARY KEY (issuer)` |
+
+### `namespace_verdicts`
+
+| Column | Type | Null | Default |
+|---|---|---|---|
+| `cluster_id` | varchar(63) | no |  |
+| `namespace` | varchar(63) | no |  |
+| `day` | date | no |  |
+| `resource` | varchar(10) | no |  |
+| `verdict` | varchar(30) | no |  |
+| `kind` | varchar(8) | no |  |
+| `evidence` | jsonb | no |  |
+
+| Constraint or index | Kind | Definition |
+|---|---|---|
+| `ck_verdict_kind` | Check | `CHECK (((kind)::text = ANY ((ARRAY['ok'::character varying, 'info'::character varying, 'waste'::character varying, 'risk'::character varying])::text[])))` |
+| `ck_verdict_resource` | Check | `CHECK (((resource)::text = ANY ((ARRAY['cpu'::character varying, 'memory'::character varying, 'pods'::character varying])::text[])))` |
+| `namespace_verdicts_pkey` | Primary key | `PRIMARY KEY (cluster_id, namespace, day, resource, verdict)` |
+| `idx_verdicts_cluster_day` | Index | `btree (cluster_id, day)` |
+| `idx_verdicts_day` | Index | `btree (day)` |
 
 ### `policy_rejections`
 

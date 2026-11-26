@@ -500,24 +500,24 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1332-1332": [
   "            raise Problem.forbidden(f\"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|175-177": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|178-180": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|263-263": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|266-266": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|269-269": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|272-272": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|277-277": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|280-280": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|514-514": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|523-523": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|568-568": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|577-577": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|77-77": [
@@ -589,7 +589,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|236-236": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|62-62": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|48-60": [
