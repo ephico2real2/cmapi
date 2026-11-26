@@ -191,17 +191,23 @@ gives the look. The workflow, step by step, with the function of each step, head
 
 ### Where the portal's Quotas tab differs from the mockup
 
-The API has no usage analysis yet (#310): no verdict, no recommendation and no live usage. Those parts are left out.
+The usage verdicts and a plan's live 14-day usage are the API's (#310): `QuotaRow.verdict`, `verdictResources`, `verdictReason`
+and `verdictDay` from the latest daily sweep, the facets `quota-tight`, `oversized`, `idle` and `needs-attention`, and
+`PlanView.usage`. The recommendation is docs/03's phase 6 and is not built.
 
 | Difference | Why |
 |---|---|
-| No Verdict column, no "Usage verdict", no "Recommendation" with "Use this size" | `QuotaRow` has no verdict and no recommendation (#310) |
-| The attention chips are All, "Near limit ≥ 80%", "Open request" and "Tier outdated": the API's `facets` and `state`. No "Quota tight", "Recommendation", "Oversized" or "Idle" | Those four need the usage analysis (#310). "Tier outdated" is the API's third facet, which the mockup does not have |
-| An "Attention" column instead of Verdict: the facets that hold for the row (`near-limit` at a use of 80% or more, `open-request`, `tier-outdated`), in the API's words | The row's state the API has. The tests are the API's `FACETS` (`cmapi/src/cmapi/plugins/quotas`) |
-| The heading says "{N} namespaces in scope · {M} near the limit" | "Need attention" counts the severity of the mockup, whose level 1 needs the usage analysis (#310); the API counts near-limit |
-| The lede ends at "not what they consume."; the footnote has no "verdicts from the 02:00 usage sweep" | No Thanos read and no sweep is built (#310) |
-| No "Live usage · last 14 days" in a planned change | `PlanView` has no usage (#310) |
-| The plan's checks are Environment served, If-Match matches the current ETag, Capacity on {cluster} and Approval, as in the New namespace tab | `PlanView` has no Kyverno result and no headroom before and after; the capacity check gives its status, its share of CPU and memory and the binding resource |
+| No "Recommendation" with "Use this size", and no "Recommendation" chip | docs/03, "Delivery": recommendations are phase 6, with their own endpoints (#310) |
+| The Verdict pill writes "{verdict} · {resource}" when the verdict holds for one resource, CPU too; the mockup writes the resource for memory only | `verdictResources`: the API says which resource, and the page does not pick one |
+| `insufficient-data` is a verdict of its own, a grey pill, with the API's sentence of why under "Usage verdict": no usage source on the instance, no sweep yet, too few samples, or a failed sweep | docs/03's "insufficient-data" verdict; the mockup's sample has none |
+| Under "Usage verdict", "From the usage sweep of {day}." | docs/02: "A missed daily sweep leaves the previous day's verdicts in place, marked with their date" |
+| The attention chips are the mockup's (Quota tight, Near limit ≥ 80%, Oversized, Idle, Open request) and "Tier outdated" | The API's `facets` and `state`. "Tier outdated" is the API's own facet, which the mockup does not have |
+| The heading's "{N} need attention" is the API's `needs-attention` count | The rows whose severity is 1 or more (`cmapi/src/cmapi/core/listquery.py`), the mockup's `severity(x) > 0` |
+| The footnote says "verdicts from the daily usage sweep", not "the 02:00 usage sweep" | The worker's `usage_sweep` runs every 24 hours from its start, not at a set hour (#310) |
+| The live usage's footnote says "Read live from {cluster}'s Thanos for this plan; cached 10 minutes and not stored. Cluster headroom comes from the watch cache's committed quota, with no Thanos call." | cmapi-capacity and its snapshots are not built: the usage is read in the API (embedded mode), and the capacity check is the watch's (#302) |
+| With insufficient data the table shows "—" for each figure and an "Insufficient data" callout with the API's reason; when Thanos does not answer, a "Live usage unavailable" callout | docs/03: "Missing is not zero"; docs/01: "the plan carries usage: unavailable and the change needs a platform approval" |
+| "New quota vs 14-day peak" warns only when the API's approval names `requestToPeakRatio`; the mockup's "threshold 3×" is not written | The threshold is the instance's `approval-rules.yaml`; the page computes no rule |
+| The plan's checks are Environment served, If-Match matches the current ETag, Capacity on {cluster}, New quota vs 14-day peak (with a quota change) and Approval | `PlanView` has no Kyverno result and no headroom before and after; the capacity check gives its status, its share of CPU and memory and the binding resource |
 | The size hint says that custom sizes go "in the same PATCH", and the detail's footnote names `GET /api/v1/clusters/{c}/namespaces/{ns}` | `.../namespaces/{ns}/quota` is not built (docs/04, "Designed and not built"); the namespace PATCH takes `quota` with `tier: custom` |
 | The sizes are the catalog's tiers of the namespace's environment (`GET /api/v1/tiers`), the Tier filter the catalog's tier names, and the custom fields take the catalog's `custom` min, max and step | The mockup's sizes and bounds are its sample. The browser refuses a value outside them, and so does the API |
 | The Cluster filter lists `GET /api/v1/clusters` | The mockup lists the clusters of its sample rows |

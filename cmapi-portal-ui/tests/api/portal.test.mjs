@@ -34,13 +34,13 @@ let expectedStatus = [];
 /** A new browser profile: no session, no storage. */
 async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width = 1440, quotas = SAMPLES.operations.quotas_quotas.response.body.items, kpi = SAMPLES.operations.admin_kpi.response.body,
   expirations = [], never = false, metadataKeys = REFERENCE_KEYS, policies = policyFleet(), rejections = rejectionsFrom(3), capacity = capacityFleet(), namespaces = [],
-  clusters = SAMPLES.operations.core_clusters.response.body.items } = {}) {
+  clusters = SAMPLES.operations.core_clusters.response.body.items, usage = undefined } = {}) {
   issuer.state.user = user && USERS[user];
   issuer.state.sessions = true;
   issuer.state.lifetime = 300;
   Object.assign(api.state, { mode, items, delayMs: 0, hold: null, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters, namespaces,
     tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body, quotas, etags: new Map(), kpi,
-    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys, protection: new Map(), policies, rejections, capacity, notModified: 0 });
+    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys, protection: new Map(), policies, rejections, capacity, notModified: 0, usage });
   issuer.state.seen.length = 0;
   expectedStatus = [];
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -2138,9 +2138,12 @@ try {
   const num = (q) => { const [, n, u = ""] = /^([\d.]+)(m|Mi|Gi)?$/.exec(q); return Number(n) * UNIT[u]; };
   const one = (n) => String(Math.round(n * 10) / 10);
   // The mockup's row (quotaView(): list): name, cluster, env, tier, "used / hard cores", "used / hard Gi", "used / hard" pods,
-  // and then the attention counts of the API that hold for the row, and the row's button.
+  // the usage verdict ("quota-tight · memory" when it holds for one resource, #310), and the row's button.
+  const verdictText = (r) => (r.verdictResources.length === 1 ? `${r.verdict} · ${r.verdictResources[0]}` : r.verdict);
   const expectedQuota = (r, selected = false) => [r.name, r.clusterId, r.env, r.tier, `${one(num(r.cpu[0]))} / ${one(num(r.cpu[1]))} cores`, `${one(num(r.memory[0]))} / ${one(num(r.memory[1]))} Gi`,
-    `${r.pods[0]} / ${r.pods[1]}`, [r.used >= 0.8 && "near-limit", r.openRequest && "open-request", r.tierOutdated && "tier-outdated"].filter(Boolean).join(" ") || "—", selected ? "Selected" : "Manage"];
+    `${r.pods[0]} / ${r.pods[1]}`, verdictText(r), selected ? "Selected" : "Manage"];
+  // cmapi/src/cmapi/core/listquery.py severity, written again from docs/01: quota-tight or 95% used 3, 80% used 2, idle or oversized 1.
+  const severity = (r) => (r.used >= 0.95 || r.verdict === "quota-tight" ? 3 : r.used >= 0.8 ? 2 : ["idle", "quota-oversized", "requests-oversized"].includes(r.verdict) ? 1 : 0);
   const quotaRows = (page) => page.locator("table[aria-label=Quotas] tbody tr").evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.innerText.replace(/\s+/g, " ").trim())));
   const quotaCalls = () => calls("/api/v1/quotas");
   // The tab also reads the counts of its heading and of All: the page's call is one of the calls, not always the last one.
@@ -2168,10 +2171,15 @@ try {
     await openQuotas(page);
     assert.deepEqual(quotaCalls()[0].query, { limit: "50" }, "the first page: the mockup's 50 rows, sorted by name");
     const nearLimit = fleet.filter((r) => r.used >= 0.8).length;
-    assert.match(await panel(page).innerText(), new RegExp(`70 namespaces in scope · ${nearLimit} near the limit`));
+    const attention = fleet.filter((r) => severity(r) > 0).length;
+    assert.ok(attention > nearLimit, "the verdicts of level 1 count too");
+    assert.match(await panel(page).innerText(), new RegExp(`70 namespaces in scope · ${attention} need attention`));
     assert.deepEqual(await quotaRows(page), named.slice(0, 50).map((r, i) => expectedQuota(r, i === 0)), "the first page, cell by cell; the first namespace is shown below");
     assert.match(await panel(page).innerText(), /1–50 of 70 · A–Z/);
-    assert.deepEqual(await chips(page, "Needs attention"), ["All 70", `Near limit ≥ 80% ${nearLimit}`, `Open request ${fleet.filter((r) => r.openRequest).length}`, `Tier outdated ${fleet.filter((r) => r.tierOutdated).length}`]);
+    const count = (test) => fleet.filter(test).length;
+    assert.deepEqual(await chips(page, "Needs attention"), ["All 70", `Quota tight ${count((r) => r.verdict === "quota-tight")}`, `Near limit ≥ 80% ${nearLimit}`,
+      `Oversized ${count((r) => /oversized$/.test(r.verdict))}`, `Idle ${count((r) => r.verdict === "idle")}`, `Open request ${count((r) => r.openRequest)}`,
+      `Tier outdated ${count((r) => r.tierOutdated)}`], "the mockup's chips in its order (ATTN), with the API's counts; no Recommendation (phase 6)");
     const near = page.locator("table[aria-label=Quotas] tbody tr").first().locator("[role=progressbar]").first();
     assert.equal(await near.getAttribute("aria-valuenow"), String(Math.round(num(named[0].cpu[0]) / num(named[0].cpu[1]) * 100)), "the CPU meter's value is used over hard");
 
@@ -2225,7 +2233,8 @@ try {
     await panel(page).getByRole("group", { name: "Needs attention" }).getByRole("button", { name: /^Near limit/ }).click();
     await waitQuotaRange(page, `1–25 of ${nearLimit} (filtered from 70) · most used first`);
     assert.deepEqual(quotaCalls().filter((c) => c.query.state).at(-1).query, { state: "near-limit", sort: "used", limit: "25" });
-    assert.ok((await quotaRows(page)).every((r) => r[7].includes("near-limit")));
+    // The rows are the near-limit ones of the fleet, in the sort; the eighth cell is the row's verdict now (#310).
+    assert.deepEqual((await quotaRows(page)).map((r) => r[0]), used.filter((r) => r.used >= 0.8).slice(0, 25).map((r) => r.name));
     assert.equal((await chips(page, "Needs attention"))[0], "All 70", "All counts the rows of the other filters");
     await panel(page).getByRole("group", { name: "Needs attention" }).getByRole("button", { name: /^Near limit/ }).click();
     // The environment and the tier.
@@ -2380,8 +2389,9 @@ try {
     assert.deepEqual({ query: dry.query, ifMatch: dry.ifMatch, key: dry.key, body: dry.body },
       { query: { dryRun: "true" }, ifMatch: `"${etag}"`, key: null, body: { tier: "medium", justification: "Load test next sprint" } }, "the dry run: the etag of GET as If-Match, and no key");
     assert.deepEqual((await changeCard(page).locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()), [
-      "✓ Environment served dev in [rnd, dev]", `✓ If-Match matches the current ETag ${etag}`, `✓ Capacity on ${target.clusterId} fits on fresh data · cpu 13% · memory 10% · binds on cpu`, "! Approval dev-change"
-    ]);
+      "✓ Environment served dev in [rnd, dev]", `✓ If-Match matches the current ETag ${etag}`, `✓ Capacity on ${target.clusterId} fits on fresh data · cpu 13% · memory 10% · binds on cpu`,
+      "! New quota vs 14-day peak insufficient data", "! Approval dev-change"
+    ], "the recorded plan: the test instance has no usage source (#310)");
     const update = SAMPLES.operations.namespaces_update_namespace.response.body;
     assert.match(await approval.innerText(), new RegExp(`${update.approval.reasons.join("; ").replace(/[+()>]/g, "\\$&")}\\. Nothing reaches Git until they approve\\. Self-approval is allowed in dev\\.`));
     await changeCard(page).getByRole("button", { name: "Submit change" }).click();
@@ -2437,6 +2447,94 @@ try {
       assert.equal(await changeCard(page).count(), 0, "the viewer holds no namespaces:write, so the change form is not shown");
       assert.deepEqual(errors, []);
       await context.close();
+    }
+  });
+
+  // #310: the usage verdicts of the list and the live 14-day usage of a plan. The plan's usage is the API's PlanUsage, in the
+  // units of the contract (millicores and bytes); the page writes cores and Gi as the mockup's table does (qc.usage).
+  const GiB = 2 ** 30;
+  const USAGE_OK = { state: "ok", reason: null, window: "14d", coverage: 0.98, evaluatedAt: "2026-11-25T02:00:00+00:00", units: { cpu: "millicores", memory: "bytes" },
+    cpu: { now: 1200, avg7d: 1100, p95: 1800, peak: 2000, quota: 8000, newQuota: 16000, newOverPeak: 8 },
+    memory: { now: 3 * GiB, avg7d: 3 * GiB, p95: 4 * GiB, peak: 5 * GiB, quota: 16 * GiB, newQuota: 32 * GiB, newOverPeak: 6.4 } };
+  const blank = { now: null, avg7d: null, p95: null, peak: null, newOverPeak: null };
+  const NO_SOURCE = "No usage source is configured on this instance (capacity.yaml usage.source is none), so there is no 14-day usage.";
+  const USAGE_NONE = { ...USAGE_OK, state: "insufficient-data", reason: NO_SOURCE, coverage: null, evaluatedAt: null,
+    cpu: { ...USAGE_OK.cpu, ...blank }, memory: { ...USAGE_OK.memory, ...blank } };
+  const USAGE_DOWN = { ...USAGE_NONE, state: "unavailable", reason: "Thanos did not answer: CRC: ReadTimeout: timed out" };
+  const usageRows = (page) => changeCard(page).locator("table[aria-label='Live usage · last 14 days'] tbody tr")
+    .evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.innerText.replace(/\s+/g, " ").trim())));
+  const verdictCard = (page, r) => panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: `${r.name} on ${r.clusterId}` }) });
+
+  await check("310 Quotas usage: each row's verdict and why, and a plan's live 14-day usage when Thanos answers, with insufficient data, and when it does not", async () => {
+    const { context, page, errors } = await quotaFresh({ usage: USAGE_OK });
+    await manage(page, target);
+    // The detail: the verdict's pill, "Usage verdict" with the API's sentence, and the sweep's day.
+    const card = verdictCard(page, target);
+    assert.match(await card.innerText(), new RegExp(`${verdictText(target).replace(/[·]/g, ".")}[\\s\\S]*Usage verdict\\s+${target.verdictReason.replace(/[.()%?+]/g, "\\$&")}\\s+From the usage sweep of 2026-11-25\\.`));
+    // Thanos answers: the mockup's table, and the check that reads it.
+    await planOf(page, "medium");
+    await changeCard(page).getByRole("heading", { name: "Live usage · last 14 days" }).waitFor();
+    assert.deepEqual(await usageRows(page), [["cpu (cores)", "1.2", "1.1", "1.8", "2", "8 → 16", "8×"], ["memory (Gi)", "3", "3", "4", "5", "16 → 32", "6.4×"]]);
+    assert.ok((await changeCard(page).locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()).includes("✓ New quota vs 14-day peak cpu 8× · memory 6.4×"));
+    assert.match(await changeCard(page).innerText(), new RegExp(`Read live from ${target.clusterId}'s Thanos for this plan; cached 10 minutes and not stored\\.`));
+    // The API's approval names the rule that reads the ratio: the check warns, and says why.
+    const planned = { ...SAMPLES.operations["namespaces_update_namespace:dryRun"].response.body, usage: USAGE_OK,
+      approval: { ...SAMPLES.operations.namespaces_update_namespace.response.body.approval, reasons: ["dev change: 0 from approver-platform", "threshold requestToPeakRatio > 3: +1 approver-platform"] } };
+    api.state.answers.push({ route: `PATCH /api/v1/clusters/${target.clusterId}/namespaces/${target.name}`, status: 200, body: planned });
+    await planOf(page, "large");
+    await changeCard(page).getByText("cpu 8× · memory 6.4× · adds an approval").waitFor();
+    assert.ok((await changeCard(page).locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()).includes("! New quota vs 14-day peak cpu 8× · memory 6.4× · adds an approval"));
+
+    // No usage source: insufficient data, said, and no figure.
+    api.state.usage = USAGE_NONE;
+    await planOf(page, "medium");
+    const none = changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "Insufficient data" });
+    await none.waitFor();
+    assert.match(await none.innerText(), new RegExp(NO_SOURCE.replace(/[.()]/g, "\\$&")));
+    assert.deepEqual(await usageRows(page), [["cpu (cores)", "—", "—", "—", "—", "8 → 16", "—"], ["memory (Gi)", "—", "—", "—", "—", "16 → 32", "—"]]);
+    assert.ok((await changeCard(page).locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()).includes("! New quota vs 14-day peak insufficient data"));
+
+    // Thanos does not answer: the plan says so, and the API's approval adds the platform group.
+    api.state.usage = USAGE_DOWN;
+    await planOf(page, "large");
+    const down = changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "Live usage unavailable" });
+    await down.waitFor();
+    assert.match(await down.innerText(), /Thanos did not answer: CRC: ReadTimeout: timed out/);
+    assert.ok((await changeCard(page).locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()).includes("! New quota vs 14-day peak Thanos did not answer: a platform approval is added"));
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("310 Quotas at 1440 and 390 px: the fleet with its verdicts and a plan with live usage, and CRC's state with no usage source: insufficient data on every row and in the plan", async () => {
+    const crc = quotasFrom(70, { verdicts: false });
+    assert.ok(crc.every((r) => r.verdict === "insufficient-data" && r.verdictReason === NO_SOURCE), "the recorded row: the test instance has no usage source");
+    for (const [name, quotas, usage, size] of [["verdicts", fleet, USAGE_OK, "medium"], ["insufficient-data", crc, USAGE_NONE, "medium"]]) {
+      for (const width of [1440, 390]) {
+        const { context, page, errors } = await quotaFresh({ quotas, usage, width });
+        const shown = quotas.find((r) => r.name === target.name);
+        await manage(page, shown);
+        const pill = await panel(page).innerText();
+        if (name === "insufficient-data") {
+          assert.match(pill, /70 namespaces in scope · \d+ need attention/);
+          assert.deepEqual(await chips(page, "Needs attention").then((c) => c.filter((t) => /^(Quota tight|Oversized|Idle) /.test(t))), ["Quota tight 0", "Oversized 0", "Idle 0"]);
+          assert.ok((await quotaRows(page)).every((r) => r[7] === "insufficient-data"), "every row says insufficient data");
+          assert.match(await verdictCard(page, shown).innerText(), new RegExp(`Usage verdict\\s+${NO_SOURCE.replace(/[.()]/g, "\\$&")}`));
+        }
+        await planOf(page, size);
+        await changeCard(page).getByRole("heading", { name: "Live usage · last 14 days" }).waitFor();
+        await settle(page);
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert.ok(overflow <= 0, `${name} ${width}: no sideways scroll (${overflow})`);
+        // The tab scrolls inside PatternFly's main area: the window grows to the tallest scroller, so the picture is the whole tab.
+        const height = await page.evaluate(() => Math.max(...[...document.querySelectorAll("*")].map((el) => el.scrollHeight)));
+        await page.setViewportSize({ width, height: height + 200 });
+        await settle(page);
+        await page.screenshot({ path: join(out, `quotas-310-${name}-${width}.png`), fullPage: true });
+        const scan = await new AxeBuilder({ page }).analyze();
+        assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe ${name} ${width}`);
+        assert.deepEqual(errors, []);
+        await context.close();
+      }
     }
   });
 
@@ -3419,14 +3517,13 @@ try {
       await panel(page).getByRole("group", { name: "Env" }).getByRole("button", { name: "dev", exact: true }).click();
       await panel(page).getByText("No namespace on the nonprod instance matches these filters.").waitFor();
       shown.push(...await shownText(page));
-      // The mockup's usage analysis, recommendation and live usage: the API has none (#310). Its footnote, lede and hint name them.
-      const MOCKUP_ONLY = ["Verdict", "Usage verdict", "Recommendation", "Use this size", "/quota · ETag", "Live usage · last 14 days", "Resource", "Now", "7d avg", "p95", "Peak", "Quota", "New / peak",
+      // The mockup's recommendation (docs/03 phase 6, #12), its cmapi-capacity footnote and its 02:00 sweep: not built (#310).
+      const MOCKUP_ONLY = ["Recommendation", "Use this size", "/quota · ETag",
         "Read live from", "'s Thanos by cmapi-capacity for this plan; cached 10 minutes and not stored. Cluster headroom comes from the 17:00 snapshot, committed quota and reservations, with no Thanos call.",
-        "instance, read live from cmapi's watch cache of each cluster. Used is what pods have requested, not what they consume; real usage is read from Thanos only when you plan a change.",
         "Quota status from the watch cache, verdicts from the 02:00 usage sweep; no Thanos call. Pages follow a cursor on the sort key, so namespaces created or deleted between pages never cause a skip or a repeat. Bars turn amber at 80% and red at 95% of the hard limit.",
         "A tier changes one label and the operator re-stamps the quota (PATCH …/namespaces/{ns}). Custom sets requests.cpu and requests.memory directly (PATCH …/namespaces/{ns}/quota)."];
       const fromMockup = mockupBlock("isQuotas", "isExpiration").filter((t) => !MOCKUP_ONLY.includes(t));
-      const data = [...fleet.flatMap((r) => [r.name, r.clusterId, r.env, r.tier, r.openRequest].filter(Boolean)), "rnd", "dev", "nonprod", "small", "medium", "large", "custom", "CRC", "pay", "zzz", "ledger",
+      const data = [...fleet.flatMap((r) => [r.name, r.clusterId, r.env, r.tier, r.openRequest, verdictText(r), r.verdictReason].filter(Boolean)), "rnd", "dev", "nonprod", "small", "medium", "large", "custom", "CRC", "pay", "zzz", "ledger",
         ...SAMPLES.operations.namespaces_update_namespace.response.body.approval.reasons, "approver-platform", "dev-change", "pending_approval", locked.openRequest];
       // The mockup's logic builds these (quotaView()): chips, sizes, range, pager call, detail, change, the 202 and the export.
       // A letter button is matched whole: as a known text, each letter would erase every other text from the check.
@@ -3434,13 +3531,15 @@ try {
         /^[A-Z]: \d+ namespaces?$/, /^\d+ cores · \d+Gi( · current)?$/, /^[a-z-]+ on [A-Z_]+$/, /^(dev|rnd) · tier [a-z]+ · ResourceQuota [a-z-]+-quota · read from the watch cache, current to the second$/,
         /^GET \/api\/v1\/clusters\/[A-Z_]+\/namespaces\/[a-z-]+ · ETag [0-9a-f]{16} · ResourceQuota and LimitRange for tier [a-z]+ live in the namespace folder in Git\.$/, /^Change quota · [a-z-]+$/, /^(dev|rnd) · [A-Z_]+$/,
         /^202 Accepted · req-\d{8}-\d{4} · pending_approval$/, /^quotas-nonprod-\d{4}-\d{2}-\d{2}\.csv · \d+ rows$/, /^GET \/api\/v1\/quotas:export streams every row matching the current filters, not only this page, in the current sort order\. Capped at 10,000 rows and recorded in the audit log\.$/,
-        /^Change in progress: req-\d{8}-\d+$/, /^[✓!✕]$/, /^[a-z]+ in \[rnd, dev\]$/, /^[0-9a-f]{16}$/, /^\d+ approvals? in cmapi from /, /^No namespace matches "[a-z]+"\.$/, /^matching "[a-z]+" ✕$/];
-      const LOGIC = ["requests.cpu", "requests.memory", "pods", "requests.cpu used of hard", "requests.memory used of hard", "pods used of hard", "Selected", "Manage", "All", "Name A–Z", "% used", "Needs attention", "Near limit ≥ 80%", "Open request", "set cpu and memory", "Environment served", "If-Match matches the current ETag",
+        /^Change in progress: req-\d{8}-\d+$/, /^[✓!✕]$/, /^\d+(\.\d+)? → \d+(\.\d+)?$/, /^[a-z]+ in \[rnd, dev\]$/, /^[0-9a-f]{16}$/, /^\d+ approvals? in cmapi from /, /^No namespace matches "[a-z]+"\.$/, /^matching "[a-z]+" ✕$/];
+      const LOGIC = ["requests.cpu", "requests.memory", "pods", "requests.cpu used of hard", "requests.memory used of hard", "pods used of hard", "Selected", "Manage", "All", "Name A–Z", "% used", "Needs attention", "Near limit ≥ 80%", "Open request", "Quota tight", "Oversized", "Idle", "set cpu and memory", "cpu (cores)", "memory (Gi)", "New quota vs 14-day peak", "Environment served", "If-Match matches the current ETag",
         "Waiting for 1 approval in cmapi (approver-platform). The approvers are notified; nothing is written to Git until the count is met.", "0 namespaces", "Change in progress", "—", "25", "50", "100"];
       // The portal's own words, each in MOCKUP-CONTRACT.md.
-      const ADDED = ["Attention", "Searching…", "…", "near-limit", "open-request", "tier-outdated", "Tier outdated", "Download", "Matching namespaces", "Planning…", "Approval", "Capacity on CRC", /^fits on fresh data · cpu \d+% · memory \d+% · binds on cpu$/,
-        /^\d+ namespaces in scope · \d+ near the limit$/, "instance, read live from cmapi's watch cache of each cluster. Used is what pods have requested, not what they consume.",
-        "Quota status from the watch cache; no Thanos call. Pages follow a cursor on the sort key, so namespaces created or deleted between pages never cause a skip or a repeat. Bars turn amber at 80% and red at 95% of the hard limit.",
+      const ADDED = ["Searching…", "…", "tier-outdated", "Tier outdated", "Download", "Matching namespaces", "Planning…", "Approval", "Capacity on CRC", /^fits on fresh data · cpu \d+% · memory \d+% · binds on cpu$/,
+        /^\d+ namespaces in scope · \d+ need attention$/,
+        "Quota status from the watch cache, verdicts from the daily usage sweep; no Thanos call. Pages follow a cursor on the sort key, so namespaces created or deleted between pages never cause a skip or a repeat. Bars turn amber at 80% and red at 95% of the hard limit.",
+        /^From the usage sweep of \d{4}-\d{2}-\d{2}\.$/, "Insufficient data", "insufficient data", NO_SOURCE,
+        /^Read live from [A-Z_]+'s Thanos for this plan; cached 10 minutes and not stored\. Cluster headroom comes from the watch cache's committed quota, with no Thanos call\.$/,
         "A tier changes one label and the operator re-stamps the quota (PATCH …/namespaces/{ns}). Custom sets requests.cpu and requests.memory directly, in the same PATCH.",
         /^req-\d{8}-\d+ holds this namespace in cmapi\. cmapi holds one open request per namespace, so another change is refused with 409 change-pending until this one closes\.$/,
         /^dev change: 0 from approver-platform; threshold quotaIncreasePct > 100: \+1 approver-platform\. Nothing reaches Git until they approve\. Self-approval is allowed in dev\.$/,
