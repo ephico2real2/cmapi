@@ -32,6 +32,7 @@ from cmapi.core.errors import BASE, Problem
 from cmapi.core.etag import STALE_READ
 from cmapi.core.http_settings import DEFAULT_MAX_REQUEST_BODY_BYTES, too_large
 from cmapi.core.models import ProblemDetail
+from cmapi.core.ratelimit import rate_class
 
 # Every problem code a route may declare, with its status and an example detail (docs/02, API contract).
 PROBLEMS: dict[str, tuple[int, str]] = {
@@ -93,7 +94,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "invalid-limit": (400, "limit is one of (25, 50, 100), at most 200"),
     "dry-run-not-supported": (400, "This call has no dry run, and nothing was done"),
     "bad-request": (400, "Too many fields. Maximum number of fields is 1000."),
-    "rate-limited": (429, "Too many requests"),
+    "rate-limited": (429, "Too many write calls by this caller; try again in 2 s"),
     "idp-unavailable": (503, "Keycloak signing keys are unreachable and this key is not cached"),
     "cluster-unreachable": (503, "CRC did not answer"),
     "capacity-service-unavailable": (503, "cmapi-capacity cannot be reached"),
@@ -116,7 +117,8 @@ PROBLEM_STATUS_TEXT: dict[int, str] = {
     413: "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.",
     422: "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.",
     428: "A change needs If-Match with the ETag of the object as it was read; `*` is not one.",
-    429: "Too many requests. Wait for the seconds in `retryAfter`.",
+    429: "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the "
+         "team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.",
     500: "The service failed.",
     502: "The Git host failed.",
     503: "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.",
@@ -182,6 +184,7 @@ PROBLEM_EXTRAS: dict[str, dict[str, Any]] = {
     "idp-unavailable": {"retryAfter": 30},
     "cluster-unreachable": {"retryAfter": 30},
     "validator-unavailable": {"retryAfter": 60},
+    "rate-limited": {"retryAfter": 2},
     "folder-holds-submodule": {"paths": ["clusters/CRC/namespaces/payments-dev/vendor"]},
     # instance.yaml http.maxRequestBodyBytes, here its default (core/http_settings.py, #683)
     "content-too-large": {"maxBytes": DEFAULT_MAX_REQUEST_BODY_BYTES},
@@ -616,6 +619,8 @@ def build_openapi(app: FastAPI, plugins: dict[str, DocumentedRouter], base_url: 
     _document_validation_problem(spec)
     _document_body_limit_problem(spec)
     _document_token_problems(spec)
+    _document_rate_limit_problem(spec)
+    _document_retry_after(spec)
     _document_if_match_required(spec)
     # Before the curl samples, which send the recorded body of each write (#349).
     samples = load_samples()
@@ -944,6 +949,40 @@ def _document_token_problems(spec: dict[str, Any]) -> None:
             if isinstance(op, dict) and op.get("security"):
                 add_problem(op, "unauthenticated")
                 add_problem(op, "idp-unavailable")
+
+
+def _document_rate_limit_problem(spec: dict[str, Any]) -> None:
+    """Each operation that takes a token can answer 429 rate-limited (routers/__init__.py, rate_limit, #689): the rate
+    limit is a dependency of the same routers as the token check (main.py, api_app), so `security` says which operations.
+    `x-cmapi-rate-limit` names the caller's bucket that the operation takes from (core/ratelimit.py, rate_class)."""
+    for path, ops in spec["paths"].items():
+        for method, op in ops.items():
+            if isinstance(op, dict) and op.get("security"):
+                add_problem(op, "rate-limited")
+                op["x-cmapi-rate-limit"] = rate_class(method, path)
+
+
+# The problem codes that carry retryAfter, which main.py's problem_response sends as Retry-After too (#689).
+RETRY_AFTER_CODES = frozenset(code for code, extra in PROBLEM_EXTRAS.items() if "retryAfter" in extra)
+
+
+def _document_retry_after(spec: dict[str, Any]) -> None:
+    """The Retry-After header of each problem response with a code that carries retryAfter (RFC 9110, section 10.2.3):
+    required when each code of the response carries it, as on a 429, else sent with the codes that do."""
+    for ops in spec["paths"].values():
+        for op in ops.values():
+            if not isinstance(op, dict):
+                continue
+            for status, response in list(op.get("responses", {}).items()):
+                examples = (response.get("content") or {}).get("application/problem+json", {}).get("examples") or {}
+                carrying = [c for c in examples if c in RETRY_AFTER_CODES]
+                if not carrying:
+                    continue
+                every = len(carrying) == len(examples)
+                when = "" if every else " Sent with " + ", ".join(f"`{c}`" for c in carrying) + "."
+                header = {"description": f"The seconds to wait before the next call: the same number as `retryAfter`.{when}",
+                          "required": every, "schema": {"type": "integer", "minimum": 1}}
+                op["responses"][status] = {**response, "headers": {**(response.get("headers") or {}), "Retry-After": header}}
 
 
 # The five writes whose route requires If-Match (plugins/namespaces/router.py): the change, the delete and the three

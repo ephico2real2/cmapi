@@ -81,7 +81,7 @@ Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin ca
 
 ### Which route needs which permission
 
-Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:327-332`). A `HEAD` is answered by the route of its `GET`, so it needs the same permission and gets the same 401 or 403 (#605).
+Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:330-335`). A `HEAD` is answered by the route of its `GET`, so it needs the same permission and gets the same 401 or 403 (#605).
 
 | Permission | Routes |
 |---|---|
@@ -128,7 +128,7 @@ request with a bearer token
 
 ### Step 1: the token
 
-The core routers and the plugin routers have the token check as a dependency (`cmapi/src/cmapi/main.py:203-205`). These routes answer without a token. `/healthz`, `/readyz` and `/api/v1/version` come from the health routers, which have no such dependency (`cmapi/src/cmapi/main.py:200-201`). `/problems` and `/problems/{code}` are always public (`cmapi/src/cmapi/main.py:406-420`). `/docs/oauth2-redirect` has no guard, and exists unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:481-483`). The seven other docs paths are public unless `docs.public` is `false` (`cmapi/src/cmapi/main.py:431`). They are `/docs`, `/redoc`, `/openapi.json`, `/openapi.yaml`, `/docs/changelog`, `/docs/redoc-start.js` and `/docs/swagger.css`. They exist unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:379-380`). `cmapi/tests/service/test_review_c_authz.py:15-22` lists these routes as `PUBLIC`, with the `HEAD` of each (#605), and every other route must answer 401 with no token. `/metrics` is not an API route: it is served on its own port (`cmapi/src/cmapi/main.py:238-239`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:179-215`). It verifies the token offline against the signing keys of the realm.
+The core routers and the plugin routers have the token check as a dependency, and the rate limit after it (#689) (`cmapi/src/cmapi/main.py:204-208`). These routes answer without a token. `/healthz`, `/readyz` and `/api/v1/version` come from the health routers, which have no such dependency (`cmapi/src/cmapi/main.py:201-202`). `/problems` and `/problems/{code}` are always public (`cmapi/src/cmapi/main.py:414-428`). `/docs/oauth2-redirect` has no guard, and exists unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:491-493`). The seven other docs paths are public unless `docs.public` is `false`; then they need a token and take one from the caller's read bucket, as the API routes do (`cmapi/src/cmapi/main.py:440`). They are `/docs`, `/redoc`, `/openapi.json`, `/openapi.yaml`, `/docs/changelog`, `/docs/redoc-start.js` and `/docs/swagger.css`. They exist unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:387-388`). `cmapi/tests/service/test_review_c_authz.py:15-22` lists these routes as `PUBLIC`, with the `HEAD` of each (#605), and every other route must answer 401 with no token. `/metrics` is not an API route: it is served on its own port (`cmapi/src/cmapi/main.py:241-242`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:179-215`). It verifies the token offline against the signing keys of the realm.
 
 | Check | Source | Refusal |
 |---|---|---|
@@ -144,11 +144,11 @@ The core routers and the plugin routers have the token check as a dependency (`c
 | `iss` is the issuer of the instance | `auth.py:202-204` | 401 `unauthenticated`, "Token issuer is not trusted" |
 | The token is an access token: its JOSE header `typ` is `at+jwt` or `application/at+jwt` (RFC 9068, section 4), and its claim `typ` is `Bearer` or absent. With `auth.acceptLegacyTokenType: true` in `instance.yaml`, the header `JWT` with the claim `Bearer` passes also | `auth.py:209-214` | 401 `unauthenticated`, "Token is not an access token" |
 
-Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:240-241`, `main.py:277-279`). The tests are in `cmapi/tests/service/test_auth.py`.
+Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:240-241`, `main.py:285-287`). The tests are in `cmapi/tests/service/test_auth.py`.
 
 ### Step 2: the claims
 
-`Identity.from_claims` reads the verified token (`cmapi/src/cmapi/core/identity/claims.py:50-67`).
+`Identity.from_claims` reads the verified token (`cmapi/src/cmapi/core/identity/claims.py:62-81`).
 
 | Claim | Becomes | Note |
 |---|---|---|
@@ -161,13 +161,13 @@ Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.
 
 ### Step 3: the permission
 
-Each route calls `require("<permission>")` (`cmapi/src/cmapi/routers/__init__.py:46-58`, where `dep` is the check). It asks the role policy of the instance (`authz.py:178-186`).
+Each route calls `require("<permission>")` (`cmapi/src/cmapi/routers/__init__.py:48-60`, where `dep` is the check). It asks the role policy of the instance (`authz.py:178-186`).
 
 1. The policy collects the roles of the caller that it knows (`authz.py:141-142`). It ignores an unknown role.
 2. If one of them has the permission, the request continues.
 3. If none has it, the answer is 403 `forbidden`: "Missing permission namespaces:create: no role in your token grants it (roles: [...])".
 
-Each refusal adds 1 to the metric `cmapi_authz_denied_total` for that permission (`routers/__init__.py:51-55`).
+Each refusal adds 1 to the metric `cmapi_authz_denied_total` for that permission (`routers/__init__.py:53-57`).
 
 ### Step 4: the environment limit
 
@@ -176,7 +176,7 @@ A role can have a list of environments. The route checks the permission again wh
 | Route group | Where the environment comes from | Source |
 |---|---|---|
 | Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:265`, `:515` |
-| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:194`, `:234` |
+| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:196`, `:236` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:103`, `:116`, `:130` |
 | Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:151`, `:182`, `:200`, `:225`, `:257` |
 | Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:135` |
@@ -265,7 +265,7 @@ not in the design:     one shared submitter account: loses attribution and the s
 1. The person has an LDAP account. An administrator of the directory puts the account in the group `app-cmapi-rbac-requester` (`docs/11`, "The groups").
 2. The LDAP federation of realm `cmapi` reads the group. It places the group under `/cmapi`, so the token carries the path `/cmapi/app-cmapi-rbac-requester` (`docs/15`, "The LDAP federation"; `docs/14`, "The contract in one table").
 3. Keycloak gives the members of that group the client role `cmapi-requester` on `cmapi-nonprod` (`10-realm-import.yaml:391-445`).
-4. cmapi reads the role from the token (`claims.py:54`). It looks up the permissions of the role (`authz.py:21-44`).
+4. cmapi reads the role from the token (`claims.py:68`). It looks up the permissions of the role (`authz.py:21-44`).
 
 The role `cmapi-requester` has these permissions (from the table "The roles and their permissions" above):
 
@@ -281,13 +281,13 @@ When a person calls, cmapi records the request under the caller of the token. Th
 
 | Value | Where it comes from | Where it is kept |
 |---|---|---|
-| `sub` | The claim `sub` (`claims.py:56`) | The database. Self-approval compares it (`approvals.py:339-340`) |
-| Username | The claim `preferred_username` (`claims.py:52`) | The database, and as a label of the namespace (`claims.py:3-5`) |
-| `email` | The claim `email` (`claims.py:60`) | The database |
-| `employee_id` | The claim `employee_id` (`claims.py:64`) | The database |
-| Given, middle and family name | The claims of the same names (`claims.py:61-63`) | The database |
+| `sub` | The claim `sub` (`claims.py:70`) | The database. Self-approval compares it (`approvals.py:339-340`) |
+| Username | The claim `preferred_username` (`claims.py:64`) | The database, and as a label of the namespace (`claims.py:3-5`) |
+| `email` | The claim `email` (`claims.py:74`) | The database |
+| `employee_id` | The claim `employee_id` (`claims.py:78`) | The database |
+| Given, middle and family name | The claims of the same names (`claims.py:75-77`) | The database |
 
-The record is `Identity.record` (`claims.py:43-48`). It is in the database only, and never in Git: the comment of the method says so, and so does step 2 above. Git holds the plan.
+The record is `Identity.record` (`claims.py:55-60`). It is in the database only, and never in Git: the comment of the method says so, and so does step 2 above. Git holds the plan.
 
 A person calls as themselves. If a person sends `onBehalfOf`, cmapi refuses with 422 `on-behalf-of-not-allowed` (`checks.py:74-78`). This is step 6.
 
@@ -319,7 +319,7 @@ A tool signs in with the client credentials grant. It is a service client, or an
 | The tool sends `onBehalfOf`: a username or an employee ID | cmapi looks the value up in the directory. The person must be enabled, or the answer is 422 `unknown-user`. The person is recorded as the requester and the tool as the caller. The request is recorded as automated | `checks.py:89-95` |
 | A person sends `onBehalfOf` | 422 `on-behalf-of-not-allowed` | `checks.py:74-78`; `problem_docs.py:77` |
 
-Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:593`, `approvals.py:339-340`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:232-234`, `approvals.py:337-338`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
+Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:596`, `approvals.py:339-340`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:232-234`, `approvals.py:337-338`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
 
 With `onBehalfOf`, cmapi trusts the tool to name the person. The directory proves that the person exists and is enabled. It does not prove that the person signed in.
 

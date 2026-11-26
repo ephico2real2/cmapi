@@ -3,7 +3,7 @@ Settings and the instance files. The API keeps it on app.state.ctx; the worker b
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -27,6 +27,7 @@ from cmapi.core.observability import AUTO_PAUSED, CONFIG_INFO, POLICY_MODE
 from cmapi.core.pipeline import Pipeline
 from cmapi.core.policybundle import PolicyBundle
 from cmapi.core.policygen import render_bundle
+from cmapi.core.ratelimit import RateLimiter
 from cmapi.core.registry import ClusterRegistry, ClusterState, DirImportSource, HubImportSource, ImportSource, load_policies
 from cmapi.core.sync import DeliveryConfig
 from cmapi.core.validate import CliValidator
@@ -52,6 +53,7 @@ class AppContext:
     audience: str
     bundle: PolicyBundle | None = None                      # the policies of the bundle, by environment (#302)
     deliverer_factory: Callable[[str], Any] | None = None   # tests inject a fake cluster write client
+    limiter: RateLimiter = field(default_factory=RateLimiter)   # instance.yaml http.rateLimits, this process's buckets (#689)
 
     def auto_paused(self) -> bool:
         with self.db.session() as s:
@@ -166,7 +168,8 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
                                    Sorts({"used": lambda r: r["used"], "severity": lambda r: severity(r["used"]),
                                           "newest": lambda r: r.get("_created", 0.0)})),
                      delivery=DeliveryConfig.from_integrations(integrations), integrations=integrations,
-                     capacity_cfg=capacity_cfg, capacity=capacity_settings, issuer=issuer, audience=audience, bundle=policy_bundle)
+                     capacity_cfg=capacity_cfg, capacity=capacity_settings, issuer=issuer, audience=audience, bundle=policy_bundle,
+                     limiter=RateLimiter(limits=dict(cfg.rate_limits)))
     reserved = (inst.get("namespaces") or {}).get("reservedPatterns") or []
     ctx.pipeline = Pipeline(cfg, registry, git, validator, capacity, directory, reserved, auto_paused=ctx.auto_paused)
     return ctx

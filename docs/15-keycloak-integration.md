@@ -40,9 +40,9 @@ Each client that gets a token for the API has the default scopes `basic`, `cmapi
 | Scope | Mapper | Claim in the access token | cmapi reads it as |
 |---|---|---|---|
 | `cmapi-audience` | Audience | `aud` contains `cmapi-nonprod` | The audience check (`cmapi/src/cmapi/core/auth.py:199-201`) |
-| `roles` | Client roles | `resource_access.cmapi-nonprod.roles` | The roles of the caller (`cmapi/src/cmapi/core/identity/claims.py:54`) |
-| `cmapi-identity` | Group membership, full path | `groups`, for example `/cmapi/app-cmapi-rbac-requester` | The approving groups (`claims.py:66`) |
-| `cmapi-identity` | User attribute `employeeId` | `employee_id` | The requester's record (`claims.py:64`) |
+| `roles` | Client roles | `resource_access.cmapi-nonprod.roles` | The roles of the caller (`cmapi/src/cmapi/core/identity/claims.py:68`) |
+| `cmapi-identity` | Group membership, full path | `groups`, for example `/cmapi/app-cmapi-rbac-requester` | The approving groups (`claims.py:80`) |
+| `cmapi-identity` | User attribute `employeeId` | `employee_id` | The requester's record (`claims.py:78`) |
 | `cmapi-identity` | User attribute `middleName` | `middle_name` | The requester's record |
 | `profile` | Username, first name, last name | `preferred_username`, `given_name`, `family_name` | The username and the record |
 | `email` | Email | `email` | The record |
@@ -100,7 +100,7 @@ Both calls verify Keycloak's certificate against the CA in ConfigMap `cmapi-trus
 
 ## From sign-in to a permitted call
 
-Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:198-199`, `core/auth.py:218-223`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
+Swagger UI uses Authorization Code with PKCE through the public client `cmapi-docs` (`cmapi/src/cmapi/main.py:199-200`, `core/auth.py:218-223`). The portal uses the same flow through `cmapi-portal`: see "The portal's sign-in".
 
 ```text
 Browser (Swagger UI at /docs)            Keycloak, realm cmapi                 cmapi-api

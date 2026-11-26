@@ -133,12 +133,12 @@ def test_rate_limits():
     t = [0.0]
     rl = RateLimiter(clock=lambda: t[0])
     for _ in range(2):
-        rl.check("ola", "payments", "export")
-    with pytest.raises(Problem) as e:
-        rl.check("ola", "payments", "export")
-    assert e.value.status == 429 and e.value.extra["retryAfter"] > 0
+        assert rl.take("export", "ola") is None
+    refusal = rl.take("export", "ola")
+    problem = refusal.problem()
+    assert problem.status == 429 and problem.extra["retryAfter"] == 15        # 4 a minute: a token each 15 s
     t[0] += 60
-    rl.check("ola", "payments", "export")
+    assert rl.take("export", "ola") is None
 
 
 # ---- instance configuration and ports

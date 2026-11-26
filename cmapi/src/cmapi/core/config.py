@@ -15,7 +15,9 @@ Each file is validated by its own module; this module adds the checks no single 
 - instance.yaml's clusterTLS names only served environments, each with a boolean insecureSkipTLSVerify (core/clustertls.py, #434);
 - instance.yaml's directory maps each name to a list of environments, an http(s) url and an optional http(s) portalUrl, the
   shape environment_not_served reads on every refusal (#674);
-- instance.yaml's http.maxRequestBodyBytes is a whole number of bytes, 1 to 2**53 - 1 (core/http_settings.py, #683).
+- instance.yaml's http.maxRequestBodyBytes is a whole number of bytes, 1 to 2**53 - 1 (core/http_settings.py, #683);
+- instance.yaml's http.rateLimits names only the bucket classes, each with a perMinute and a burst in range (core/ratelimit.py,
+  #689).
 
 At startup any problem stops cmapi. On reload (ConfigMap watch, content hash) the running config is
 kept when the new one fails, and cmapi_config_reload_failed{file} is set.
@@ -25,7 +27,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 import yaml
@@ -40,6 +42,7 @@ from cmapi.core.http_settings import DEFAULT_MAX_REQUEST_BODY_BYTES, parse_http
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.plugins import PluginSwitch
 from cmapi.core.policy import PolicySettings
+from cmapi.core.ratelimit import DEFAULTS as DEFAULT_RATE_LIMITS, Limit, parse_rate_limits
 from cmapi.core.tiers import CatalogError, TierCatalog
 from cmapi.plugins.expiration.rules import ExpirationRules
 
@@ -66,6 +69,7 @@ class InstanceConfig:
     cluster_tls: ClusterTLSSettings = field(default_factory=ClusterTLSSettings)   # instance.yaml `clusterTLS` (#434)
     cluster_tokens: TokenPolicy = field(default_factory=TokenPolicy)
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES   # instance.yaml `http.maxRequestBodyBytes` (#683)
+    rate_limits: dict[str, Limit] = field(default_factory=lambda: dict(DEFAULT_RATE_LIMITS))   # `http.rateLimits` (#689)
 
 
 def environment_not_served(cfg: InstanceConfig, env: str) -> Problem:
@@ -147,6 +151,9 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
     problems.extend(tls_problems)
     max_request_body_bytes, http_problems = parse_http(me.get("http"))
     problems.extend(http_problems)
+    http = me.get("http")
+    rate_limits, rate_problems = parse_rate_limits(http.get("rateLimits") if isinstance(http, Mapping) else None)
+    problems.extend(rate_problems)
     try:
         cluster_tokens = TokenPolicy().override(me.get("clusterTokens", {}))
     except ValueError as exc:
@@ -154,7 +161,7 @@ def load_instance(config_dir: str | Path, metadata_keys: str | Path) -> Instance
     if problems:
         raise ConfigError(problems)
     return InstanceConfig(me["name"], allowed, inst, approvals, roles, tiers, expiration, metadata, plugins, hashes, policy,
-                          cluster_tls, cluster_tokens, max_request_body_bytes)
+                          cluster_tls, cluster_tokens, max_request_body_bytes, rate_limits)
 
 
 def _directory_problems(directory: Any) -> list[str]:

@@ -75,7 +75,7 @@ A changed server default is not compared. To add a column: change the model, wri
 
 ## What the database does not hold
 
-- The names and the employee ID of a requester are in `change_requests.requester` only. They are never written to Git (`cmapi/src/cmapi/core/identity/claims.py:43-48`).
+- The names and the employee ID of a requester are in `change_requests.requester` only. They are never written to Git (`cmapi/src/cmapi/core/identity/claims.py:55-60`).
 - No token, password or client secret is in any table. `jwks_keys` holds public keys.
 - The live state of a namespace is not stored. It comes from the watch cache of each cluster, in the memory of the process.
 - The capacity ledger (the committed CPU and memory of each cluster) has no table. The watch cache builds it in memory as it admits each quota (`cmapi/src/cmapi/core/capacity_ledger.py`, #302).
@@ -244,7 +244,7 @@ The owner's rule, 2026-11-13: "we can use postgress for cache as well if needed 
 | The lock of a namespace | The index `uq_cr_open_namespace` | The request leaves the open states |
 | The work queue | `jobs`, claimed with a lease | `locked_until` |
 
-These caches are in the memory of each process, and are not shared: the signing keys for ten minutes (`cmapi/src/cmapi/core/auth.py:40`), the watch cache of each cluster, the directory lookups, and the rate limits (`cmapi/src/cmapi/core/ratelimit.py:1-4`).
+These caches are in the memory of each process, and are not shared: the signing keys for ten minutes (`cmapi/src/cmapi/core/auth.py:40`), the watch cache of each cluster, the directory lookups, and the rate limits (`cmapi/src/cmapi/core/ratelimit.py:3-4`, #689).
 
 **Decision, 2026-11-13: no new cache table and no cache library.** Nothing in the built code needs a general key-value cache that replicas share. When a feature needs one, the reference is the owner's `github.com/inkcasthq/kvpg` at commit `f654a121820f`: its contract v1 (rules S1 to S14), a logged table, expiry by the database's `now()`, and cleanup in batches. The choice between a small store of cmapi's own and a public Python library is open until then, with the checks in `OB1-PROMPT.md`. OB1 did not read kvpg for this decision, because the decision adds nothing.
 

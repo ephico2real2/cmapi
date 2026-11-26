@@ -4588,12 +4588,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4703,12 +4720,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4818,12 +4852,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4885,6 +4936,21 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description The Git host failed.
              *
              *     Codes: `git-unavailable`.
@@ -4904,6 +4970,8 @@ export interface operations {
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4987,12 +5055,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5147,12 +5232,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5284,12 +5386,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5558,12 +5677,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5827,12 +5963,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5915,12 +6068,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6056,12 +6226,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `cluster-unreachable`, `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6400,6 +6587,21 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description The Git host failed.
              *
              *     Codes: `git-unavailable`.
@@ -6419,6 +6621,8 @@ export interface operations {
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6633,6 +6837,21 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description The Git host failed.
              *
              *     Codes: `git-unavailable`.
@@ -6652,6 +6871,8 @@ export interface operations {
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6950,6 +7171,21 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description The Git host failed.
              *
              *     Codes: `git-unavailable`.
@@ -6969,6 +7205,8 @@ export interface operations {
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -7296,6 +7534,21 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description The Git host failed.
              *
              *     Codes: `git-unavailable`.
@@ -7315,6 +7568,8 @@ export interface operations {
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -7618,6 +7873,21 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description The Git host failed.
              *
              *     Codes: `git-unavailable`.
@@ -7637,6 +7907,8 @@ export interface operations {
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -7963,6 +8235,21 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description The Git host failed.
              *
              *     Codes: `git-unavailable`.
@@ -7982,6 +8269,8 @@ export interface operations {
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8285,6 +8574,21 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description The Git host failed.
              *
              *     Codes: `git-unavailable`.
@@ -8304,6 +8608,8 @@ export interface operations {
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8424,12 +8730,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8511,12 +8834,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8607,12 +8947,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8805,12 +9162,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8910,12 +9284,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9257,12 +9648,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9440,12 +9848,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10281,12 +10706,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10434,12 +10876,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10538,12 +10997,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10624,12 +11100,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10823,12 +11316,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -11044,12 +11554,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -11140,12 +11667,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -11299,12 +11843,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -11534,12 +12095,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -11736,12 +12314,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -11960,12 +12555,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -12207,12 +12819,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -12447,12 +13076,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -12707,12 +13353,29 @@ export interface operations {
                 };
             };
             /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
              */
             503: {
                 headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {

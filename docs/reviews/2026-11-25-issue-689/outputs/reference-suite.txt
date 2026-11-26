@@ -1,0 +1,20 @@
+..........................................ssssss...ssssssssssss......s.. [  8%]
+.................ssss................................................... [ 16%]
+.............................s.......................................... [ 24%]
+........................................................................ [ 32%]
+........................................................................ [ 40%]
+..........................s............................................. [ 48%]
+........................................................................ [ 57%]
+...........................................s.........sssss.............. [ 65%]
+.......................sss.sssssssssssssssssssssss...sssssssssssss...... [ 73%]
+...........................................ssssss......s........s..sssss [ 81%]
+ssssssssssssss...ss.............................................ssssssss [ 89%]
+s.ssss.................................................................. [ 97%]
+..................s                                                      [100%]
+=============================== warnings summary ===============================
+../../wt-689-outputs/venv-ref/lib/python3.14/site-packages/fastapi/testclient.py:1
+  /Users/olasumbo/gitRepos/workbench/cmapi/wt-689-outputs/venv-ref/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+770 passed, 113 skipped, 1 warning in 126.55s (0:02:06)
