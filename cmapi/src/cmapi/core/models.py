@@ -406,6 +406,41 @@ class PlanMetadataDiff(Api):
                                                    "source": "request"}}])
 
 
+UsageVerdict = Literal["quota-tight", "idle", "quota-oversized", "requests-oversized", "right-sized", "insufficient-data"]
+
+
+class UsageFigures(Api):
+    now: int | None = Field(description="Usage now, in the unit of `units`; null unless `state` is ok", examples=[6100])
+    # The alias is the name: to_camel would write avg7D.
+    avg7d: int | None = Field(alias="avg7d", description="The average over the last 7 days", examples=[5400])
+    p95: int | None = Field(description="The 95th percentile over the last 14 days", examples=[8200])
+    peak: int | None = Field(description="The highest 5-minute sample over the last 14 days", examples=[9600])
+    quota: int | None = Field(description="The hard limit now (requests.cpu or requests.memory); null when it has none",
+                              examples=[16000])
+    new_quota: int | None = Field(description="The hard limit the change plans", examples=[32000])
+    new_over_peak: float | None = Field(description="The planned hard limit over the 14-day peak; null without a peak",
+                                        examples=[3.33])
+
+
+class PlanUsage(Api):
+    state: Literal["ok", "insufficient-data", "unavailable"] = Field(
+        description="`ok`, the figures can be judged by. `insufficient-data`: no usage source is configured, or Thanos has too "
+                    "few samples (under 80% of the 14-day window's 5-minute steps), and the figures are null. "
+                    "`unavailable`: Thanos did not answer in 10 seconds; the change needs a platform approval (docs/01)",
+        examples=["ok"])
+    reason: str | None = Field(description="Why the state is not ok, in a sentence; null when it is", examples=[None])
+    window: Literal["14d"] = Field(description="The window of p95 and peak", examples=["14d"])
+    coverage: float | None = Field(description="The share of the window's 4,032 five-minute steps with a running-pod sample",
+                                   examples=[0.98])
+    # A string, as the plan's routes dump the view without JSON mode (plugins/namespaces/router.py).
+    evaluated_at: str | None = Field(description="The one instant every query used, RFC 3339; null when nothing was read",
+                                     examples=["2026-11-25T10:00:00+00:00"])
+    units: dict[str, str] = Field(description="The unit of each resource's figures", examples=[{"cpu": "millicores",
+                                                                                              "memory": "bytes"}])
+    cpu: UsageFigures = Field(description="CPU, in millicores")
+    memory: UsageFigures = Field(description="Memory, in bytes")
+
+
 class PlanView(Api):
     changes: dict[str, str] = Field(description="Per changed file: added, changed or removed", examples=[{"clusters/CRC/namespaces/payments-dev/namespace.yaml": "added"}])
     plan_hash: str = Field(description="SHA-256 of the planned files", examples=["9f2c..."])
@@ -429,6 +464,10 @@ class PlanView(Api):
         default=None, description="On a change of an existing namespace (PATCH and the expiry calls): each label and "
                                   "annotation that it moves, before and after, with its source (#481). Empty maps when it "
                                   "moves none. Null on a create, whose `metadata` lists every key")
+    usage: PlanUsage | None = Field(
+        default=None, description="On a change of an existing namespace's quota: its live usage over the last 14 days, read "
+                                  "from Thanos for this plan and cached 10 minutes (#310). Null on a create and on a change "
+                                  "that leaves the quota as it is")
 
 
 SyncState = Literal["in-sync", "pending", "drift", "unknown"]
@@ -558,13 +597,34 @@ class QuotaRow(Api):
     tier_hash: str | None = Field(description="Catalog hash the quota was rendered from", examples=["dec3e603bf8d"])
     tier_outdated: bool = Field(description="The catalog changed since it was rendered", examples=[False])
     open_request: str | None = Field(default=None, description="Request holding the namespace", examples=[None])
+    verdict: UsageVerdict = Field(
+        description="The usage verdict of the latest daily sweep (docs/03, \"Verdicts\"): its worst risk, else its largest "
+                    "waste, else `right-sized`. `insufficient-data` when the sweep could not judge it, when no sweep has run "
+                    "yet, or when the instance has no usage source; `verdictReason` says which",
+        examples=["insufficient-data"])
+    verdict_kind: Literal["ok", "info", "waste", "risk"] = Field(description="What the verdict is: `risk`, `waste`, `ok` or "
+                                                                             "`info` (insufficient data)", examples=["info"])
+    verdict_resources: list[Literal["cpu", "memory"]] = Field(
+        description="The resources the verdict holds for, CPU first; empty when no sweep judged the namespace",
+        examples=[[]])
+    verdict_reason: str = Field(description="Why, in a sentence, with the numbers and the threshold",
+                                examples=["No usage source is configured on this instance (capacity.yaml usage.source is "
+                                          "none), so there is no 14-day usage."])
+    verdict_day: date | None = Field(description="The UTC day of the sweep that made the verdict; null when none did. A missed "
+                                                 "sweep leaves the previous day's verdict", examples=[None])
 
 
 class QuotaPage(Api):
     items: list[QuotaRow] = Field(description="One page")
     page: PageInfo = Field(description="Paging")
     letters: dict[str, int] = Field(description="Rows per first letter", examples=[{"P": 3}])
-    facets: dict[str, int] = Field(description="Attention counts over the filters", examples=[{"near-limit": 0}])
+    facets: dict[str, int] = Field(description="Attention counts over the filters, each the count that `state` with its name "
+                                               "lists: `quota-tight`, `near-limit` (a use of 80% or more), `oversized` "
+                                               "(`quota-oversized` or `requests-oversized`), `idle`, `tier-outdated`, "
+                                               "`open-request`, and `needs-attention`: the rows whose severity is 1 or more "
+                                               "(`sort=severity`)",
+                                   examples=[{"quota-tight": 0, "near-limit": 0, "oversized": 0, "idle": 0, "tier-outdated": 0,
+                                              "open-request": 0, "needs-attention": 0}])
 
 
 # --------------------------------------------------------------------------- expirations

@@ -30,6 +30,7 @@ KNOWN_FACTS = frozenset({
     "expirationAction", "expirationBeyondLimits",
     "sensitiveKeyChanged", "warnings", "clusterRoles", "requesterClient", "protected", "automated",
     "beyondTier", "beyondTierKeys", "networkExposure",
+    "usage",                        # a quota change's live 14-day usage: ok, insufficient-data or unavailable (#310)
 })
 
 

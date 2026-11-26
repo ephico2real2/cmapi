@@ -1,5 +1,5 @@
 {
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|321-348": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|327-354": [
   "    def approve(self, approver: Identity, *, permitted: bool | None = None, relay: Identity | None = None,",
   "                relay_permitted: bool | None = None, comment: str = \"\") -> bool:",
   "        \"\"\"approver is the eligible person; relay is the channel client (approvals:relay) if any.",
@@ -29,20 +29,20 @@
   "        return self.met",
   ""
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|328-331": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|334-337": [
   "        if relay is not None:",
   "            ok = relay_permitted if relay_permitted is not None else \"approvals:relay\" in builtin_permissions(relay)",
   "            if not ok:",
   "                raise Problem.forbidden(\"Relay client lacks approvals:relay\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|331-331": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|337-337": [
   "                raise Problem.forbidden(\"Relay client lacks approvals:relay\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|337-338": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|343-344": [
   "        if approver.sub in self.client_owner_subs or approver.sub == self.operation_starter_sub:",
   "            raise Problem.conflict(\"self-approval\", \"The operation starter or client owner cannot approve\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|339-340": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|345-346": [
   "        if approver.sub == self.requester_sub and not self.requirement.self_approval:",
   "            raise Problem.conflict(\"self-approval\", \"Requesters cannot approve their own request here\")"
  ],
@@ -499,24 +499,24 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1332-1332": [
   "            raise Problem.forbidden(f\"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|177-179": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|180-182": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|265-265": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|268-268": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|271-271": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|274-274": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|279-279": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|282-282": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|516-516": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|529-529": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|600-600": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|613-613": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|89-89": [
@@ -588,7 +588,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|236-236": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|62-62": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|48-60": [

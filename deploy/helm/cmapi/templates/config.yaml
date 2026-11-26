@@ -62,6 +62,7 @@ data:
     snapshotInterval: {{ .Values.capacity.snapshotInterval }}
     overcommit: {{ toJson .Values.capacity.overcommit }}
     targets: {{ toJson .Values.capacity.targets }}
+    usage: {{ toJson .Values.capacity.usage }}
 {{- with .Values.capacity.countTaints }}
     countTaints: {{ toJson . }}
 {{- end }}
