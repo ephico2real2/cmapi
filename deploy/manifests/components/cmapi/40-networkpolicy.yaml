@@ -30,8 +30,10 @@ spec:
 # its documentation prefers; the older network.openshift.io/policy-group is the one it calls legacy. CRC's openshift-ingress
 # carries both (oc get ns, measured). A rule with no from would open 8080 to every pod of every project on a shared cluster.
 # On a cluster with no such label (kind) nothing reaches the front door but kubectl port-forward. A router on the host network
-# is not a pod of that namespace: from its own node the traffic is always allowed (CRC has one node); from another node it
-# would need a peer for policy-group.network.openshift.io/host-network as well.
+# (HostNetwork publishing, as on CRC) is matched from any node too, on OpenShift 4.18 and later: the Cluster Network Operator
+# puts the same ingress label on openshift-host-network, and OVN-Kubernetes gives a peer with a namespaceSelector and no
+# podSelector that namespace's address set, every node's host addresses. It is the peer OpenShift's documentation gives for the
+# Ingress Controller on 4.18 and on 4.22 (docs/reviews/2026-11-26-issue-727/README.md, "Router to the front door").
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

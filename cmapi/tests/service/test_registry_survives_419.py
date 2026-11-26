@@ -130,6 +130,28 @@ def test_the_selfsubjectreview_fallback_without_a_username_is_bad_response():
         "identity check: bad response on /apis/authentication.k8s.io/v1/selfsubjectreviews (201): no status.userInfo.username"]
 
 
+def test_an_openshift_cluster_with_direct_authentication_is_identified_by_selfsubjectreview():
+    """#727: OpenShift with direct (external OIDC) authentication does not serve `*.user.openshift.io` (openshift-docs
+    enterprise-4.22, external-auth-disabled-resources.adoc), and its ExternalOIDC gate is on by default from release-4.23 of
+    openshift/api (TechPreview only on release-4.18). So users/~ is 404 there, and the reader's identity must come from the
+    SelfSubjectReview, which authentication.k8s.io/v1 serves on both releases. The reader connects; nothing else is asked."""
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(f"{request.method} {request.url.path}")
+        if request.url.path.endswith("/users/~"):
+            return httpx.Response(404, json={"kind": "Status", "reason": "NotFound", "code": 404})
+        if request.url.path == "/apis/authentication.k8s.io/v1/selfsubjectreviews":
+            assert request.method == "POST"
+            return httpx.Response(201, json={"kind": "SelfSubjectReview", "status": {"userInfo": {"username": READER_IDENTITY}}})
+        return good(request)
+    reg = registry({"OIDC": handler}, [secret("OIDC")])
+    reg.refresh()
+    assert (reg.clusters["OIDC"].status, reg.clusters["OIDC"].findings) == ("connected", [])
+    assert asked == ["GET /version", "GET /apis/user.openshift.io/v1/users/~",
+                     "POST /apis/authentication.k8s.io/v1/selfsubjectreviews", "GET /api/v1/namespaces"]
+
+
 def test_an_api_url_that_urlparse_refuses_is_a_finding():
     """urlparse raises ValueError on a malformed IPv6 host: a parse finding, and the next cluster is checked."""
     reg = registry({"V6": good, "GOOD": good}, [secret("V6", apiUrl="https://[::1:6443"), secret("GOOD")])
