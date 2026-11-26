@@ -183,3 +183,5 @@ reviewers' records go beside it.
 **The burst on PostgreSQL** (final tree, 3 runs): 5 × 200 and 7 × 503 `validator-busy` with `Retry-After: 15` each time, a kyverno peak of 1, and every `/readyz` 200 (max 0.645 s).
 
 The Low items are in the Backlog issue named in the PR.
+
+**After #707 merged (2026-11-26).** The coordinator merged main. `test_config_import_693.py` keeps both sides' modules (`cmapi.core.validate` and the usage modules). It took main's docs/14 citation numbers, relocated them, and read each target. **Run:** service **292 passed**; `tests/core` in the reference venv (no structlog) **842 passed, 113 skipped**.
