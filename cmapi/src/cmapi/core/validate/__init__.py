@@ -173,8 +173,10 @@ class CliValidator:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, check=False)
 
     def validate(self, files: Mapping[str, str | None], cluster_id: str, environment: str,
-                 previous: Mapping[str, str | None] | None = None) -> list[Finding]:
-        """previous: the folder as Git holds it before this change, so a value that it already holds is not refused."""
+                 previous: Mapping[str, str | None] | None = None, held: list[Finding] | None = None) -> list[Finding]:
+        """previous: the folder as Git holds it before this change, so a value that it already holds is not refused. held:
+        when given, receives each Kyverno failure that `previous` holds, which the result leaves out: an adoption lists them
+        as its `policy-ratcheted` findings (the adoption design's D6a, #248)."""
         live = {p: t for p, t in files.items() if t}
         if not live:
             return []
@@ -189,7 +191,7 @@ class CliValidator:
             out.extend(self._kubeconform(paths))
             mode = self.policy.mode_for(environment)
             if mode != "off":
-                found = self._kyverno(paths, live, environment, previous or {})
+                found = self._kyverno(paths, live, environment, previous or {}, held)
                 if mode == "audit":
                     found = [replace(f, severity="warning") if f.source == "kyverno" else f for f in found]
                 out.extend(found)
@@ -224,7 +226,7 @@ class CliValidator:
         return {p: t for p, t in self.bundle.items() if p.endswith(".yaml") and environment_of(p) in (None, environment)}
 
     def _kyverno(self, paths: Mapping[str, str], files: Mapping[str, str], environment: str,
-                 previous: Mapping[str, str | None]) -> list[Finding]:
+                 previous: Mapping[str, str | None], held: list[Finding] | None = None) -> list[Finding]:
         loaded = {p: kube_yaml.load_all(files[p]) for p in paths}
         checked = {p: f for p, f in paths.items() if any(isinstance(d, Mapping) and d.get("kind") in CHECKED for d in loaded[p])}
         policies = self.policies_for(environment)
@@ -292,9 +294,12 @@ class CliValidator:
                 continue
             check = self.index.get(res.get("policy", ""))
             # The full message, before the Finding cuts it: the outside-keys policy names its keys in it (#497).
-            if check and rel and _held(check, docs[rel], _previous_version(before, docs[rel], check), res.get("message")):
-                continue
             rule = res.get("rule")
+            if check and rel and _held(check, docs[rel], _previous_version(before, docs[rel], check), res.get("message")):
+                if held is not None:
+                    held.append(Finding("kyverno", res.get("policy", ""), rel, (res.get("message") or "fail")[:300], "warning",
+                                        kyverno_rule=rule if isinstance(rule, str) and rule else None))
+                continue
             out.append(Finding("kyverno", res.get("policy", ""), rel, (res.get("message") or "fail")[:300],
                                kyverno_rule=rule if isinstance(rule, str) and rule else None))
         for name, kinds in _matched_kinds(policies).items():

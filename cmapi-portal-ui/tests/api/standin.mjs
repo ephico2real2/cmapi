@@ -820,18 +820,26 @@ export function namespacePage(keys, records, params) {
 }
 /**
  * The metadata refusal of a change (metadata.py validate() on an existing namespace, _fixed_key_error, _check_required): a
- * key that cmapi fills in or that the name is made of may be sent only with the value that Git holds; a required key is never
- * removed; a key that no rule admits may only be removed (#492 M2). Each error names its key and kind. No configured pattern
- * runs here: an operator's pattern can backtrack, and cmapi matches with RE2.
+ * held name key accepts an echo, and a missing automatic or prefix key accepts its create value (#732), as createMetadata
+ * checks it. A required key is never removed; a key that no rule admits may only be removed (#492 M2). Each error names its
+ * key and kind. No configured pattern runs here: an operator's pattern can backtrack, and cmapi matches with RE2.
  */
-function changeRefusal(keys, rec, sent) {
+function changeRefusal(keys, rec, sent, environment) {
+  const sources = { namespace: rec.name, cluster: rec.clusterId, environment, instance: "nonprod" };
   const errors = [];
   for (const [kind, map] of MAPS) {
     for (const [key, value] of Object.entries(sent[map] ?? {})) {
       const prop = keys[map].properties[key], held = rec.git[map][key] ?? null;
       const fixedName = prop?.["x-cmapi-derived-from"] || prop?.["x-cmapi-namespace-prefix"] || prop?.["x-cmapi-namespace-suffix"];
       if (fixedName && value !== null && value === held) continue;
-      const keeps = held !== null ? `a change keeps '${held}'` : "a change cannot add it; adoption does (story #26)";
+      const from = prop?.["x-cmapi-derived-from"];
+      const prefix = prop?.["x-cmapi-namespace-prefix"];
+      if (held === null && from && sources[from] && value === sources[from]) continue;
+      if (held === null && prefix && typeof value === "string" && rec.name.startsWith(`${value}-`)) continue;
+      let keeps = "a change cannot add it: it is part of the namespace's fixed name";
+      if (held !== null) keeps = `a change keeps '${held}'`;
+      else if (from) keeps = `a request can add it with the value cmapi derives from the ${from} (${sources[from]})`;
+      else if (prefix) keeps = "a request can add it with the start of the namespace name";
       if (prop?.["x-cmapi-derived-from"]) errors.push({ code: "derived_key", key, kind, detail: `cmapi sets ${key}: ${keeps}` });
       else if (prop && value === null && keys[map].required?.includes(key)) errors.push({ code: "missing_required_key", key, kind, detail: prop["x-cmapi-rule"] ?? "required" });
       else if (prop?.["x-cmapi-namespace-prefix"] || prop?.["x-cmapi-namespace-suffix"]) errors.push({ code: "invalid_value", key, kind, detail: `part of the namespace's fixed name: ${keeps}` });
@@ -1249,6 +1257,42 @@ export function apiHandler({ issuer, portalOrigin }) {
       state.keys.set(`${user.sub} ${call.key}`, { fingerprint: print, request });
       return ok(request, 202);
     }
+    // Story #26: the adoption plugin (cmapi/src/cmapi/plugins/adoption/router.py), answered from its recorded samples. The
+    // candidates are abc-rnd (the owner's sample); any other namespace is 409 namespace-not-adoptable, as the API says of one
+    // without the opt-in label.
+    const adoptionList = /^\/api\/v1\/clusters\/([^/]+)\/adoption\/(candidates|skipped)$/.exec(url.pathname);
+    if (adoptionList && req.method === "GET") {
+      const denied = lacks("adoption:write");
+      if (denied) return problem(res, denied, cors);
+      const sample = SAMPLES.operations[`adoption_${adoptionList[2]}`].response.body;
+      return ok(state.mode === "empty" ? { ...sample, items: [], total: 0 } : sample);
+    }
+    const adoptPath = /^\/api\/v1\/clusters\/([^/]+)\/namespaces\/([^/:]+):adopt$/.exec(url.pathname);
+    if (adoptPath && req.method === "POST") {
+      const [, clusterId, ns] = adoptPath;
+      const denied = lacks("adoption:write");
+      if (denied) return problem(res, denied, cors);
+      const dry = url.searchParams.get("dryRun") === "true";
+      if (!dry && !call.key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
+      const print = fingerprint({ namespace: ns, clusterId, action: "adopt", justification: body?.justification ?? null });
+      const held = dry ? null : state.keys.get(`${user.sub} ${call.key}`);
+      if (held) return held.fingerprint === print ? replayed(held) : problem(res, replayRefused(held), cors);
+      const candidates = SAMPLES.operations.adoption_candidates.response.body.items.map((i) => i.name);
+      if (!candidates.includes(ns)) {
+        const refusal = SAMPLES.problems["namespace-not-adoptable"].response.body;
+        return problem(res, { ...refusal, detail: `${ns} is not a candidate for adoption: ${ns} does not carry cmapi.net/adopt: "true"`,
+          rule: "not-labelled", state: "unlabelled" }, cors);
+      }
+      if (dry) return ok(SAMPLES.operations["adoption_adopt:dryRun"].response.body);
+      const sample = SAMPLES.operations.adoption_adopt.response.body;
+      const now = new Date().toISOString();
+      const requestId = `req-${now.slice(0, 10).replaceAll("-", "")}-8${String(++state.created).padStart(3, "0")}`;
+      const request = { ...sample, requestId, clusterId, namespace: ns, justification: body?.justification ?? null, createdAt: now, updatedAt: now,
+        events: [{ at: now, by: user.username, event: "plan_needs_approval", note: "", status: "pending_approval" }] };
+      state.items = [request, ...state.items];
+      state.keys.set(`${user.sub} ${call.key}`, { fingerprint: print, request });
+      return ok(request, 202);
+    }
     const nsPath = /^\/api\/v1\/clusters\/([^/]+)\/namespaces\/([^/:]+)$/.exec(url.pathname);
     const record = nsPath && state.namespaces.find((r) => r.clusterId === nsPath[1] && r.name === nsPath[2]);
     if (record && req.method === "GET") {
@@ -1287,7 +1331,7 @@ export function apiHandler({ issuer, portalOrigin }) {
       }
       const protection = protectionRefusal(body?.labels, environment);
       if (protection) return problem(res, protection, cors);
-      const errors = changeRefusal(state.metadataKeys, record, body ?? {});
+      const errors = changeRefusal(state.metadataKeys, record, body ?? {}, environment);
       if (errors.length) return problem(res, { ...SAMPLES.problems["policy-violation"].response.body, errors }, cors);
       const after = { labels: mergePatch(record.git.labels, body?.labels), annotations: mergePatch(record.git.annotations, body?.annotations) };
       if (fingerprint(after) === fingerprint(record.git)) return problem(res, refuse(422, "no-change", "The request changes nothing"), cors);

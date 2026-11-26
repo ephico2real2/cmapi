@@ -303,7 +303,7 @@ def test_a_required_key_that_the_namespace_lacks_is_a_finding_and_the_change_can
     assert r.status_code == 200, r.text
     found = [f for f in r.json()["findings"] if f["rule"] == "missing_required_key"]
     assert found == [{"source": "cmapi", "rule": "missing_required_key", "path": NS_FILE, "severity": "warning",
-                      "message": "the label company.net/lob is required and the namespace lacks it: this change can add it",
+                      "message": "the label company.net/lob is required and the namespace lacks it: a request can add it",
                       "kyvernoRule": None}]
     r = patch(design_world, {"labels": {"company.net/lob": "amgsst"}})
     assert [f for f in r.json()["findings"] if f["rule"] == "missing_required_key"] == []

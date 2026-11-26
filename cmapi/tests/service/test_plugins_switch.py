@@ -19,7 +19,7 @@ from test_flow import NS, OLA, auth
 
 ADMIN = dict(roles=["cmapi-admin"], groups=["/cmapi/app-cmapi-rbac-admin"])
 VIEWER = dict(roles=["cmapi-viewer"], groups=["/cmapi/app-cmapi-rbac-viewer"])
-ALL = ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity"]
+ALL = ["namespaces", "tiers", "directory", "quotas", "expiration", "policies", "capacity", "adoption"]
 
 
 def config_with(test_config: Path, tmp_path: Path, plugins: object) -> Path:
@@ -50,7 +50,7 @@ def test_without_the_file_each_built_in_plugin_is_mounted(world):
     assert listed["configured"] is False and listed["instance"] == "nonprod"
     assert [(p["name"], p["core"], p["enabled"], p["disabledEnvironments"]) for p in listed["items"]] == [
         ("admin", True, True, []), ("core", True, True, []), ("requests", True, True, []),
-        ("capacity", False, True, []), ("directory", False, True, []), ("expiration", False, True, []), ("namespaces", False, True, []),
+        ("adoption", False, True, []), ("capacity", False, True, []), ("directory", False, True, []), ("expiration", False, True, []), ("namespaces", False, True, []),
         ("policies", False, True, []), ("quotas", False, True, []),
         ("tiers", False, True, [])]
     assert all(p["version"] for p in listed["items"])

@@ -1,5 +1,5 @@
 {
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|327-354": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|337-364": [
   "    def approve(self, approver: Identity, *, permitted: bool | None = None, relay: Identity | None = None,",
   "                relay_permitted: bool | None = None, comment: str = \"\") -> bool:",
   "        \"\"\"approver is the eligible person; relay is the channel client (approvals:relay) if any.",
@@ -29,20 +29,20 @@
   "        return self.met",
   ""
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|334-337": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|344-347": [
   "        if relay is not None:",
   "            ok = relay_permitted if relay_permitted is not None else \"approvals:relay\" in builtin_permissions(relay)",
   "            if not ok:",
   "                raise Problem.forbidden(\"Relay client lacks approvals:relay\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|337-337": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|347-347": [
   "                raise Problem.forbidden(\"Relay client lacks approvals:relay\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|343-344": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|353-354": [
   "        if approver.sub in self.client_owner_subs or approver.sub == self.operation_starter_sub:",
   "            raise Problem.conflict(\"self-approval\", \"The operation starter or client owner cannot approve\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|345-346": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/approvals.py|355-356": [
   "        if approver.sub == self.requester_sub and not self.requirement.self_approval:",
   "            raise Problem.conflict(\"self-approval\", \"Requesters cannot approve their own request here\")"
  ],
@@ -338,7 +338,7 @@
   "        return None",
   "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|339-344": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|340-345": [
   "            if permission:",
   "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
   "            op_id = f\"{self.plugin}_{fn.__name__}\"",
@@ -496,33 +496,33 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|124-124": [
   "        raise Problem.forbidden(\"Only the requester or an operator can cancel\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1332-1332": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1370-1370": [
   "            raise Problem.forbidden(f\"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|184-186": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|191-193": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|272-272": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|279-279": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|278-278": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|285-285": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|286-286": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|293-293": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|547-547": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|558-558": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|641-641": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|798-798": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|89-89": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|94-94": [
   "    \"on-behalf-of-not-allowed\": \"Remove `onBehalfOf`. A person calls as themselves.\","
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|90-90": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|95-95": [
   "    \"on-behalf-of-required\": \"Name the person in `onBehalfOf`. A service client must say for whom it calls.\","
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/views.py|25-27": [

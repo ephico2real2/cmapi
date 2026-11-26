@@ -447,6 +447,22 @@ def test_each_operation_has_a_sample_from_a_run(world):
     rec.call("namespaces_update_namespace", "PATCH", f"{base}/audit-dev", ola, headers=held_audit, key=True,
              json_body={"labels": {"cmapi.net/cost-center": "cc-4422"}, "justification": "Book the cost to another code"})            # 409 held
 
+    # ---- adoption (story #26): the owner's sample namespace, made the old way and labelled for adoption; its candidates, the
+    # dry run, the request, and a namespace without the opt-in label, which is refused
+    from test_adoption_26 import owner_sample
+    owner_sample(kube)
+    kube.objects[("Namespace", "", "legacy-tools")] = {"metadata": {"name": "legacy-tools", "uid": "uid-legacy", "labels": {
+        "cmapi.net/adopt": "true"}, "annotations": {"argocd.argoproj.io/tracking-id": "legacy-tools:/Namespace:/legacy-tools"}}}
+    rec.call("adoption_candidates", "GET", "/api/v1/clusters/CRC/adoption/candidates", opal)
+    rec.call("adoption_skipped", "GET", "/api/v1/clusters/CRC/adoption/skipped", opal)
+    adopt_url = f"{base}/abc-rnd:adopt"
+    planned_adoption = rec.call("adoption_adopt:dryRun", "POST", f"{adopt_url}?dryRun=true", opal,
+                                json_body={"justification": "Bring abc-rnd under cmapi"})
+    assert planned_adoption.status_code == 200 and planned_adoption.json()["adoption"], planned_adoption.text
+    adopted = rec.call("adoption_adopt", "POST", adopt_url, opal, json_body={"justification": "Bring abc-rnd under cmapi"}, key=True)
+    assert adopted.status_code == 202 and adopted.json()["status"] == "pending_approval", adopted.text
+    rec.call("adoption_adopt", "POST", f"{base}/legacy-tools:adopt?dryRun=true", opal, json_body={})          # 409 not adoptable
+
     data = {"operations": dict(sorted(rec.operations.items())), "problems": dict(sorted(rec.problems.items())),
             "operationProblems": dict(sorted(rec.operation_problems.items()))}
     spec = client.get("/openapi.json").json()

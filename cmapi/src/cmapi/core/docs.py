@@ -69,6 +69,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
                                      "change of the quota or the tier must name the object it changes, and a request cannot name "
                                      "one. Change only labels, annotations or the expiry, or leave one ResourceQuota in the folder "
                                      "in Git, then send the request again"),
+    "namespace-not-adoptable": (409, "abc-rnd is not a candidate for adoption: abc-rnd does not carry cmapi.net/adopt: \"true\""),
     "idempotency-replay": (409, "Idempotency-Key was used for a different request"),
     "precondition-failed": (412, "The namespace changed in Git since you read it"),
     "content-too-large": (413, too_large(DEFAULT_MAX_REQUEST_BODY_BYTES).detail),

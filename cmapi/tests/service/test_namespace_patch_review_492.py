@@ -143,7 +143,7 @@ def test_the_mnemonic_filter_compares_values_and_an_empty_q_is_capped(design_wor
 
 # --------------------------------------------------------------------------- F12: the adoption finding of a fixed key
 
-def test_a_missing_fixed_or_automatic_key_is_left_to_adoption_and_an_editable_one_to_the_change(design_world):
+def test_a_missing_key_says_how_a_request_adds_it_with_the_derived_value_the_name_start_or_any_valid_value(design_world):
     create(design_world)
 
     def adopted(meta):                                # made by another tool: no name, mnemonic or line of business
@@ -151,9 +151,11 @@ def test_a_missing_fixed_or_automatic_key_is_left_to_adoption_and_an_editable_on
             meta["labels"].pop(key)
     edit_git(design_world, adopted)
     assert missing_key_messages(patch(design_world, {"labels": {"company.net/cl": "0"}})) == [
-        "the label name is required and the namespace lacks it: adoption must supply it",
-        "the label company.net/mnemonic is required and the namespace lacks it: adoption must supply it",
-        "the label company.net/lob is required and the namespace lacks it: this change can add it"]
+        "the label name is required and the namespace lacks it: a request can add it with the value cmapi derives from the "
+        "namespace (abc-payments-dev)",
+        "the label company.net/mnemonic is required and the namespace lacks it: a request can add it with the start of the "
+        "namespace name",
+        "the label company.net/lob is required and the namespace lacks it: a request can add it"]
 
 
 # --------------------------------------------------------------------------- M1: no adoption finding on an expiry call
@@ -163,7 +165,7 @@ def test_an_expiry_call_reports_no_adoption_finding_since_its_body_cannot_add_a_
     edit_git(design_world, lambda meta: meta["labels"].pop("company.net/lob"))
     assert missing_key_messages(set_expiry_dry_run(design_world)) == []
     assert missing_key_messages(patch(design_world, {"labels": {"company.net/cl": "0"}})) == [
-        "the label company.net/lob is required and the namespace lacks it: this change can add it"]
+        "the label company.net/lob is required and the namespace lacks it: a request can add it"]
 
 
 # --------------------------------------------------------------------------- M2: removing a disallowed key that Git holds
@@ -177,3 +179,16 @@ def test_a_change_can_remove_a_disallowed_key_that_git_holds_and_the_diff_shows_
     assert "old.invalid/key" not in planned_namespace(r)["labels"]
     assert r.json()["metadataDiff"]["labels"] == {"old.invalid/key": {"before": "legacy", "after": None, "source": "request"}}
     assert errors_of(patch(design_world, {"labels": {"old.invalid/key": "again"}})) == [("invalid_key", "old.invalid/key")]
+
+
+def test_a_fixed_key_that_git_holds_empty_is_reported_as_kept_since_a_change_cannot_replace_it(design_world):
+    """#732 (R1 F3): Git's value of a fixed or automatic key stays (#481), an empty one too, so its finding does not offer
+    the addition that a change of a missing key gets: the change that the finding would advertise is refused."""
+    create(design_world)
+    edit_git(design_world, lambda meta: meta["labels"].update({"name": "", "company.net/mnemonic": ""}))
+    assert missing_key_messages(patch(design_world, {"labels": {"company.net/cl": "0"}})) == [
+        "the required label name is empty in Git: a change keeps that value",
+        "the required label company.net/mnemonic is empty in Git: a change keeps that value"]
+    assert errors_of(patch(design_world, {"labels": {"name": NS}})) == [("derived_key", "name")]
+    assert errors_of(patch(design_world, {"labels": {"company.net/mnemonic": "abc"}})) == [
+        ("invalid_value", "company.net/mnemonic")]

@@ -1,0 +1,196 @@
+<title>cmapi Adopt Mockup</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;600&family=Red+Hat+Text:wght@400;500;600&family=Red+Hat+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the Namespaces tab with its Adopt view: the cluster, the candidates and the skipped namespaces, then the plan of one adoption with its Check and Submit. The stylesheet is the Namespaces tab mockup's (#484). */
+:root {
+  --bg: #f0f0f0; --surface: #ffffff; --surface-2: #f5f7fa; --fg: #151515; --muted: #4d5258; --line: #d2d2d2;
+  --accent: #0066cc; --accent-fg: #ffffff; --accent-soft: #e7f1fa; --mast: #1b1d21; --mast-fg: #ffffff;
+  --ok: #3e8635; --ok-soft: #f3faf2; --warn: #795600; --warn-soft: #fdf7e7; --bad: #c9190b; --bad-soft: #faeae8;
+  --lock: #eceef0; --code-bg: #f8f9fb; --chg: #f0e8ff; --chg-fg: #5a2a9c;
+  --display: "Red Hat Display", "Segoe UI", system-ui, sans-serif; --text: "Red Hat Text", "Segoe UI", system-ui, sans-serif; --mono: "Red Hat Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151515; --surface: #1f1f1f; --surface-2: #26292d; --fg: #e0e0e0; --muted: #a3a8ad; --line: #3c3f42;
+  --accent: #73bcf7; --accent-fg: #002952; --accent-soft: #002b4d; --mast: #0f1012; --mast-fg: #f0f0f0;
+  --ok: #8bc34a; --ok-soft: #1f2a1a; --warn: #f0ab00; --warn-soft: #2e2615; --bad: #fe5142; --bad-soft: #3a1c19;
+  --lock: #2c2f33; --code-bg: #1a1c1f; --chg: #2c2140; --chg-fg: #c9a7ff; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151515; --surface: #1f1f1f; --surface-2: #26292d; --fg: #e0e0e0; --muted: #a3a8ad; --line: #3c3f42;
+  --accent: #73bcf7; --accent-fg: #002952; --accent-soft: #002b4d; --mast: #0f1012; --mast-fg: #f0f0f0;
+  --ok: #8bc34a; --ok-soft: #1f2a1a; --warn: #f0ab00; --warn-soft: #2e2615; --bad: #fe5142; --bad-soft: #3a1c19;
+  --lock: #2c2f33; --code-bg: #1a1c1f; --chg: #2c2140; --chg-fg: #c9a7ff; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--text) }
+.mast { background: var(--mast); color: var(--mast-fg); padding-block: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap }
+.brand b { font-family: var(--display); font-size: 18px; font-weight: 600 } .brand span { display: block; font-size: 12px; opacity: .75 }
+.who { text-align: right; font-size: 12px; opacity: .9 } .who b { display: block; font-size: 13px }
+.wrap { padding-block: 0 32px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1280px; margin: 0 auto }
+.mockbar { margin-top: 12px; background: var(--warn-soft); border: 1px solid var(--line); border-left: 4px solid var(--warn); padding: 8px 12px; font-size: 13px }
+.tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); margin-top: 12px; background: var(--surface); padding: 0 8px }
+.tabs a { padding: 10px 12px; color: var(--muted); text-decoration: none; white-space: nowrap; border-bottom: 3px solid transparent }
+.tabs a.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600 }
+h1 { font-family: var(--display); font-weight: 600; font-size: 26px; margin: 20px 0 4px }
+.lead { color: var(--muted); margin: 0 0 16px; max-width: 75ch }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 18px; margin-bottom: 16px; min-width: 0 }
+.pick { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 14px }
+@media (max-width: 640px) { .pick { grid-template-columns: minmax(0, 1fr) } }
+label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px }
+.hint { font-size: 12px; color: var(--muted) }
+input[type=text], select, textarea { width: 100%; font: 14px var(--text); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-bottom-color: var(--muted); border-radius: 3px; padding: 7px 9px }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, li[role=option]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+.ta { position: relative } .ta ul { position: absolute; left: 0; right: 0; top: 100%; z-index: 5; margin: 2px 0 0; padding: 4px 0; list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: 3px; max-height: 220px; overflow: auto; box-shadow: 0 4px 12px rgba(0,0,0,.12) }
+.ta li { padding: 6px 10px; cursor: pointer; font-family: var(--mono); font-size: 13px } .ta li:hover, .ta li[aria-selected=true] { background: var(--accent-soft) }
+.ta li small { font-family: var(--text); color: var(--muted); margin-left: 8px }
+.strip { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 14px; border-radius: 4px; border: 1px solid var(--line); margin-bottom: 16px; font-size: 13px }
+.strip b { font-size: 14px } .strip .sp { flex: 1 }
+.strip.in-sync { background: var(--ok-soft); border-left: 4px solid var(--ok) } .strip.drift { background: var(--warn-soft); border-left: 4px solid var(--warn) }
+.strip.pending { background: var(--accent-soft); border-left: 4px solid var(--accent) } .strip.unknown { background: var(--surface-2); border-left: 4px solid var(--muted) }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block } .in-sync .dot { background: var(--ok) } .drift .dot { background: var(--warn) } .pending .dot { background: var(--accent) } .unknown .dot { background: var(--muted) }
+.tw { overflow-x: auto }
+table.kv { width: 100%; border-collapse: collapse; min-width: 820px }
+table.kv th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--surface-2) }
+table.kv td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 13px }
+table.kv td.v { font-family: var(--mono); word-break: break-all }
+table.kv tr.changed td { background: var(--chg) }
+.kname b { display: block } .kname code { font: 11px var(--mono); color: var(--muted) }
+.tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 8px; margin-left: 4px; font-weight: 600 }
+.tag.sens { background: var(--chg); color: var(--chg-fg) } .tag.lockt { background: var(--lock); color: var(--muted) }
+.mk { font-size: 12px; white-space: nowrap } .mk.ok { color: var(--ok) } .mk.dr { color: var(--warn); font-weight: 600 }
+.why { font-size: 12px; color: var(--muted) }
+.cell-edit { display: flex; gap: 6px; align-items: center; flex-wrap: wrap }
+.cell-edit input, .cell-edit select { font-family: var(--mono); font-size: 13px; padding: 5px 7px; max-width: 260px }
+.removed { font-family: var(--mono); color: var(--bad); text-decoration: line-through }
+button { font: 600 14px var(--text); border-radius: 3px; padding: 7px 14px; cursor: pointer; border: 1px solid var(--accent) }
+button.primary { background: var(--accent); color: var(--accent-fg) } button.secondary { background: transparent; color: var(--accent) }
+button.link { border: 0; background: none; color: var(--accent); padding: 2px 4px; font-size: 13px }
+button.small { padding: 4px 10px; font-size: 12px } button:disabled { opacity: .45; cursor: not-allowed }
+.xsec { border: 1px solid var(--line); border-radius: 4px; margin: 14px 0 0 }
+.xtoggle { width: 100%; display: flex; gap: 10px; align-items: center; background: var(--surface-2); border: 0; padding: 10px 12px; font: 600 14px var(--text); color: var(--fg); text-align: left; cursor: pointer }
+.xtoggle .cnt { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--muted) }
+.xbody { padding: 12px; font-size: 13px; color: var(--muted) }
+.changes { font-family: var(--mono); font-size: 13px; display: grid; gap: 4px; margin: 0 0 12px }
+.changes .none { font-family: var(--text); color: var(--muted) }
+.status { margin-top: 12px; padding: 10px 12px; border-radius: 3px; font-size: 13px; border: 1px solid var(--line) }
+.status.ok { background: var(--ok-soft); border-left: 4px solid var(--ok) } .status.bad { background: var(--bad-soft); border-left: 4px solid var(--bad) } .status.info { background: var(--accent-soft); border-left: 4px solid var(--accent) } .status.idle { background: var(--surface-2) }
+.status ul { margin: 6px 0 0; padding-left: 18px }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 14px }
+.sim { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); margin-top: 10px }
+.conflict { margin-top: 8px; display: grid; gap: 6px } .conflict div { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-family: var(--mono); font-size: 13px }
+.empty { color: var(--muted); padding: 24px; text-align: center }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 2px }
+.chip { font: 500 12px var(--text); border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 14px; padding: 3px 10px; cursor: pointer }
+.chip b { font-family: var(--mono); } .chip small { color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums }
+.chip[aria-pressed=true] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent) } .chip[aria-pressed=true] small { color: var(--accent-fg) }
+.ta li mark { background: transparent; color: var(--accent); font-weight: 600 }
+.ta li .meta { font-family: var(--text); font-size: 12px; color: var(--muted); margin-left: 10px }
+.ta li .st { margin-left: 8px; font-family: var(--text); font-size: 12px }
+.ta .foot { padding: 6px 10px; font: 12px var(--text); color: var(--muted); border-top: 1px solid var(--line); cursor: default }
+.recent { font-size: 12px; color: var(--muted); margin-top: 6px } .recent button { font-family: var(--mono) }
+.files pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 3px; padding: 10px; font: 12px/1.45 var(--mono); overflow-x: auto; margin: 6px 0 12px }
+.findings { margin: 0; padding-left: 18px; font-size: 13px } .findings li { margin-bottom: 4px } .findings code { font: 12px var(--mono) }
+.grid2 { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 16px }
+@media (max-width: 820px) { .grid2 { grid-template-columns: minmax(0, 1fr) } }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; margin-bottom: 16px }
+.seg button { border: 0; border-radius: 0; background: var(--surface); color: var(--fg); font-weight: 500 } .seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-fg) }
+table.list { width: 100%; border-collapse: collapse } table.list th { text-align: left; font-size: 12px; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--surface-2) }
+table.list td { padding: 8px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: top }
+@media (max-width: 640px) { table.list thead { display: none } table.list td { display: block; border: 0; padding: 4px 8px } table.list tr { display: block; border-bottom: 1px solid var(--line); padding: 6px 0 } }
+</style>
+
+<header class="mast">
+  <div class="brand"><b>cmapi</b><span>Cluster Management Portal · nonprod (rnd, dev)</span></div>
+  <div class="who"><b>cmapi.operator</b>adoption:write in dev, rnd</div>
+</header>
+
+<div class="wrap">
+  <div class="mockbar"><b>Mockup</b> of the Adopt view of the Namespaces tab (story #26, the adoption design's D13) for review. company.net stands for your domain; values are examples. Nothing is sent.</div>
+  <nav class="tabs" aria-label="Portal tabs"><a href="#workflow">Workflow</a><a href="#new">New namespace</a><a class="on" href="#namespaces" aria-current="page">Namespaces</a><a href="#quotas">Quotas</a><a href="#expiration">Expiration</a><a href="#requests">Requests</a><a href="#approvals">Approvals</a><a href="#policies">Policies</a><a href="#capacity">Capacity</a><a href="#kpis">KPIs</a></nav>
+
+  <h1>Namespaces</h1>
+  <p class="lead">Pick a cluster, then a namespace. See what Git holds beside what the cluster has, and change its labels and annotations. Changes go through a request, approval and Git, like a new namespace.</p>
+
+  <div class="seg" role="group" aria-label="View"><button type="button" aria-pressed="false">Managed</button><button type="button" aria-pressed="true">Adopt</button></div>
+
+  <div class="card">
+    <h2>Adopt an existing namespace</h2>
+    <p class="hint">A namespace that cmapi does not manage is adopted only when it carries the label <code>cmapi.net/adopt: "true"</code>. cmapi reads it as it is, writes it to Git under the custom tier, and lists every difference from the rules as a finding. A person approves it, and the change reaches the cluster only through a pull request.</p>
+    <label for="cluster">Cluster</label>
+    <select id="cluster"><option value="CRC">CRC (dev)</option></select>
+    <h3>Candidates</h3>
+    <table class="list">
+      <thead><tr><th>Namespace</th><th>Made by another tool</th><th></th></tr></thead>
+      <tbody>
+        <tr><td><code>abc-rnd</code></td><td><span class="tag lockt">company.net/provisioner=cluster-configs</span></td><td><button class="secondary small">Adopt abc-rnd</button></td></tr>
+        <tr><td><code>abd-rnd</code></td><td><span class="tag lockt">company.net/provisioner=cluster-configs</span></td><td><button class="secondary small">Adopt abd-rnd</button></td></tr>
+      </tbody>
+    </table>
+    <p class="hint">Empty list: No namespace on CRC carries cmapi.net/adopt: "true" and can be adopted.</p>
+    <h3>Labelled, and skipped</h3>
+    <table class="list">
+      <thead><tr><th>Namespace</th><th>Why it is not adopted</th></tr></thead>
+      <tbody>
+        <tr><td><code>legacy-tools</code></td><td>tracked-elsewhere: The Argo CD Application legacy-tools tracks legacy-tools</td></tr>
+        <tr><td><code>kube-tools</code></td><td>excluded: Excluded by built-in exclusion kube-*</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>Adopt abc-rnd</h2>
+      <h3>Objects read from the cluster</h3>
+      <table class="list">
+        <thead><tr><th>Kind</th><th>Name</th><th>resourceVersion</th></tr></thead>
+        <tbody>
+          <tr><td>Namespace</td><td><code>abc-rnd</code></td><td><code>48211</code></td></tr>
+          <tr><td>ResourceQuota</td><td><code>abc-rnd-quota</code></td><td><code>48212</code></td></tr>
+          <tr><td>LimitRange</td><td><code>abc-rnd-limits-cpu</code></td><td><code>48213</code></td></tr>
+          <tr><td>LimitRange</td><td><code>abc-rnd-limits-memory</code></td><td><code>48214</code></td></tr>
+        </tbody>
+      </table>
+      <h3>Findings: reported, never changed</h3>
+      <ul class="findings">
+        <li><code>derived-mismatch</code> label name: name is aao-rnd, and cmapi derives abc-rnd from the namespace: kept until a request sets it</li>
+        <li><code>declared-as-annotation</code> label company.net/mnemonic-group-contact: company.net/mnemonic-group-contact is declared as an annotation; the label is kept until a request removes it with null</li>
+        <li><code>adoption-label</code> label company.net/provisioner: company.net/provisioner=cluster-configs marks a namespace that another tool made (recognised): kept as it is</li>
+        <li><code>beyond-custom-bounds</code> abc-rnd-quota: requests.cpu is 40, above the custom maximum 32: adopted as it is; a later change of it is checked and approved as usual</li>
+        <li><code>skipped-key</code> label pod-security.kubernetes.io/audit: left out of Git, only server components own it</li>
+      </ul>
+      <h3>Not adopted</h3>
+      <p class="hint">2 ServiceAccounts and 1 RoleBindings stay unmanaged: adoption takes the Namespace, ResourceQuotas and LimitRanges only.</p>
+      <h3>Files</h3>
+      <div class="files">
+        <label>clusters/CRC/namespaces/abc-rnd/namespace.yaml</label>
+        <pre>apiVersion: v1
+kind: Namespace
+metadata:
+  name: abc-rnd
+  labels:
+    cmapi.net/cluster-id: CRC
+    cmapi.net/env: rnd
+    cmapi.net/managed: 'true'
+    cmapi.net/requested-by-user: cmapi.operator
+    cmapi.net/tier: custom
+    cmapi.net/adopt: 'true'
+    company.net/cl: '1'
+    company.net/provisioner: cluster-configs
+    name: aao-rnd
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true
+    cmapi.net/instance: nonprod
+    cmapi.net/request-id: (planned)</pre>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Your adoption</h2>
+      <label for="why">Justification (required)</label>
+      <textarea id="why" rows="2" placeholder="Why this namespace is adopted"></textarea>
+      <div class="status ok"><b>The check passed (dry run, 200). Nothing is written yet.</b><div>2 approvals in cmapi from approver-platform. rnd change: 0 from approver-platform; threshold plugin == "adoption": +1 approver-platform; threshold plugin == "adoption" and findingCount &gt; 0: +1 approver-platform. Self-approval is allowed in rnd.</div><span class="hint">5 findings · 4 objects read · rnd-change · 2 of approver-platform</span></div>
+      <div class="status ok"><b>Request req-20261126-0007 submitted (202).</b> It waits for its approvals; the pull request opens after them. <button class="link">Open at current step</button></div>
+      <div class="status info"><b>Write why, then press Check (dry run).</b></div>
+      <div class="status bad"><b>Not adoptable: namespace-not-adoptable</b> legacy-tools is not a candidate for adoption: The Argo CD Application legacy-tools tracks legacy-tools</div>
+      <div class="actions"><button class="secondary">Check (dry run)</button><button class="primary" disabled>Submit adoption request</button></div>
+    </div>
+  </div>
+</div>

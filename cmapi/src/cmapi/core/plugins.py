@@ -33,9 +33,10 @@ BUILT_IN: dict[str, str] = {
     "expiration": "cmapi.plugins.expiration.router:router",
     "policies": "cmapi.plugins.policies.router:router",
     "capacity": "cmapi.plugins.capacity.router:router",
+    "adoption": "cmapi.plugins.adoption.router:router",
 }
 # The built-in plugins with a write, which is what an override stops. tests/service/test_plugins_switch.py holds this to the routers.
-WRITERS: frozenset[str] = frozenset({"namespaces"})
+WRITERS: frozenset[str] = frozenset({"namespaces", "adoption"})
 # The routers of cmapi.routers. They are the service itself, so plugins.yaml cannot name them.
 CORE: frozenset[str] = frozenset({"core", "requests", "admin"})
 

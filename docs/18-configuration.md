@@ -433,7 +433,7 @@ The rules for the labels and the annotations that a requester sets on a namespac
 | `requiredAnnotations` | mapping of key to rule | `{}` | Annotations that each namespace carries |
 | `extraLabels` | mapping | `{}` | `keys`: optional labels, each with a rule. `allowOther`: any other label under a prefix |
 | `extraAnnotations` | mapping | `{}` | The same, for annotations |
-| `adoptionLabels` | mapping of key to `{recognise: [values]}` | `{}` | Labels that mark a namespace that another tool made. A requester cannot set them: the class of such a key is `reserved`. Today cmapi reads only the keys, for that class. The adoption that reads the values (story #26) is not built |
+| `adoptionLabels` | mapping of key to `{recognise: [values]}` | `{}` | Labels that mark a namespace that another tool made. A requester cannot set them: the class of such a key is `reserved`. Today cmapi reads only the keys, for that class. The adoption (story #26) reads the values: a namespace that carries one is listed as `recognised` among the candidates, and the plan reports it as `adoption-label` |
 | `sensitiveKeys` | list of keys | `[]` | A change of the value of one of these keys adds the fact `sensitiveKeyChanged`, once per request: a value that Git holds changes or goes, or a change of an existing namespace adds a required or extra key (#481). The first value of a create, and the first set of an operator-only key, are not a change. The shipped files list `cmapi.net/protected` and `do-not-delete`: protecting a namespace needs no extra approval, and removing the protection adds one approver-platform approval (#366) |
 | `emailDomains` | list of domains | `[]` | The mail domains for a key with `format: email-in-domains`. A key of that format needs at least one domain |
 | `liveOnlyKeys` | list of key globs | `[kubernetes.io/metadata.name, "openshift.io/*", "argocd.argoproj.io/*", app.kubernetes.io/instance]` | Keys that the cluster or its controllers write on a live namespace and Git never holds. `GET .../namespaces/{ns}` compares each governed, extra and operator-only key of Git with the live namespace (`sync`, #481) and leaves these out, so they are never drift. `*` matches as in `fnmatch`. Without the stanza, the default applies; an empty list compares every such key. System and reserved keys are never compared |
@@ -456,11 +456,11 @@ A key of `requiredLabels`, `requiredAnnotations` or `extraLabels.keys` or `extra
 
 | Field | Type | Meaning |
 |---|---|---|
-| `value: {from: ...}` | `namespace`, `environment`, `cluster` or `instance` | cmapi sets the value from the target of the request. A create may leave the key out (cmapi fills it in) or send the same value. Any other value, or a removal, is refused (`derived_key`). On a change of an existing namespace (PATCH and the expiry calls), the key keeps the value that Git holds, even when the target has moved since the create, and a namespace that lacks the key keeps lacking it (adoption adds it, #26): only Git's own value may be sent back (#481). When Git's `cmapi.net/env` is not the cluster's environment any more, the system label follows the cluster and the plan has the warning `environment_moved` (#492). A key with `value` takes no `pattern`, `enum`, `format`, `namespacePrefix` or `default` |
+| `value: {from: ...}` | `namespace`, `environment`, `cluster` or `instance` | cmapi sets the value from the target of the request. A create may leave the key out (cmapi fills it in) or send the same value. Any other value, or a removal, is refused (`derived_key`). On a change of an existing namespace (PATCH and the expiry calls), the key keeps the value that Git holds, even when the target has moved since the create, and only Git's own value may be sent back (#481). A namespace that lacks the key (an adopted one: adoption keeps the live keys as they are and reports the missing key, #26) keeps lacking it until a request adds it with exactly the derived value; any other value is refused, and the plan's finding says which value is taken (#732, the owner's decision 2 on #26). When Git's `cmapi.net/env` is not the cluster's environment any more, the system label follows the cluster and the plan has the warning `environment_moved` (#492). A key with `value` takes no `pattern`, `enum`, `format`, `namespacePrefix` or `default` |
 | `pattern` | regular expression | The whole value must match. Written in the subset that Python, Kyverno and the API document read alike: see "Patterns" below |
 | `enum` | list of text | The value is one of these. A label value must be a valid label value |
 | `format` | `email-in-domains` or `url` | `email-in-domains`: an address with one `@`, a local part of ``[A-Za-z0-9!#$%&'*+/=?^_`{\|}~.-]``, and a domain in `emailDomains`, in any case of its ASCII letters. `url`: `http://` or `https://` in any case, a host with no `/`, `?`, `#`, whitespace or character whose NFKC form holds `/`, `?`, `#`, `@` or `:` (as `℀`, CVE-2019-9636), and a `[` only as `[userinfo@][IPv6 address]` with an optional `:port` after it, then optionally a path, query or fragment with no whitespace. Whitespace is what Python's `str.isspace()` calls whitespace. Each format is one regex (`value_regex` in `core/metadata.py`), which cmapi matches and the rendered Kyverno policy matches too (#332). A format is for annotations only: a label value is at most 63 characters of `[A-Za-z0-9_.-]`, so it cannot hold an address or a URL |
-| `namespacePrefix` | boolean | The namespace name starts with the value and a `-`. For the value `abc`, the namespace `abc-rnd` passes. On a change of an existing namespace (PATCH), the key keeps the value that Git holds, since a change cannot rename: sending that value back is accepted, and another value or a removal is refused (`invalid_value`: "part of the namespace's fixed name"). A change cannot add the key to a namespace that lacks it; adoption does (#481). `GET .../namespaces` reads its value as each namespace's `mnemonic`. One key at most |
+| `namespacePrefix` | boolean | The namespace name starts with the value and a `-`. For the value `abc`, the namespace `abc-rnd` passes. On a change of an existing namespace (PATCH), the key keeps the value that Git holds, since a change cannot rename: sending that value back is accepted, and another value or a removal is refused (`invalid_value`: "part of the namespace's fixed name"). A namespace that lacks the key (an adopted one, #26) takes it from a request with exactly a start of its name, the value before a `-`, that keeps the key's own rule; any other value is refused (#732, the owner's decision 2 on #26). `GET .../namespaces` reads its value as each namespace's `mnemonic`. One key at most |
 | `namespaceSuffix` | boolean | The namespace name ends with a `-` and the value (#479). On the key `value: {from: environment}`, a `dev` cluster takes `abc-payments-dev` and refuses `abc-payments-rnd` (`invalid_value` on this key: "abc-payments-rnd does not end with -dev"). With a `namespacePrefix` value of `abc`, both `abc-payments-dev` and the team-wide name `abc-dev` pass. An empty segment (`abc--dev`) is refused on the suffix key. Checked on a create; on a change the key keeps the value that Git holds, as `namespacePrefix` says (a filled-in one accepts only its exact Git value, `derived_key` otherwise). A key has `namespacePrefix` or `namespaceSuffix`, not both. One key at most |
 | `default: {from: <key>}` | a key | When a create leaves this key out, cmapi copies the value of `<key>` into it; a sent value is kept (#479). `<key>` is a declared key of the same kind with no `default` of its own, so there is no chain. It may be a `value` key: cmapi fills that one first. An empty `<key>` fills nothing, so a required key left empty is reported missing. `cmapi.net/team` with `default: {from: company.net/mnemonic}` is `abc` when the request sends only the mnemonic `abc` |
 | `title` | text | A short label for the key on a form, such as the portal's New namespace form: the reference file gives `cmapi.net/team` the title `Team` and `cmapi.net/team-dl` the title `Team DL`. With none, the form shows the key itself. The API document carries it as the property's JSON Schema `title` (#336) |
@@ -745,7 +745,7 @@ This is an excerpt. The file also has the `system`, `operatorOnly` and `reserved
 The owner's decisions behind it:
 
 - `name` is derived from the namespace name. The sample text `aao-rnd` was a typo (#215).
-- The two contact keys are annotations, with the formats `email-in-domains` and `url`. A label cannot hold an address or a URL (#234). The design: an existing namespace that carries them as labels keeps those labels when it is adopted. Adoption (story #26) is not built.
+- The two contact keys are annotations, with the formats `email-in-domains` and `url`. A label cannot hold an address or a URL (#234). The design: an existing namespace that carries them as labels keeps those labels when it is adopted. Adoption (story #26) reports each as `declared-as-annotation`.
 - `cmapi.net/env` (the system key that cmapi, the approval rules and Kyverno read) stays beside the company's `company.net/app-environment`. Both come from the environment (#215).
 - `company.net/provisioner: cluster-configs` marks a namespace that the earlier process made. A requester cannot set it (#228).
 
@@ -813,8 +813,16 @@ A `when` line reads these facts. The names are fixed in the code. An unknown nam
 | `networkExposure` | The request raises `services.loadbalancers` or `services.nodeports` | `Pipeline.plan_namespace` |
 | `warnings`, `requesterClient`, `automated` | The findings of the validator, the client of a service caller, and whether the caller is automated | `core/pipeline.py` |
 | `clusterRoles` | The cluster roles of a grant | Not set by any built code (#257). `match.clusterRoles` reads it |
+| `findingCount`, `trackedElsewhere` | An adoption's findings, all codes together, and whether another Argo CD Application tracks the namespace (always `false` on a request that exists: such a namespace is refused). The reference files add one approver of `approver-platform` for `plugin == "adoption"`, and one more for `findingCount > 0` (the adoption design's D10) | `Pipeline.plan_adoption` (story #26) |
 
 `clusterLabels` is not a fact for a `when` line: a line that names it stops the start. Only `match.clusterSelector` of an auto-approval policy reads the labels of the cluster.
+
+### An adoption always has an approver
+
+An adoption takes over a namespace that cmapi did not make (story #26), so it never passes without a person (`ApprovalRules.decide`
+and `_matches`): when no rule gives it an approver, cmapi adds one of `defaults.group` with the reason "An adoption needs an
+approver", and an auto-approval policy covers it only when its `match.plugin` is `adoption`
+(`test_an_adoption_is_never_auto_approved_and_always_has_an_approver`, `cmapi/tests/core/test_adoption_26.py`).
 
 ### Approval is the gate for a value beyond the tier
 
@@ -860,6 +868,24 @@ The first enabled policy that matches the request decides. When a guard stops th
 The guard that stopped a policy is stored in `change_requests.requirement` as `autoFallback`, and counted in `cmapi_auto_approval_fallbacks_total{guard}`.
 
 ---
+
+## `adoption.yaml`
+
+Optional (story #26; `core/adoption.py`, `AdoptionSettings`). Without the file, the defaults below hold. docs/02, "Adoption
+plugin", shows a whole file, and the adoption design (`docs/reviews/2026-11-14-issue-26-adoption/README.md`) gives each
+decision.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `selector.label`, `selector.value` | text | `cmapi.net/adopt`, `"true"` | The opt-in label: only a namespace that carries it is a candidate (D1). It stays on the namespace after the adoption, and is then ignored |
+| `exclude.names`, `exclude.patterns`, `exclude.labelSelectors` | lists of text | `[]` | Namespaces that are never candidates, beside the built-in `default`, `openshift`, `openshift-*`, `kube-*` and the instance's reserved names. A pattern is a shell glob; a selector is `key`, `!key`, `key=value` or `key!=value` |
+| `environments.<env>`, `clusters.<id>` | the same three lists | `{}` | More exclusions for one environment (a served one) or one cluster. Exclusions add up, never subtract |
+| `skip.keyPrefixes` | list of text | `openshift.io/sa.scc.`, `kubectl.kubernetes.io/`, `kubernetes.io/metadata.name`, `pod-security.kubernetes.io/` | Keys left out of Git, each only when no client-side apply wrote it (D3a): a key that the field manager below owns stays in Git, with the finding `skipped-key-kept` |
+| `skip.clientSideApplyManager` | text | `kubectl-client-side-apply` | The field manager that Argo CD's client-side apply migration takes over (kubectl's default `--field-manager`) |
+| `argocd.resourceTrackingMethod` | `annotation`, `label` or `annotation+label` | `annotation` | The hub's Argo CD tracking. With `label`, the label `app.kubernetes.io/instance` names the Application that tracks a namespace; with `annotation` or `annotation+label` it is a finding only (Argo CD, "Resource Tracking": with `annotation+label` the label is "only for informational purposes") |
+
+A mistake stops the start, as for the other files: an unknown key, an environment that the instance does not serve, a list that
+is not a list of text.
 
 ## `expiration.yaml`
 
