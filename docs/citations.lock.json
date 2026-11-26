@@ -338,7 +338,7 @@
   "        return None",
   "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|340-345": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|342-347": [
   "            if permission:",
   "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
   "            op_id = f\"{self.plugin}_{fn.__name__}\"",
@@ -496,7 +496,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|124-124": [
   "        raise Problem.forbidden(\"Only the requester or an operator can cancel\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1370-1370": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1404-1404": [
   "            raise Problem.forbidden(f\"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.\")"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|191-193": [
@@ -516,13 +516,16 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|558-558": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|798-798": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|675-675": [
+  "        self.cfg.roles.require(who, \"namespaces:write\", env)"
+ ],
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|827-827": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|94-94": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|98-98": [
   "    \"on-behalf-of-not-allowed\": \"Remove `onBehalfOf`. A person calls as themselves.\","
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|95-95": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|99-99": [
   "    \"on-behalf-of-required\": \"Name the person in `onBehalfOf`. A service client must say for whom it calls.\","
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/views.py|25-27": [
@@ -579,13 +582,16 @@
   "        return get_swagger_ui_oauth2_redirect_html()",
   ""
  ],
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/adoption/router.py|57-57": [
+  "    c.cfg.roles.require(who, ADOPT_PERMISSION, env)"
+ ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|115-115": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|196-196": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|236-236": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|237-237": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|62-62": [

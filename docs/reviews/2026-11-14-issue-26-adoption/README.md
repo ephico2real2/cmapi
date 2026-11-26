@@ -21,6 +21,7 @@ the short form of this design.
 | B3 (D9's in-place change of a named object), B4 (the check after the sync), B6, B10's kind proof, B11's quota view, B12 and D18 | Not built | |
 | `POST .../adoption:scan`, `GET /api/v1/reports/unmanaged-namespaces` | Not built: #252's admin operations | |
 | The portal's Adopt view | Built: the Namespaces tab's Adopt view, from `mockup-adopt.html` in this folder | `cmapi-portal-ui/src/portal/AdoptView.tsx` |
+| D20 (#739): self-service, and the missing metadata supplied with the adoption or added later | Built | `plugins/adoption/router.py` (`ADOPT_PERMISSION`), `Pipeline.plan_adoption`, `MetadataKeys.missing_keys`, the portal's `MissingMetadata.tsx`; `tests/service/test_self_service_adoption_739.py` |
 
 ## 1. The owner's decisions (#26, 2026-11-14)
 
@@ -464,8 +465,9 @@ switch says. The switch governs only cmapi's own rendering.
 
 ### D10. Who may ask, and the approval
 
-- **Who:** a person with `adoption:write` (cmapi-operator), or the namespace's admin on that cluster, checked with a
-  SubjectAccessReview (docs/02, kept). The read ClusterRole gets `create` on `subjectaccessreviews`.
+- **Who:** a person with `namespaces:write` in the cluster's environment (self-service, D20; this replaces `adoption:write`,
+  cmapi-operator, by the owner's decision of 2026-11-26), or the namespace's admin on that cluster, checked with a
+  SubjectAccessReview (docs/02, kept; not built). The read ClusterRole gets `create` on `subjectaccessreviews`.
 - **One request for each namespace**, plugin `adoption`, action `adopt`, with the findings in its plan.
 - **Facts** for `approval-rules.yaml`: `environment`, `findings` (the count by code), `beyondTier`, `beyondTierKeys`,
   `trackedElsewhere` (always false for a request that exists: D1 skips those).
@@ -473,6 +475,39 @@ switch says. The switch governs only cmapi's own rendering.
   more when the plan has findings. Auto-approval never covers an adoption unless a rule names it. This replaces docs/02's
   earlier rule, in which one namespace admin approved in rnd and qa. The new rule is stricter, and the pull request names
   the change.
+
+### D20. Self-service, and the missing metadata (#739, the owner's decision of 2026-11-26 on #26)
+
+The owner: "adopting a namespace is very easy and promote self services. We can always have a follow-up with them and ask for
+additional required metadata via the same form or screen so that adoption can be triggered via the api as well with the
+required fields."
+
+- **Who may ask.** `namespaces:write` in the cluster's environment, the permission of every other change of a namespace, for
+  the candidates, the skipped list and `:adopt`. The approval rules gate the adoption, unchanged (D10): one approver of
+  approver-platform, one more with findings, never automatic unless a policy names the plugin. `adoption:write` stays in the
+  role map for the admin operations of #252 (the scan of a cluster), which act on many namespaces at once.
+- **Metadata with the adoption.** `:adopt` takes optional `labels` and `annotations` for keys that the live namespace lacks.
+  - Each is checked as a change of an existing namespace checks a key that it adds (#732): by its rule, a key that cmapi fills
+    in only with its derived value, the key that starts the name only with a start of the name. A system, reserved,
+    adoption or disallowed key is refused, and an operator-only key needs `namespaces:protect`, as on any change.
+  - A key that the live namespace has, with any value, an empty one or one under a skip prefix too, is 422
+    `adoption-key-held` with `keys`: the adoption keeps each key it finds as it is (D3, D6). A change request after the
+    adoption changes it.
+  - Each key is written to `namespace.yaml`, and listed in `metadataDiff` and `adoption.supplied`. A required one drops its
+    `missing-required-key` finding, so it can lower the findings count of D10. The snapshot, the base of the policies (D6a),
+    stays the live namespace as read: the added keys are new, so the rendered policies check them.
+  - The live object then differs from the snapshot by D4's keys and the added ones (D11 step 3, not built, allows both).
+  - Leaving both out is the adoption before #739: the same files, findings and approval.
+- **What may be added.** `MetadataKeys.missing_keys` lists each declared key that a namespace lacks and a request may add,
+  required ones first, with the one value of a key that cmapi fills in or that starts the name (the shortest start that
+  keeps the key's own rule). The candidates list carries it for each candidate, the plan for what remains, and
+  `GET .../namespaces/{ns}` for what Git lacks (`git.missingKeys`). A key that the name ends with is never offered.
+- **The portal.** The Adopt form shows a "Missing metadata" panel below the plan from the candidate's `missingKeys`: the keys
+  that cmapi fills in or that start the name read-only with their value, the other required ones as inputs, the optional
+  ones behind "More". On the Namespaces tab, a namespace whose Git lacks a required key shows "Add missing metadata", which
+  opens the same panel over the change's draft; its derived and prefix keys are unlocked there with their one value.
+
+The record of the build, its choices and its sources is `docs/reviews/2026-11-26-issue-739/README.md`.
 
 ### D11. The sync and the check after it
 
