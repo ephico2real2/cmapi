@@ -338,7 +338,7 @@
   "        return None",
   "    return Requirement(rule=d[\"rule\"], slots=tuple(Slot(**s) for s in d[\"slots\"]), self_approval=d[\"selfApproval\"],"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|327-332": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/docs.py|330-335": [
   "            if permission:",
   "                desc += f\"\\n\\n**Requires** `{permission}`.\"",
   "            op_id = f\"{self.plugin}_{fn.__name__}\"",
@@ -531,29 +531,31 @@
   "        # part of the public contract, so it stays in the row and out of the response.",
   "        \"approval\": approval_view(req, ledger), \"requester\": {k: v for k, v in row.requester.items() if k != \"submittedBySub\"},"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|200-201": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|201-202": [
   "    app.include_router(health.router)",
   "    app.include_router(health.version_router)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|203-205": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|204-208": [
   "    authed_routers = (me.router, requests.router, admin.router, *cfg.plugins.routers())",
+  "    # Each route that takes a token takes one from its caller's bucket, after the sign-in (routers/__init__.py, rate_limit;",
+  "    # #689). The routes with no token (the version, health, the problem pages, the docs) have no caller to count.",
   "    for r in authed_routers:",
-  "        app.include_router(r, dependencies=[Depends(authed)])"
+  "        app.include_router(r, dependencies=[Depends(authed), Depends(limited)])"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|238-239": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|241-242": [
   "        if s.metrics_port:",
   "            start_metrics(s.metrics_port, ctx.cfg.name, s.component)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|277-279": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|285-287": [
   "    @app.exception_handler(Problem)",
   "    async def problem_handler(_: Request, exc: Problem) -> Response:",
   "        return problem_response(exc, dict(unauthenticated_headers(exc)))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|379-380": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|387-388": [
   "    if docs_enabled:",
   "        _add_docs(app, ctx, docs_cfg, authed, problem_response)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|406-420": [
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|414-428": [
   "def _add_problem_pages(app: FastAPI, ctx: AppContext, problem_base: str) -> None:",
   "    \"\"\"/problems and /problems/{code}: what the `type` of a problem resolves to (RFC 9457, section 4; #182).",
   "",
@@ -570,27 +572,27 @@
   "            raise Problem(404, \"object-not-found\", \"No such problem type. /problems lists each one\")",
   "        return HTMLResponse(problem_html(code, problem_base, ctx.cfg.name))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|431-431": [
-  "    guard = [] if docs_cfg.get(\"public\", True) else [Depends(authed)]"
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|440-440": [
+  "    guard = [] if docs_cfg.get(\"public\", True) else [Depends(authed), Depends(rate_limit(authed))]"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/main.py|481-483": [
-  "    @app.get(\"/docs/oauth2-redirect\", include_in_schema=False)",
+ "docs/14-authorization.md|cmapi/src/cmapi/main.py|491-493": [
   "    def docs_redirect() -> Response:",
-  "        return get_swagger_ui_oauth2_redirect_html()"
+  "        return get_swagger_ui_oauth2_redirect_html()",
+  ""
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|117-117": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|194-194": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|196-196": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|234-234": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|236-236": [
   "        c.cfg.roles.require(who, \"objects:read\", st.policy.environment)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/quotas/__init__.py|49-49": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|46-58": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|48-60": [
   "def require(permission: str, env_from: Callable[..., str | None] | None = None) -> Callable[..., Identity]:",
   "    \"\"\"A dependency that checks one permission (the route's x-cmapi-permission).\"\"\"",
   "",
@@ -605,7 +607,7 @@
   "",
   "    return dep"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|51-55": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/__init__.py|53-57": [
   "        try:",
   "            c.cfg.roles.require(who, permission)",
   "        except Problem:",
@@ -890,7 +892,7 @@
  "docs/15-keycloak-integration.md|cmapi/src/cmapi/core/identity/claims.py|66-66": [
   "            groups=frozenset(claims.get(\"groups\", [])),"
  ],
- "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|198-199": [
+ "docs/15-keycloak-integration.md|cmapi/src/cmapi/main.py|199-200": [
   "                  swagger_ui_init_oauth={\"clientId\": \"cmapi-docs\", \"usePkceWithAuthorizationCodeGrant\": True,",
   "                                         \"scopes\": \"openid\"})"
  ],
@@ -1099,11 +1101,9 @@
   "                \"familyName\": self.family_name, \"employeeId\": self.employee_id,",
   "                \"kind\": self.kind, \"clientId\": self.client_id}"
  ],
- "docs/16-data-model.md|cmapi/src/cmapi/core/ratelimit.py|1-4": [
-  "\"\"\"Rate limits (docs/01, Operational safety): token buckets per caller and per team, separate",
-  "buckets for the expensive calls (:place, :suggest, :export), and a cap on a team's active",
-  "placements. 429 rate-limited with Retry-After. In-process per replica; the limits are set per",
-  "replica count so the instance-wide rate stays near the configured one.\"\"\""
+ "docs/16-data-model.md|cmapi/src/cmapi/core/ratelimit.py|3-4": [
+  "In the memory of each replica, not shared: each API pod enforces the limits on the calls that reach it, so with N pods",
+  "behind the front door a caller can reach up to N times a limit (docs/18, \"Rate limits\"; #689)."
  ],
  "docs/16-data-model.md|cmapi/src/cmapi/jobs/channel_notify.py|30-30": [
   "        s.add(ApprovalNotificationRow(request_id=row.request_id, channel=ch.name, kind=kind,"

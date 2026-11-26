@@ -1,0 +1,2 @@
+FAILED tests/service/test_doc_citations.py::test_each_citation_of_the_documents_is_the_text_that_was_recorded_for_it
+1 failed, 846 passed in 864.72s (0:14:24)

@@ -1,0 +1,48 @@
+E       AssertionError: {"items":[{"clusterId":"CRC","environment":"dev","gitopsPath":"clusters/CRC","writes":true,"status":"connected","findings":[],"findingDetails":[],"secretName":"cmapi-cluster-cr
+E       assert 200 == 429
+E       AssertionError: {"username":"ola","kind":"user","client":"cmapi-portal","roles":["cmapi-requester"],"groups":["/cmapi/app-cmapi-rbac-requester"],"identity":{"sub":"sub-ola","username":"ola","e
+E       assert 200 == 429
+E       KeyError: 'read'
+E       AssertionError: {"changes":{"clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-cpu.yaml":"added","clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-memory.y
+E       assert 200 == 429
+E       AssertionError: {"clusterId":"CRC","requestId":"req-20261125-0002","instance":"nonprod","namespace":"payments-two-dev","env":"dev","plugin":"namespaces","action":"create","reason":null,"justif
+E       assert 202 == 429
+        # Under the limit this body is 422 validation-failed (60,000 unknown members, the body of #683's measure).
+E       AssertionError: {"type":"https://cmapi.ephico2real.com/problems/validation-failed","title":"validation failed","status":422,"detail":"The request is not valid: body.x0: Extra inputs are not pe
+E       assert 422 == 429
+E       AssertionError: {"items":[{"clusterId":"CRC","environment":"dev","gitopsPath":"clusters/CRC","writes":true,"status":"connected","findings":[],"findingDetails":[],"secretName":"cmapi-cluster-cr
+E       assert 200 == 429
+E           AssertionError: assert 200 == 429
+E       assert 0 > 30
+E       KeyError: 'Retry-After'
+E       AssertionError: ["instance.yaml: http has unknown fields ['rateLimits']"]
+E       assert False
+E       AssertionError: ["instance.yaml: http has unknown fields ['rateLimits']"]
+E       assert False
+E       AssertionError: ["instance.yaml: http has unknown fields ['rateLimits']"]
+E       assert False
+E       AssertionError: ["instance.yaml: http has unknown fields ['rateLimits']"]
+E       assert False
+E       AssertionError: ["instance.yaml: http has unknown fields ['rateLimits']"]
+E       assert False
+E       AssertionError: ["instance.yaml: http has unknown fields ['rateLimits']"]
+E       assert False
+E       ImportError: cannot import name 'parse_rate_limits' from 'cmapi.core.ratelimit' (/Users/olasumbo/gitRepos/workbench/cmapi/wt-689/cmapi/src/cmapi/core/ratelimit.py)
+FAILED tests/service/test_before_689_standins.py::test_a_burst_over_the_limit_is_429_with_retry_after_and_another_caller_is_not_affected[limited0]
+FAILED tests/service/test_before_689_standins.py::test_the_bucket_refills_with_time_and_a_refused_call_takes_nothing[limited0]
+FAILED tests/service/test_before_689_standins.py::test_the_defaults_apply_when_instance_yaml_sets_none
+FAILED tests/service/test_before_689_standins.py::test_writes_suggest_and_export_have_buckets_of_their_own[limited0]
+FAILED tests/service/test_before_689_standins.py::test_a_team_bucket_counts_the_requests_opened_for_the_team_whoever_sends_them[limited0]
+FAILED tests/service/test_before_689_standins.py::test_a_caller_over_the_limit_is_refused_before_the_body_is_validated[limited0]
+FAILED tests/service/test_before_689_standins.py::test_calls_with_no_token_are_not_limited_and_take_no_token[limited0]
+FAILED tests/service/test_before_689_standins.py::test_each_refusal_is_counted_and_logged_once_for_each_run[limited0]
+FAILED tests/service/test_before_689_standins.py::test_429_is_declared_on_exactly_the_limited_operations
+FAILED tests/service/test_before_689_standins.py::test_a_503_with_retry_after_sends_the_header_too
+FAILED tests/service/test_before_689_standins.py::test_a_rate_limit_that_is_not_valid_stops_the_start[limits0-http.rateLimits has unknown classes ['writes']]
+FAILED tests/service/test_before_689_standins.py::test_a_rate_limit_that_is_not_valid_stops_the_start[limits1-http.rateLimits.write.burst is a whole number of calls, 1 to 9007199254740991, not 0]
+FAILED tests/service/test_before_689_standins.py::test_a_rate_limit_that_is_not_valid_stops_the_start[limits2-http.rateLimits.write.perMinute is a number of calls a minute]
+FAILED tests/service/test_before_689_standins.py::test_a_rate_limit_that_is_not_valid_stops_the_start[limits3-not True]
+FAILED tests/service/test_before_689_standins.py::test_a_rate_limit_that_is_not_valid_stops_the_start[limits4-http.rateLimits.read must be a mapping]
+FAILED tests/service/test_before_689_standins.py::test_a_rate_limit_that_is_not_valid_stops_the_start[limits5-http.rateLimits.read has unknown fields ['rate']]
+FAILED tests/service/test_before_689_standins.py::test_the_chart_writes_the_rate_limits_and_its_schema_refuses_bad_ones
+17 failed, 2 passed in 17.42s

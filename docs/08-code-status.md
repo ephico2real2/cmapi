@@ -33,7 +33,7 @@ This page summarises what the code tree holds today.
 | `core/naming.py` | Namespace names: DNS-1123, reserved, never an unmanaged namespace |
 | `core/render/manifests.py` | The plain-manifest renderer, plan hash, file diff |
 | `core/listquery.py` | Paging, search, cursor (now bound to the caller's scope through `context`), facets, CSV |
-| `core/ratelimit.py` | Token buckets; **no route uses it yet** |
+| `core/ratelimit.py` | Token buckets per caller (read, write, place, suggest, export) and per team, from instance.yaml `http.rateLimits`; every route that takes a token answers 429 `rate-limited` with `Retry-After` (#689) |
 | `core/config.py` | Instance config loading and cross-file checks (no hot reload) |
 | `core/errors.py`, `core/ports.py` | RFC 9457 problems; the Protocols of every extension point |
 | `plugins/expiration/rules.py` | Expiration limits, grace and notices |
@@ -150,7 +150,8 @@ against the symlinked reference modules; section 2 is what replaces each stand-i
 
 **Service:** config hot reload; `core/kpi.py` beyond the system figures and the seven database KPIs of `database_kpis` (`cmapi/src/cmapi/core/kpi.py:188-228`, `lead-time-auto-p90` to `change-failure-rate`); the metadata
 plugin; `/admin/reload`, `/tiers/{tier}`, the webhooks; OpenTelemetry (none in the code);
-rate limits on routes (`core/ratelimit.py` holds the limiter, and no route calls it).
+`POST /api/v1/capacity:place` with its rate limit and its cap of 3 active placements per team and environment
+(`core/ratelimit.py` holds both; #689 limits every other route).
 
 **Adapters:** OpenShift reader beyond the kinds the namespaces plugin needs; policy report reader; LDAP
 directory provider; Argo CD mode proven against a real Argo CD (none has run).

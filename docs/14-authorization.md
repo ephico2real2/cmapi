@@ -81,7 +81,7 @@ Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin ca
 
 ### Which route needs which permission
 
-Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:327-332`). A `HEAD` is answered by the route of its `GET`, so it needs the same permission and gets the same 401 or 403 (#605).
+Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:330-335`). A `HEAD` is answered by the route of its `GET`, so it needs the same permission and gets the same 401 or 403 (#605).
 
 | Permission | Routes |
 |---|---|
@@ -128,7 +128,7 @@ request with a bearer token
 
 ### Step 1: the token
 
-The core routers and the plugin routers have the token check as a dependency (`cmapi/src/cmapi/main.py:203-205`). These routes answer without a token. `/healthz`, `/readyz` and `/api/v1/version` come from the health routers, which have no such dependency (`cmapi/src/cmapi/main.py:200-201`). `/problems` and `/problems/{code}` are always public (`cmapi/src/cmapi/main.py:406-420`). `/docs/oauth2-redirect` has no guard, and exists unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:481-483`). The seven other docs paths are public unless `docs.public` is `false` (`cmapi/src/cmapi/main.py:431`). They are `/docs`, `/redoc`, `/openapi.json`, `/openapi.yaml`, `/docs/changelog`, `/docs/redoc-start.js` and `/docs/swagger.css`. They exist unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:379-380`). `cmapi/tests/service/test_review_c_authz.py:15-22` lists these routes as `PUBLIC`, with the `HEAD` of each (#605), and every other route must answer 401 with no token. `/metrics` is not an API route: it is served on its own port (`cmapi/src/cmapi/main.py:238-239`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:179-215`). It verifies the token offline against the signing keys of the realm.
+The core routers and the plugin routers have the token check as a dependency, and the rate limit after it (#689) (`cmapi/src/cmapi/main.py:204-208`). These routes answer without a token. `/healthz`, `/readyz` and `/api/v1/version` come from the health routers, which have no such dependency (`cmapi/src/cmapi/main.py:201-202`). `/problems` and `/problems/{code}` are always public (`cmapi/src/cmapi/main.py:414-428`). `/docs/oauth2-redirect` has no guard, and exists unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:491-493`). The seven other docs paths are public unless `docs.public` is `false`; then they need a token and take one from the caller's read bucket, as the API routes do (`cmapi/src/cmapi/main.py:440`). They are `/docs`, `/redoc`, `/openapi.json`, `/openapi.yaml`, `/docs/changelog`, `/docs/redoc-start.js` and `/docs/swagger.css`. They exist unless `docs.enabled` is `false` (`cmapi/src/cmapi/main.py:387-388`). `cmapi/tests/service/test_review_c_authz.py:15-22` lists these routes as `PUBLIC`, with the `HEAD` of each (#605), and every other route must answer 401 with no token. `/metrics` is not an API route: it is served on its own port (`cmapi/src/cmapi/main.py:241-242`). The check is `Authenticator.authenticate` (`cmapi/src/cmapi/core/auth.py:179-215`). It verifies the token offline against the signing keys of the realm.
 
 | Check | Source | Refusal |
 |---|---|---|
@@ -144,7 +144,7 @@ The core routers and the plugin routers have the token check as a dependency (`c
 | `iss` is the issuer of the instance | `auth.py:202-204` | 401 `unauthenticated`, "Token issuer is not trusted" |
 | The token is an access token: its JOSE header `typ` is `at+jwt` or `application/at+jwt` (RFC 9068, section 4), and its claim `typ` is `Bearer` or absent. With `auth.acceptLegacyTokenType: true` in `instance.yaml`, the header `JWT` with the claim `Bearer` passes also | `auth.py:209-214` | 401 `unauthenticated`, "Token is not an access token" |
 
-Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:240-241`, `main.py:277-279`). The tests are in `cmapi/tests/service/test_auth.py`.
+Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.py:240-241`, `main.py:285-287`). The tests are in `cmapi/tests/service/test_auth.py`.
 
 ### Step 2: the claims
 
@@ -161,13 +161,13 @@ Each 401 has the header `WWW-Authenticate: Bearer error="invalid_token"` (`auth.
 
 ### Step 3: the permission
 
-Each route calls `require("<permission>")` (`cmapi/src/cmapi/routers/__init__.py:46-58`, where `dep` is the check). It asks the role policy of the instance (`authz.py:178-186`).
+Each route calls `require("<permission>")` (`cmapi/src/cmapi/routers/__init__.py:48-60`, where `dep` is the check). It asks the role policy of the instance (`authz.py:178-186`).
 
 1. The policy collects the roles of the caller that it knows (`authz.py:141-142`). It ignores an unknown role.
 2. If one of them has the permission, the request continues.
 3. If none has it, the answer is 403 `forbidden`: "Missing permission namespaces:create: no role in your token grants it (roles: [...])".
 
-Each refusal adds 1 to the metric `cmapi_authz_denied_total` for that permission (`routers/__init__.py:51-55`).
+Each refusal adds 1 to the metric `cmapi_authz_denied_total` for that permission (`routers/__init__.py:53-57`).
 
 ### Step 4: the environment limit
 
@@ -176,7 +176,7 @@ A role can have a list of environments. The route checks the permission again wh
 | Route group | Where the environment comes from | Source |
 |---|---|---|
 | Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:263`, `:513` |
-| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:194`, `:234` |
+| Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:196`, `:236` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:103`, `:116`, `:130` |
 | Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:151`, `:182`, `:200`, `:225`, `:257` |
 | Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:135` |

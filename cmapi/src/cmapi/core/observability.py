@@ -37,6 +37,8 @@ PLAN_REFUSALS = Counter("cmapi_plan_refusals_total", "Plans that cmapi refused b
 REJECTIONS_UNRECORDED = Counter("cmapi_policy_rejections_unrecorded_total",
                                 "Refusals that could not be stored in policy_rejections; the refusal itself was answered", ["stage"])
 AUTHZ_DENIED = Counter("cmapi_authz_denied_total", "Permission refusals", ["permission"])
+# #689: each 429 rate-limited, by the bucket class that refused it (read, write, place, suggest, export or team); never the caller.
+RATE_LIMITED = Counter("cmapi_rate_limited_total", "Calls refused 429 by a rate limit", ["limit"])
 ENV_NOT_SERVED = Counter("cmapi_environment_not_served_total", "Requests for another instance's environment", ["environment"])
 PLUGIN_DISABLED = Counter("cmapi_plugin_disabled_total", "Writes refused because plugins.yaml disables the plugin in the environment",
                           ["plugin", "environment"])

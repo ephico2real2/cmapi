@@ -22,7 +22,7 @@ from cmapi.core.render.manifests import folder
 from cmapi.core.views import request_view
 from cmapi.plugins.namespaces.state import sync_view
 from cmapi.routers import (ClusterId, DryRun, NamespaceName, caller, ctx, delete_idempotency_key, idempotency_key, if_match,
-                           require)
+                           require, team_request)
 from pydantic import Field
 
 router = DocumentedRouter("namespaces", prefix="/api/v1/clusters/{cluster_id}", version=__version__,
@@ -100,7 +100,8 @@ def _replay(c: AppContext, who: Identity, key: str | None, body: dict[str, Any])
 
 def _submit(c: AppContext, who: Identity, plan: Any, key: str | None, body: dict[str, Any], justification: str | None) -> dict:
     try:
-        with c.db.session() as s:
+        # 429 rate-limited for the team before the request is recorded, and its token back if none is recorded (#689)
+        with team_request(c, who, plan.facts.get("team")), c.db.session() as s:
             repo, jobs = RequestRepo(s), JobRepo(s)
             row = c.pipeline.submit(who, plan, repo, jobs, idempotency_key=key, body_fingerprint=fingerprint(body),
                                     justification=justification)
@@ -110,8 +111,9 @@ def _submit(c: AppContext, who: Identity, plan: Any, key: str | None, body: dict
                                 {"requestId": row.request_id, "status": row.status})
             return request_view(repo, row)
     except Problem as exc:
-        # Lost a race to the same key: the winner's commit is visible now, and its request is this caller's answer.
-        replay = _replay(c, who, key, body) if exc.status == 409 else None
+        # Lost a race to the same key: the winner's commit is visible now, and its request is this caller's answer. So
+        # for the team's 429: a retry that missed the winner at its first lookup gets the winner, not a wait (#695 review).
+        replay = _replay(c, who, key, body) if exc.status in (409, 429) else None
         if replay:
             return replay
         raise

@@ -38,6 +38,7 @@ from cmapi.core.git.base import HostGitProvider                     # noqa: E402
 from cmapi.core.ports import Finding, PrRef, PrStatus               # noqa: E402
 from cmapi.core.registry import ImportSource                        # noqa: E402
 from cmapi.main import create_app                                   # noqa: E402
+from cmapi.core.ratelimit import DEFAULTS as RATE_LIMIT_CLASSES, Limit, RateLimiter   # noqa: E402
 from cmapi.settings import Settings                                 # noqa: E402
 
 DB_URL = os.environ.get("CMAPI_TEST_DATABASE_URL", "postgresql://cmapi:cmapi@127.0.0.1:55432/cmapi")
@@ -463,8 +464,14 @@ def fresh_db(database: Database) -> Database:
     return database
 
 
+# The rate limits of the suite's worlds (#689): high enough that no test meets them. One test sends hundreds of calls a second
+# as one person, which no client does; the instance's own limits are tested in test_rate_limits_689.py, which passes
+# instance_rate_limits=True.
+UNLIMITED = {kind: Limit(1e9, 10**9) for kind in RATE_LIMIT_CLASSES}
+
+
 @contextmanager
-def build_world(config_dir: Path, keys: Keys, monkeypatch):
+def build_world(config_dir: Path, keys: Keys, monkeypatch, *, instance_rate_limits: bool = False):
     """The app on one configuration folder, with fakes wired in: yields (client, ctx, git, kube, validator, keys)."""
     git, kube, validator = FakeGit(), FakeKube(), FakeValidator()
     monkeypatch.setenv("CMAPI_DATABASE_URL", DB_URL)
@@ -483,6 +490,8 @@ def build_world(config_dir: Path, keys: Keys, monkeypatch):
     ctx.registry.clusters["CRC"].nodes.wait_ready(5)      # #302: the node watch's first list, so no test races it
     ctx.deliverer_factory = lambda cid: kube
     ctx.auth = Authenticator(ISSUER, AUDIENCE, Jwks(ISSUER, "https://keycloak.test/certs", fetch=lambda url: [keys.jwk]))
+    if not instance_rate_limits:
+        ctx.limiter = RateLimiter(limits=dict(UNLIMITED))
     app = create_app(s, ctx)
     try:
         with TestClient(app) as client:

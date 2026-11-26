@@ -27,7 +27,7 @@ importlib.import_module(sys.argv[2])
 """
 
 
-@pytest.mark.parametrize("module", ["cmapi.core.config", "cmapi.core.http_settings", "cmapi.core.docs"])
+@pytest.mark.parametrize("module", ["cmapi.core.config", "cmapi.core.http_settings", "cmapi.core.ratelimit", "cmapi.core.docs"])
 def test_imports_without_service_packages(module: str) -> None:
     r = subprocess.run([sys.executable, "-c", CHILD, str(SRC), module], capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr

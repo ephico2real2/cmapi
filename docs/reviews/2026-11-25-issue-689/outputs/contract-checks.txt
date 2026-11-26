@@ -1,0 +1,18 @@
+## lint-test.py
+ok   refused, as it must: a cmapi.net/ key is a property of a schema in an example that is not of a metadata map (cmapi-net-keys-only-in-labels)
+ok   refused, as it must: a cmapi.net/ key is under a properties object of a body's labels map, not of the schema of one (cmapi-net-keys-only-in-labels)
+lint-test: 37 cases, 0 failed
+## lint.sh
+No results with a severity of 'warn' or higher found!
+## gate-test.sh
+gate-test: refused, as it must: a request body gains a required field
+gate-test: passed, as it must: a new endpoint and a new optional response field
+gate-test: the changelog of two released documents has the removed and the added endpoint
+## changelog --check
+rc=0
+## api-examples-doc --check
+## gate vs main
+No breaking changes to report, but the specs are different.
+Run 'oasdiff diff' to see structural differences.
+## oasdiff changelog vs main (count by id)
+78 Counter({('response-header-added', 1): 39, ('response-non-success-status-added', 1): 39})

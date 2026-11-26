@@ -7635,6 +7635,38 @@
             },
             "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -7655,7 +7687,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -7669,6 +7711,7 @@
         ],
         "x-cmapi-permission": "requests:read",
         "x-cmapi-plugin": "admin",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -7819,6 +7862,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -7839,7 +7914,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -7853,6 +7938,7 @@
         ],
         "x-cmapi-permission": "approvals:pause",
         "x-cmapi-plugin": "admin",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -8003,6 +8089,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -8023,7 +8141,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8037,6 +8165,7 @@
         ],
         "x-cmapi-permission": "approvals:pause",
         "x-cmapi-plugin": "admin",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -8110,6 +8239,38 @@
             },
             "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "502": {
             "content": {
               "application/problem+json": {
@@ -8151,7 +8312,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8165,6 +8336,7 @@
         ],
         "x-cmapi-permission": "reports:read",
         "x-cmapi-plugin": "admin",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -8260,6 +8432,38 @@
             },
             "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -8280,7 +8484,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8294,6 +8508,7 @@
         ],
         "x-cmapi-permission": "clusters:read",
         "x-cmapi-plugin": "admin",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -8460,6 +8675,38 @@
             },
             "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -8480,7 +8727,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8494,6 +8751,7 @@
         ],
         "x-cmapi-permission": "reports:read",
         "x-cmapi-plugin": "admin",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -8637,6 +8895,38 @@
             },
             "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -8657,7 +8947,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8671,6 +8971,7 @@
         ],
         "x-cmapi-permission": "clusters:read",
         "x-cmapi-plugin": "admin",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -8997,6 +9298,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -9017,7 +9350,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9031,6 +9374,7 @@
         ],
         "x-cmapi-permission": "operations:run",
         "x-cmapi-plugin": "admin",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -9430,6 +9774,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`, `environment-not-served`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -9450,7 +9826,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9464,6 +9850,7 @@
         ],
         "x-cmapi-permission": "capacity:read",
         "x-cmapi-plugin": "capacity",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -9558,6 +9945,38 @@
             },
             "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -9578,7 +9997,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9592,6 +10021,7 @@
         ],
         "x-cmapi-permission": "clusters:read",
         "x-cmapi-plugin": "core",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -9843,6 +10273,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -9873,7 +10335,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9887,6 +10359,7 @@
         ],
         "x-cmapi-permission": "objects:read",
         "x-cmapi-plugin": "namespaces",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -10561,6 +11034,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `unknown-user`, `on-behalf-of-not-allowed`, `policy-violation`, `capacity-exceeded`, `unknown-serviceaccount`, `reserved-namespace`, `invalid-namespace-name`, `expiration-not-allowed`, `expiration-in-past`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "502": {
             "content": {
               "application/problem+json": {
@@ -10622,7 +11127,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -10636,6 +11151,7 @@
         ],
         "x-cmapi-permission": "namespaces:create",
         "x-cmapi-plugin": "namespaces",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -11179,6 +11695,38 @@
             },
             "description": "A change needs If-Match with the ETag of the object as it was read; `*` is not one.\n\nCodes: `precondition-required`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "502": {
             "content": {
               "application/problem+json": {
@@ -11230,7 +11778,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -11244,6 +11802,7 @@
         ],
         "x-cmapi-permission": "namespaces:write",
         "x-cmapi-plugin": "namespaces",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -11559,6 +12118,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "502": {
             "content": {
               "application/problem+json": {
@@ -11600,7 +12191,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -11614,6 +12215,7 @@
         ],
         "x-cmapi-permission": "objects:read",
         "x-cmapi-plugin": "namespaces",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -12301,6 +12903,38 @@
             },
             "description": "A change needs If-Match with the ETag of the object as it was read; `*` is not one.\n\nCodes: `precondition-required`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "502": {
             "content": {
               "application/problem+json": {
@@ -12362,7 +12996,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -12376,6 +13020,7 @@
         ],
         "x-cmapi-permission": "namespaces:write",
         "x-cmapi-plugin": "namespaces",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -12979,6 +13624,38 @@
             },
             "description": "A change needs If-Match with the ETag of the object as it was read; `*` is not one.\n\nCodes: `precondition-required`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "502": {
             "content": {
               "application/problem+json": {
@@ -13040,7 +13717,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -13054,6 +13741,7 @@
         ],
         "x-cmapi-permission": "namespaces:write",
         "x-cmapi-plugin": "namespaces",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -13662,6 +14350,38 @@
             },
             "description": "A change needs If-Match with the ETag of the object as it was read; `*` is not one.\n\nCodes: `precondition-required`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "502": {
             "content": {
               "application/problem+json": {
@@ -13723,7 +14443,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -13737,6 +14467,7 @@
         ],
         "x-cmapi-permission": "namespaces:write",
         "x-cmapi-plugin": "namespaces",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -14340,6 +15071,38 @@
             },
             "description": "A change needs If-Match with the ETag of the object as it was read; `*` is not one.\n\nCodes: `precondition-required`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "502": {
             "content": {
               "application/problem+json": {
@@ -14401,7 +15164,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `cluster-unreachable`, `validator-unavailable`, `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -14415,6 +15188,7 @@
         ],
         "x-cmapi-permission": "namespaces:write",
         "x-cmapi-plugin": "namespaces",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -14584,6 +15358,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -14604,7 +15410,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -14618,6 +15434,7 @@
         ],
         "x-cmapi-permission": "operations:run",
         "x-cmapi-plugin": "core",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -14733,6 +15550,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -14753,7 +15602,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -14767,6 +15626,7 @@
         ],
         "x-cmapi-permission": "objects:read",
         "x-cmapi-plugin": "directory",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -14898,6 +15758,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -14918,7 +15810,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -14932,6 +15834,7 @@
         ],
         "x-cmapi-permission": "objects:read",
         "x-cmapi-plugin": "directory",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -15305,6 +16208,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -15325,7 +16260,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -15339,6 +16284,7 @@
         ],
         "x-cmapi-permission": "objects:read",
         "x-cmapi-plugin": "expiration",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -15442,6 +16388,38 @@
             },
             "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -15462,7 +16440,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -15475,6 +16463,7 @@
           "core"
         ],
         "x-cmapi-plugin": "core",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -15866,6 +16855,38 @@
             },
             "description": "No strong tag that If-Match lists is the object's ETag: it changed since it was read, or the value named none.\n\nCodes: `precondition-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -15886,7 +16907,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -15900,6 +16931,7 @@
         ],
         "x-cmapi-permission": "objects:read",
         "x-cmapi-plugin": "core",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -16287,6 +17319,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -16307,7 +17371,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -16321,6 +17395,7 @@
         ],
         "x-cmapi-permission": "requests:read",
         "x-cmapi-plugin": "policies",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -17328,6 +18403,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -17348,7 +18455,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -17362,6 +18479,7 @@
         ],
         "x-cmapi-permission": "objects:read",
         "x-cmapi-plugin": "policies",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -17728,6 +18846,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -17748,7 +18898,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -17762,6 +18922,7 @@
         ],
         "x-cmapi-permission": "objects:read",
         "x-cmapi-plugin": "quotas",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -18009,6 +19170,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -18029,7 +19222,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -18044,6 +19247,7 @@
         "x-cmapi-media-type": "text/csv",
         "x-cmapi-permission": "objects:read",
         "x-cmapi-plugin": "quotas",
+        "x-cmapi-rate-limit": "export",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -18158,6 +19362,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -18178,7 +19414,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -18192,6 +19438,7 @@
         ],
         "x-cmapi-permission": "objects:read",
         "x-cmapi-plugin": "quotas",
+        "x-cmapi-rate-limit": "suggest",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -18563,6 +19810,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -18583,7 +19862,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -18597,6 +19886,7 @@
         ],
         "x-cmapi-permission": "requests:read",
         "x-cmapi-plugin": "requests",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -18862,6 +20152,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -18882,7 +20204,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -18896,6 +20228,7 @@
         ],
         "x-cmapi-permission": "requests:read",
         "x-cmapi-plugin": "requests",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -19036,6 +20369,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -19056,7 +20421,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -19070,6 +20445,7 @@
         ],
         "x-cmapi-permission": "requests:read",
         "x-cmapi-plugin": "requests",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -19273,6 +20649,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -19293,7 +20701,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -19307,6 +20725,7 @@
         ],
         "x-cmapi-permission": "requests:read",
         "x-cmapi-plugin": "requests",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -19649,6 +21068,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -19669,7 +21120,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -19683,6 +21144,7 @@
         ],
         "x-cmapi-permission": "requests:approve",
         "x-cmapi-plugin": "requests",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -19945,6 +21407,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -19965,7 +21459,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -19979,6 +21483,7 @@
         ],
         "x-cmapi-permission": "requests:cancel",
         "x-cmapi-plugin": "requests",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -20276,6 +21781,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -20296,7 +21833,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -20310,6 +21857,7 @@
         ],
         "x-cmapi-permission": "requests:reject",
         "x-cmapi-plugin": "requests",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -20626,6 +22174,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -20646,7 +22226,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -20660,6 +22250,7 @@
         ],
         "x-cmapi-permission": "requests:retry",
         "x-cmapi-plugin": "requests",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -20961,6 +22552,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -20981,7 +22604,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -20995,6 +22628,7 @@
         ],
         "x-cmapi-permission": "requests:retry",
         "x-cmapi-plugin": "requests",
+        "x-cmapi-rate-limit": "write",
         "x-codeSamples": [
           {
             "label": "curl",
@@ -21300,6 +22934,38 @@
             },
             "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `environment-not-served`, `validation-failed`."
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -21320,7 +22986,17 @@
                 }
               }
             },
-            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`."
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -21334,6 +23010,7 @@
         ],
         "x-cmapi-permission": "objects:read",
         "x-cmapi-plugin": "tiers",
+        "x-cmapi-rate-limit": "read",
         "x-codeSamples": [
           {
             "label": "curl",

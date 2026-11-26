@@ -2,6 +2,9 @@
 
     http:
       maxRequestBodyBytes: 1048576
+      rateLimits: {write: {perMinute: 60, burst: 30}}
+
+`rateLimits` is read by core/ratelimit.py, parse_rate_limits (#689).
 
 The middleware that enforces the limit is core/bodylimit.py. This module holds what the config and the API document read,
 with the standard library and core/errors.py only: core/config.py and core/docs.py are loaded by the tools and the reference
@@ -33,7 +36,7 @@ def parse_http(raw: Any) -> tuple[int, list[str]]:
     if not isinstance(raw, Mapping):
         return DEFAULT_MAX_REQUEST_BODY_BYTES, ["instance.yaml: http must be a mapping, such as {maxRequestBodyBytes: 1048576}"]
     problems = []
-    unknown = set(raw) - {"maxRequestBodyBytes"}
+    unknown = set(raw) - {"maxRequestBodyBytes", "rateLimits"}
     if unknown:
         problems.append(f"instance.yaml: http has unknown fields {sorted(unknown)}")
     value = raw.get("maxRequestBodyBytes", DEFAULT_MAX_REQUEST_BODY_BYTES)
