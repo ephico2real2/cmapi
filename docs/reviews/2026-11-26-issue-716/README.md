@@ -1,6 +1,6 @@
 # #716: a revert gets the same capacity check and approval facts
 
-PR #717 follows. Found as Codex's H1 in the review of PR #714 (#710). Reviewer 2 (Opus 5.5 high) measured it on PostgreSQL 16.15 and wrote the fix and its tests. The coordinator applied it on main `0c9c4d7`, with one adjustment: `restore_facts` sizes through `binding_hard`, as #715 now requires.
+PR #718. Found as Codex's H1 in the review of PR #714 (#710). Reviewer 2 (Opus 5.5 high) measured it on PostgreSQL 16.15 and wrote the fix and its tests. The coordinator applied it on main `0c9c4d7`, with one adjustment: `restore_facts` sizes through `binding_hard`, as #715 now requires.
 
 **Design.** docs/01:260: "the revert is a new request through the same approval rules". The capacity is "Released, so the revert request can take it".
 
