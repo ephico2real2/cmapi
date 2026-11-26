@@ -138,10 +138,12 @@ class SimulatedCapacity:
         self.registry, self.settings, self.db = registry, settings, db
 
     def check(self, cluster_id: str, environment: str, cpu_delta: float, memory_delta: float, *,
-              session: Session | None = None, exclude: str | None = None) -> CapacityResult:
+              session: Session | None = None, exclude: str | None = None,
+              exclude_placement: str | None = None) -> CapacityResult:
         """Whether `cpu_delta` cores and `memory_delta` bytes more fit the cluster, after its committed quota and the active
-        holds of open requests. `session`: read the holds in the caller's transaction (submit, a job that holds a row
-        lock), never a second pooled session there (#695, #696). `exclude`: leave out this request's own hold."""
+        holds of open requests and placements. `session`: read the holds in the caller's transaction (submit, a job that holds
+        a row lock), never a second pooled session there (#695, #696). `exclude`: leave out this request's own hold;
+        `exclude_placement`: the placement that a create claims, whose amount is the delta (#21)."""
         st = self.registry.get(cluster_id)
         size = st.policy.simulated_capacity if st.policy else None
         if not size:
@@ -152,10 +154,10 @@ class SimulatedCapacity:
                                                            "clusterId": cluster_id})
         # The holds first, then the totals and the held namespaces in one ledger snapshot: a quota that lands meanwhile is
         # then either committed or held, never neither (#725 review).
-        rows = self._holds(cluster_id, session, exclude)
+        rows = self._holds(cluster_id, session, exclude, exclude_placement)
         totals, live = read.ledger.snapshot({r.namespace for r in rows if r.namespace})
         reserved = held(rows, live)
-        env = self.settings.env(environment)
+        env = self.settings.for_cluster(environment, st.policy.placement if st.policy else None)
         deltas = {"cpu": Decimal(str(cpu_delta)), "memory": Decimal(str(memory_delta))}
         ratios = {r: (totals.committed[r] + reserved[r] + deltas[r]) / limit_of(qty(size[r]), env.overcommit[r])
                   for r in deltas}
@@ -166,42 +168,58 @@ class SimulatedCapacity:
                               {"reserved": {"cpu": float(reserved["cpu"]), "memory": int(reserved["memory"])},
                                "source": "simulated", "clusterId": cluster_id})
 
-    def _holds(self, cluster_id: str, session: Session | None, exclude: str | None) -> list[CapacityReservationRow]:
+    def _holds(self, cluster_id: str, session: Session | None, exclude: str | None,
+               exclude_placement: str | None = None) -> list[CapacityReservationRow]:
         if session is not None:
-            return ReservationRepo(session).active(cluster_id, exclude=exclude)
+            return ReservationRepo(session).active(cluster_id, exclude=exclude, exclude_placement=exclude_placement)
         if self.db is None:
             return []
         with self.db.session() as s:
-            rows = ReservationRepo(s).active(cluster_id, exclude=exclude)
+            rows = ReservationRepo(s).active(cluster_id, exclude=exclude, exclude_placement=exclude_placement)
             s.expunge_all()                                        # read after the session closes
             return rows
 
-    def place(self, environment: str, team: str, tier: str, constraints: Mapping[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError("placement arrives with cmapi-capacity (phase 3)")
+    def placement(self, placement_id: str) -> CapacityReservationRow | None:
+        """A placement's hold while it is active and unclaimed (#21): what a create with `placementId` turns into its own."""
+        if self.db is None:
+            return None
+        with self.db.session() as s:
+            row = ReservationRepo(s).placement(placement_id)
+            s.expunge_all()
+            return row
 
-    def reserve_check(self, session: Session, cluster_id: str, environment: str, hold: CapacityHold) -> CapacityResult:
+    def reserve_check(self, session: Session, cluster_id: str, environment: str, hold: CapacityHold, *,
+                      placement_id: str | None = None) -> CapacityResult:
         """The check of a hold against the cluster as it is now, under the cluster's lock in the caller's transaction, which
         then takes the hold (`reserve`) before it commits: so a concurrent submit waits, and then counts it (docs/02,
         Placement, "Reservations"). Raises 422 capacity-exceeded when it no longer fits. Returns the check, which the plan
         takes as its own: other holds may have been taken since the plan."""
         ReservationRepo(session).lock_cluster(cluster_id)
-        cap = self.check(cluster_id, environment, float(hold.cpu), float(hold.memory), session=session)
+        # A create that claims a placement is checked without the placement's hold: the hold becomes this request's own.
+        cap = self.check(cluster_id, environment, float(hold.cpu), float(hold.memory), session=session,
+                         exclude_placement=placement_id)
         if cap.status == "exceeded":
             raise capacity_exceeded(cap)
         return cap
 
-    def reserve(self, session: Session, request_id: str, cluster_id: str, hold: CapacityHold, term: timedelta) -> None:
+    def reserve(self, session: Session, request_id: str, cluster_id: str, hold: CapacityHold, term: timedelta, *,
+                placement_id: str | None = None) -> None:
         """Take the hold of a recorded request, after `reserve_check` in the same transaction. The hold's amounts are rounded up
-        to the columns' scale (millicores, bytes), never down; its targets down, so that the live quota reaches them."""
+        to the columns' scale (millicores, bytes), never down; its targets down, so that the live quota reaches them. With
+        `placement_id`, the placement's hold becomes the request's (#21), or, when it lapsed since the plan, a new one is taken:
+        `reserve_check` already found room for it without the placement."""
         repo = ReservationRepo(session)
         repo.reclaim(cluster_id)
         now = utcnow()
-        repo.hold(CapacityReservationRow(
+        row = CapacityReservationRow(
             request_id=request_id, cluster_id=cluster_id, namespace=hold.namespace, cpu=_ceil(hold.cpu, 3),
             memory=int(_ceil(hold.memory, 0)), pods=hold.pods,
             target_cpu=None if hold.target_cpu is None else _floor(hold.target_cpu, 3),
             target_memory=None if hold.target_memory is None else int(_floor(hold.target_memory, 0)),
-            created_at=now, expires_at=now + term))
+            created_at=now, expires_at=now + term)
+        if placement_id is not None and repo.claim(placement_id, row):
+            return
+        repo.hold(row)
 
     def confirm(self, session: Session, request_id: str, cluster_id: str, environment: str) -> CapacityResult | None:
         """The check again for a request that enters approved ("The count is met (auto or :approve) and capacity still

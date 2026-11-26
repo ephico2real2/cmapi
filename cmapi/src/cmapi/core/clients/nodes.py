@@ -61,6 +61,14 @@ def reduce_node(obj: Mapping[str, Any]) -> NodeView:
     return NodeView(cpu, memory, str(zone) if zone else None, ready, bool(spec.get("unschedulable")), taints)
 
 
+def counts(v: NodeView, count_taints: Iterable[str]) -> bool:
+    """Whether a node's allocatable is capacity: Ready, not cordoned, no excluding taint outside countTaints, and an
+    allocatable the kubelet has reported (a node without one has not finished registering). The Capacity tab's node watch
+    and the snapshot job (capacity/snapshots.py, #21) count by this one rule."""
+    return (v.ready and not v.unschedulable and v.cpu is not None and v.memory is not None
+            and all(t in count_taints for t in v.taints))
+
+
 @dataclass
 class _Totals:
     total: int = 0
@@ -108,10 +116,7 @@ class NodeCache:
 
     # ---- the rule, and the totals as each node enters or leaves
     def counts(self, v: NodeView) -> bool:
-        """Whether a node's allocatable is capacity: Ready, not cordoned, no excluding taint outside countTaints, and an
-        allocatable the kubelet has reported (a node without one has not finished registering)."""
-        return (v.ready and not v.unschedulable and v.cpu is not None and v.memory is not None
-                and all(t in self.count_taints for t in v.taints))
+        return counts(v, self.count_taints)
 
     def _apply(self, v: NodeView, sign: int) -> None:
         t = self._t

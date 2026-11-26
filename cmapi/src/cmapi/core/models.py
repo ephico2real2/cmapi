@@ -355,7 +355,10 @@ class NamespaceCreate(RequestBody):
     labels: dict[str, str] = Field(default_factory=dict, description="Governed and team labels", examples=[{"cmapi.net/team": "payments"}])
     annotations: dict[str, str] = Field(default_factory=dict, description="Governed and team annotations", examples=[{"cmapi.net/team-dl": "payments-team@ephico2real.com"}])
     expires_at: date | None = Field(default=None, description="Optional expiry; never in prod", examples=["2026-12-15"])
-    placement_id: str | None = Field(default=None, description="Reservation from POST /capacity:place", examples=[None])
+    placement_id: str | None = Field(default=None, description="The `placementId` of POST /api/v1/capacity:place: its hold "
+                                                               "becomes this request's own. The placement must be active and "
+                                                               "made for the path's cluster, its environment and the "
+                                                               "`cmapi.net/team` label sent here", examples=[None])
     on_behalf_of: str | None = Field(default=None, description="Username or employee ID, for services and automation", examples=[None])
     justification: str | None = Field(default=None, description="Why the namespace is needed", examples=["Payments service dev namespace"])
 
@@ -919,12 +922,13 @@ class CapacityResource(Api):
     status: CapacityStatus | None = Field(description="Against the environment's targets: `over` above 1, `critical` or `warn` "
                                                       "at the targets, else `ok`. Null when the commitment is not known",
                                           examples=["ok"])
-    requested: int | None = Field(description="The requests of every pod, from the snapshots of cmapi-capacity (#21). Null: not "
-                                              "measured yet (`notMeasured`)", examples=[None])
-    used_avg: int | None = Field(description="The average use over a snapshot interval (#21). Null: not measured yet",
-                                 examples=[None])
-    used_peak: int | None = Field(description="The peak use over a snapshot interval (#21). Null: not measured yet",
-                                  examples=[None])
+    requested: int | None = Field(description="The requests of the cluster's live pods, from its newest complete snapshot (#21). "
+                                              "Null when no snapshot measured it: capacity.yaml `usage.source` none, or no "
+                                              "complete snapshot yet", examples=[None])
+    used_avg: int | None = Field(description="The pods' average use over the newest complete snapshot's interval (#21). Null "
+                                             "when not measured", examples=[None])
+    used_peak: int | None = Field(description="The pods' peak use over that interval, in 5-minute steps (#21). Null when not "
+                                              "measured", examples=[None])
 
 
 class CapacityNodes(Api):
@@ -934,6 +938,21 @@ class CapacityNodes(Api):
     cordoned: int = Field(description="Nodes with `spec.unschedulable`", examples=[0])
     tainted: int = Field(description="Nodes with a NoSchedule or NoExecute taint outside capacity.yaml `countTaints`",
                          examples=[0])
+
+
+SnapshotFreshness = Literal["ok", "stale", "incomplete", "none"]
+
+
+class CapacitySnapshotState(Api):
+    state: SnapshotFreshness = Field(description="`ok`: the newest complete snapshot is within capacity.yaml "
+                                                 "`staleAfterIntervals`; `incomplete`: the newest one is not complete (`detail`); "
+                                                 "`stale`: the newest complete one is older; `none`: no snapshot yet. Placement "
+                                                 "takes only `ok`", examples=["ok"])
+    taken_at: datetime | None = Field(description="The end of the newest complete snapshot's interval", examples=["2026-11-26T17:00:00Z"])
+    source: Literal["thanos", "api"] | None = Field(description="What measured it: `thanos` (capacity.yaml `usage.source: "
+                                                                "thanos`), or `api`, the nodes and quotas alone", examples=["api"])
+    detail: str | None = Field(description="Why the newest snapshot is incomplete, or how old the newest complete one is",
+                               examples=[None])
 
 
 class CapacityCluster(Api):
@@ -975,8 +994,9 @@ class CapacityCluster(Api):
                                                                           "they agree to 3 places", examples=["cpu"])
     cpu: CapacityResource = Field(description="CPU, in millicores")
     memory: CapacityResource = Field(description="Memory, in bytes")
-    history: list[dict[str, Any]] | None = Field(description="The cluster's figures over time, from the snapshots of "
-                                                             "cmapi-capacity (#21). Null: not measured yet", examples=[None])
+    history: list[dict[str, Any]] | None = Field(description="Always null here: a cluster's snapshots are "
+                                                             "`GET /api/v1/clusters/{clusterId}/capacity`", examples=[None])
+    snapshot: CapacitySnapshotState = Field(description="The cluster's stored capacity snapshots (#21), which placement reads")
 
 
 class CapacityPlacement(Api):
@@ -1053,10 +1073,15 @@ class CapacityTarget(Api):
 class CapacityPage(Api):
     source: Literal["live"] = Field(description="Where the figures come from: `live`, each cluster's watch of its quotas and "
                                                 "nodes. No request calls a cluster", examples=["live"])
-    snapshot_state: Literal["not-built"] = Field(description="The snapshots of cmapi-capacity (#21): `not-built` until it "
-                                                             "serves them", examples=["not-built"])
-    not_measured: list[str] = Field(description="The fields that are null for every cluster because only the snapshots can give "
-                                                "them", examples=[["requested", "usedAvg", "usedPeak", "history"]])
+    snapshot_state: Literal["stored"] = Field(description="The capacity snapshots (#21): `stored` every `snapshotIntervalSeconds` "
+                                                          "by the worker; each cluster's own state is its `snapshot`",
+                                              examples=["stored"])
+    snapshot_interval_seconds: int = Field(description="capacity.yaml `snapshotInterval`, in seconds", examples=[1800])
+    stale_after_seconds: int = Field(description="How old a cluster's newest complete snapshot may be before placement excludes "
+                                                 "it: `snapshotInterval` × `staleAfterIntervals`", examples=[3600])
+    not_measured: list[str] = Field(description="The fields that are null for every cluster: `history`, and with capacity.yaml "
+                                                "`usage.source` none `requested`, `usedAvg` and `usedPeak`, which only Thanos "
+                                                "measures", examples=[["requested", "usedAvg", "usedPeak", "history"]])
     group_by: list[str] = Field(description="The keys the groups are made of", examples=[["region", "environment"]])
     hidden_clusters: int = Field(description="Clusters of environments where the caller lacks capacity:read: counted, not "
                                              "shown", examples=[0])
@@ -1064,6 +1089,146 @@ class CapacityPage(Api):
     groups: list[CapacityGroup] = Field(description="One group per combination of `groupBy` values, computed from every cluster "
                                                     "in scope")
     clusters: list[CapacityCluster] = Field(description="Every cluster in scope, by cluster ID")
+
+
+# ---- placement and the stored snapshots (#21, #303; docs/02, "Placement", "Cluster and fleet capacity")
+
+PlacementReason = Literal["not-connected", "not-writable", "placement-disabled", "outside-region", "outside-zones",
+                          "outside-selector", "stale-data", "partial-data", "no-size", "max-namespaces", "no-cpu-headroom",
+                          "no-memory-headroom", "zone-failure-headroom"]
+LabelValue = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$")]
+
+
+class ClusterSelector(Api):
+    match_labels: dict[str, str] = Field(default_factory=dict, description="Each label the cluster must carry with this value: "
+                                                                          "clusters.yaml `labels`", examples=[{"region": "us-central"}])
+
+
+class PlacementConstraints(Api):
+    region: str | None = Field(default=None, description="Only clusters whose clusters.yaml label `region` is this",
+                               examples=["us-central"])
+    zones: list[str] = Field(default_factory=list, description="Only clusters with a counted node in each of these zones",
+                             examples=[[]])
+    cluster_selector: ClusterSelector | None = Field(default=None, description="Only clusters whose labels match",
+                                                     examples=[None])
+
+
+class PlacementRequest(RequestBody):
+    environment: str = Field(description="The environment of the new namespace: one this instance serves", examples=["dev"])
+    team: LabelValue = Field(description="The team the namespace is for: the create's `cmapi.net/team` label must be the same",
+                             examples=["payments"])
+    tier: str = Field(default="small", description="A tier of GET /tiers, or custom", examples=["small"])
+    quota: dict[str, str] | None = Field(default=None, description="Custom tier only: the sizable quota keys, as the create "
+                                                                   "sends them", examples=[None])
+    constraints: PlacementConstraints = Field(default_factory=PlacementConstraints,
+                                              description="Where the namespace may go")
+
+
+class PlacementAsk(Api):
+    environment: str = Field(description="As asked", examples=["dev"])
+    team: str = Field(description="As asked", examples=["payments"])
+    tier: str = Field(description="As asked", examples=["small"])
+    cpu: int = Field(description="The tier's `requests.cpu`, in millicores: what is reserved", examples=[8000])
+    memory: int = Field(description="The tier's `requests.memory`, in bytes", examples=[17179869184])
+    pods: int = Field(description="The tier's `pods`, 0 when it sets none", examples=[50])
+    constraints: PlacementConstraints = Field(description="As asked")
+
+
+class PlacementFigures(Api):
+    unit: Literal["millicores", "bytes"] = Field(description="The unit of the amounts", examples=["millicores"])
+    quota_headroom_before: int = Field(description="Size × overcommit − committed − active reservations, now", examples=[120000])
+    quota_headroom_after: int = Field(description="The same after this namespace", examples=[112000])
+    zone_failure_headroom_after: int | None = Field(description="The headroom after this namespace with the largest zone lost; "
+                                                                "only in placement.yaml `zoneFailureEnvironments` (prod)",
+                                                    examples=[None])
+    usage_p95: float | None = Field(description="The 14-day p95 of use over allocatable, from the snapshots. Null when no "
+                                                "snapshot measured use", examples=[None])
+
+
+class PlacementFactors(Api):
+    quota_headroom: float = Field(description="0 to 1: the smaller resource's headroom after placement, over its limit",
+                                  examples=[0.875])
+    usage_headroom: float = Field(description="0 to 1: 1 − the 14-day p95 of use; 0 when not measured", examples=[0.0])
+    balance: float = Field(description="0 to 1: 0.5 at the environment's average commitment, more below it", examples=[0.5])
+    team_affinity: float = Field(description="1 when the team already has a namespace on the cluster, else 0", examples=[0.0])
+    zone_spread: float = Field(description="0 to 1: the smallest zone's allocatable over the largest's; 0 with under two zones",
+                               examples=[0.0])
+
+
+class PlacementRanked(Api):
+    cluster_id: str = Field(description="A cluster that passes every hard filter", examples=["CRC"])
+    score: int = Field(description="0 to 100: the weighted factors × the cluster's `placement.weight`, capped at 100",
+                       examples=[50])
+    reserved: bool = Field(description="True on the cluster the placement holds: the first that still fit under its lock",
+                           examples=[True])
+    basis: Literal["simulated", "allocatable"] | None = Field(description="The size headroom is measured against, as the "
+                                                                          "Capacity tab's", examples=["simulated"])
+    snapshot_at: datetime | None = Field(description="The end of the newest complete snapshot's interval",
+                                         examples=["2026-11-26T17:00:00Z"])
+    bound_by: Literal["cpu", "memory", "both"] = Field(description="The resource whose commitment is higher after placement",
+                                                       examples=["cpu"])
+    factors: PlacementFactors = Field(description="Each factor of the score, before its weight")
+    cpu: PlacementFigures = Field(description="CPU, in millicores")
+    memory: PlacementFigures = Field(description="Memory, in bytes")
+
+
+class PlacementExcluded(Api):
+    cluster_id: str = Field(description="A cluster of the environment left out", examples=["OCP_GF7"])
+    reason: PlacementReason = Field(description="The first hard filter it fails", examples=["stale-data"])
+    detail: str = Field(description="Why, in words", examples=["newest complete snapshot 95 min old, limit 60 min"])
+
+
+class PlacementResult(Api):
+    placement_id: str | None = Field(description="The reservation to send as the create's `placementId`. Null on a dry run",
+                                     examples=["pl-20261126-3f9a1c2e"])
+    expires_at: datetime | None = Field(description="When the reservation lapses unless a create claims it. Null on a dry run",
+                                        examples=["2026-11-26T17:15:00Z"])
+    cluster_id: str | None = Field(description="The reserved cluster: the create's path cluster. Null on a dry run",
+                                   examples=["CRC"])
+    as_of: datetime = Field(description="When the clusters were ranked", examples=["2026-11-26T17:00:12Z"])
+    request: PlacementAsk = Field(description="What was asked, sized from the tier")
+    ranked: list[PlacementRanked] = Field(description="The clusters that pass, best first; ties go to the lower cluster ID")
+    excluded: list[PlacementExcluded] = Field(description="Every other cluster of the environment in the caller's scope, with "
+                                                          "its reason")
+
+
+class SnapshotResource(Api):
+    unit: Literal["millicores", "bytes"] = Field(description="The unit of the amounts", examples=["millicores"])
+    capacity: int | None = Field(description="The nodes' `status.capacity`", examples=[8000])
+    allocatable: int | None = Field(description="The counted nodes' `status.allocatable`", examples=[7500])
+    requested: int | None = Field(description="Live pods' requests (Thanos). Null when not measured", examples=[None])
+    limits: int | None = Field(description="Live pods' limits (Thanos). Null when not measured", examples=[None])
+    used_avg: int | None = Field(description="Average use over the interval (Thanos). Null when not measured", examples=[None])
+    used_peak: int | None = Field(description="Peak use over the interval, in 5-minute steps (Thanos)", examples=[None])
+    quota_committed: int | None = Field(description="What cmapi's quotas committed at the snapshot (cluster row only)",
+                                        examples=[8000])
+
+
+class SnapshotScope(Api):
+    scope: str = Field(description="`cluster`, `zone:<name>` or `role:<worker|infra|master>`", examples=["cluster"])
+    cpu: SnapshotResource = Field(description="CPU, in millicores")
+    memory: SnapshotResource = Field(description="Memory, in bytes")
+    pods: dict[str, int | None] = Field(description="`allocatable` and `running` (Thanos)",
+                                        examples=[{"allocatable": 250, "running": None}])
+    nodes: dict[str, int | None] = Field(description="`total`, `schedulable`, `notReady`, `memoryPressure`, `diskPressure`",
+                                         examples=[{"total": 1, "schedulable": 1, "notReady": 0, "memoryPressure": 0,
+                                                    "diskPressure": 0}])
+
+
+class ClusterSnapshot(Api):
+    cluster_id: str = Field(description="The cluster", examples=["CRC"])
+    env: str = Field(description="Its environment", examples=["dev"])
+    interval_seconds: int = Field(description="capacity.yaml `snapshotInterval`, in seconds", examples=[1800])
+    stale_after_seconds: int = Field(description="Older than this, placement excludes the cluster as stale-data",
+                                     examples=[3600])
+    snapshot: CapacitySnapshotState = Field(description="Its freshness, as placement reads it")
+    scopes: list[SnapshotScope] = Field(description="The newest complete snapshot's rows: the cluster, each zone, each role. "
+                                                    "Empty when there is none")
+
+
+class SnapshotRun(Api):
+    cluster_id: str = Field(description="The cluster", examples=["CRC"])
+    queued: bool = Field(description="True when a run was queued; false when one was already waiting", examples=[True])
 
 
 class Suggestion(Api):

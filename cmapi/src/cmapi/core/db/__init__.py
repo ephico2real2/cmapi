@@ -84,7 +84,7 @@ class Database:
             return str(exc)
 
 
-REQUIRED_REVISION = "0011"    # every plan reads 0011's capacity_reservations (#62); 0010: the usage sweep and quotas (#310, #712)
+REQUIRED_REVISION = "0012"    # placement reads 0012's capacity_snapshots and placement holds (#21); 0011: the holds (#62)
 
 
 FUTURE_REVISION = re.compile(r"([0-9]{4})(?:_[a-z0-9_]+)?")   # the repository's convention: four digits, counting up

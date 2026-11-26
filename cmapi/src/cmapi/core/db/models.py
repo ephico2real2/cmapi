@@ -227,6 +227,35 @@ class CapacityReservationRow(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     released_why: Mapped[str | None] = mapped_column(String(20))
+    # A placement's hold (#21, migration 0012): its id, and the environment and team that the create must match. A hold that
+    # a request takes at submit has none of the three; a placement hold keeps its id once the create claims it.
+    placement_id: Mapped[str | None] = mapped_column(String(40))
+    env: Mapped[str | None] = mapped_column(String(20))
+    team: Mapped[str | None] = mapped_column(String(63))
+
+
+class CapacitySnapshotRow(Base):
+    """One scope of one cluster's capacity at the end of one snapshot interval (#21, migration 0012; docs/02, "Stored
+    capacity"): the whole cluster, `zone:<name>` or `role:<worker|infra|master>`. Amounts are cores and bytes; a figure that
+    was not measured is null, never 0. `complete` is false when a query of the row failed or warned, the nodes could not be
+    listed, or Thanos's allocatable and the API's differ by more than 5% (`detail` says which)."""
+    __tablename__ = "capacity_snapshots"
+    __table_args__ = (
+        CheckConstraint("source IN ('thanos', 'api')", name="ck_snapshot_source"),
+        CheckConstraint("complete = (detail IS NULL)", name="ck_snapshot_detail"),
+    )
+    cluster_id: Mapped[str] = mapped_column(String(63), primary_key=True)
+    taken_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(80), primary_key=True)
+    interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[str] = mapped_column(String(10), nullable=False)
+    cpu: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    memory: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    pods: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    storage: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    nodes: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    complete: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text)
 
 
 # Each index of the migrations, in the same words, so that autogenerate has nothing to add and nothing to drop.
@@ -251,6 +280,9 @@ Index("idx_rej_env_first", PolicyRejectionRow.env, PolicyRejectionRow.first_at, 
 Index("idx_rej_last", PolicyRejectionRow.last_at)
 Index("idx_resv_active", CapacityReservationRow.cluster_id, postgresql_where=text("released_at IS NULL"))
 Index("idx_resv_request", CapacityReservationRow.request_id)
+Index("uq_resv_placement", CapacityReservationRow.placement_id, unique=True, postgresql_where=text("placement_id IS NOT NULL"))
+Index("idx_snapshots_cluster_taken", CapacitySnapshotRow.cluster_id, CapacitySnapshotRow.taken_at)
+Index("idx_snapshots_taken", CapacitySnapshotRow.taken_at)
 
 
 class AnalysisSweepRow(Base):

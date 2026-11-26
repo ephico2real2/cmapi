@@ -323,7 +323,7 @@ def test_a_database_at_0009_is_behind_this_code(monkeypatch):
     db = Database(conftest.DB_URL)
     monkeypatch.setattr(db, "schema_version", lambda: "0009")
     try:
-        # Since #62 the code needs 0011 (capacity_reservations); a 0009 schema is still behind, now by two.
-        assert db.schema_status() == "behind: at 0009, needs 0011"
+        # Since #21 the code needs 0012 (capacity_snapshots, placement holds); a 0009 schema is still behind, now by three.
+        assert db.schema_status() == "behind: at 0009, needs 0012"
     finally:
         db.engine.dispose()

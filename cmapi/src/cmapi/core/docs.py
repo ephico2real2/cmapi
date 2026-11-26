@@ -75,6 +75,11 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "validation-failed": (422, "Request body is not valid"),
     "policy-violation": (422, "Metadata refused"),
     "capacity-exceeded": (422, "memory would exceed the cluster"),
+    "no-placement": (422, "No dev cluster can take 16 cores and 32Gi: every candidate was excluded"),
+    "placement-not-found": (422, "No active placement pl-20261126-3f9a1c2e: it expired, was used by another create, or never "
+                                 "existed. Place again."),
+    "placement-mismatch": (422, "Placement pl-20261126-3f9a1c2e was made for another target: the placement's team is "
+                                "'billing', the create's 'payments'"),
     "environment-not-served": (422, "qa is not served by the nonprod instance"),
     "cluster-not-writable": (422, "CRC is imported but has no clusters.yaml entry"),
     "plugin-disabled": (422, "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there"),
@@ -194,6 +199,8 @@ PROBLEM_EXTRAS: dict[str, dict[str, Any]] = {
     "validator-unavailable": {"retryAfter": 60},
     "validator-busy": {"retryAfter": 15},     # CMAPI_VALIDATOR_WAIT_SECONDS, here its default (core/validate, #708)
     "rate-limited": {"retryAfter": 2},
+    "no-placement": {"excluded": [{"clusterId": "CRC", "reason": "no-cpu-headroom",
+                                   "detail": "needs 16 cores, 8 cores left after committed quota and active reservations"}]},
     "folder-holds-submodule": {"paths": ["clusters/CRC/namespaces/payments-dev/vendor"]},
     # instance.yaml http.maxRequestBodyBytes, here its default (core/http_settings.py, #683)
     "content-too-large": {"maxBytes": DEFAULT_MAX_REQUEST_BODY_BYTES},

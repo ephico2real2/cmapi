@@ -261,7 +261,7 @@ def get_namespace(cluster_id: ClusterId, ns: NamespaceName, response: Response, 
               dry_run_model=PlanView,
               problems=WRITE_PROBLEMS + ON_BEHALF_PROBLEMS + RENDER_PROBLEMS
               + ["reserved-namespace", "invalid-namespace-name", "namespace-exists", "namespace-exists-unmanaged",
-                 "expiration-not-allowed", "expiration-in-past"])
+                 "expiration-not-allowed", "expiration-in-past", "placement-not-found", "placement-mismatch"])
 def create_namespace(cluster_id: ClusterId, body: NamespaceCreate,
                      dry_run: DryRun = False,
                      key: str | None = Depends(idempotency_key), who: Identity = Depends(require("namespaces:create")),
