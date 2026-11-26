@@ -3809,18 +3809,18 @@ The answer was 200 (`application/json`):
       "cpuThrottledPeriods": null,
       "cpuThrottledSeconds": null,
       "cpuUsageSeconds": null,
-      "measuredAt": 1795716510.385063,
+      "measuredAt": 1795667380.850797,
       "memoryBytes": null,
       "memoryLimitBytes": null
     }
   ],
   "database": {
-    "connections": 13,
+    "connections": 9,
     "connectionsMax": 100,
-    "oldestTransactionSeconds": 0.380635,
+    "oldestTransactionSeconds": 0.0,
     "poolInUse": 0,
     "poolSize": 5,
-    "sizeBytes": 8707095,
+    "sizeBytes": 9223191,
     "walBytes": 83886080
   },
   "instance": "nonprod",
@@ -3832,7 +3832,7 @@ The answer was 200 (`application/json`):
       "target": "under 10 min",
       "targetStatus": "proposed",
       "unit": "seconds",
-      "value": 0.007427
+      "value": 0.313079
     }
   ],
   "thresholds": {
