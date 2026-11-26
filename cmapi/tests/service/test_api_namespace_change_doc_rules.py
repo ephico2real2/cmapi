@@ -102,7 +102,7 @@ def test_automatic_key_documentation_explains_existing_namespace_values():
     assert any(e["code"] == "derived_key" for e in errors)
     description = document(POLICIES / "metadata-keys.company.yaml")["paths"][PATH]["patch"]["description"]
     assert "filled at creation" in description
-    assert "adoption must supply a missing value" in description
+    assert "a request can add a missing one with the derived value" in " ".join(description.split())
 
 
 def test_docs04_recognizes_an_operation_with_only_an_operation_problem(tmp_path, monkeypatch):

@@ -499,13 +499,14 @@ class Pipeline:
     def _held_key_findings(self, cluster_id: str, ns: str, labels: Mapping[str, str],
                            annotations: Mapping[str, str]) -> list[Finding]:
         """Each required key that the namespace lacks and the change leaves out: held, not refused (#234), and reported as
-        a warning (#481, design section 3, the adoption finding): that this change can add it, or, for a key that a change
-        cannot set (fixed or automatic in x-cmapi-edit), that adoption must."""
+        a warning (#481, design section 3, the adoption finding) with how a request adds it: any valid value, or for a key that
+        cmapi fills in or that starts the name, exactly the value that it would have had at create (#732)."""
         path = folder(cluster_id, ns) + "namespace.yaml"
+        sources = {"namespace": ns, "environment": self.environment_of(cluster_id), "cluster": cluster_id,
+                   "instance": self.cfg.name}
         findings = []
         for kind, key in self.cfg.metadata.missing_required(labels, annotations):
-            mode = self.cfg.metadata.edit_rule(kind, key)["mode"]
-            remedy = "adoption must supply it" if mode in ("fixed", "automatic") else "this change can add it"
+            remedy = self.cfg.metadata.remedy(kind, key, sources)
             findings.append(Finding("cmapi", "missing_required_key", path,
                                     f"the {kind} {key} is required and the namespace lacks it: {remedy}", "warning"))
         return findings

@@ -46,7 +46,9 @@ def test_a_change_accepts_only_gits_value_of_an_automatic_key():
 
     assert codes({"app-env": "rnd"}, git) == []                       # the echo of Git
     assert codes({"app-env": "dev"}, git) == [("derived_key", "app-env")]   # today's target is not Git's value
-    assert codes({"name": "payments-dev"}, git) == [("derived_key", "name")]   # Git lacks it: adoption adds it
+    assert codes({"name": "payments-dev"}, git) == []                 # Git lacks it: a request adds the derived value (#732)
+    assert codes({"name": "payments-qa"}, git) == [("derived_key", "name")]   # and nothing else
+    assert codes({"app-env": "dev"}, {}) == []                        # a missing automatic key takes today's target
     assert codes({"app-env": None}, git) == [("derived_key", "app-env")]
     create = AUTOMATIC.validate({"app-env": "dev"}, {}, operator=False, sources=target, create=True)
     assert create == []                                               # a create still takes the target's value

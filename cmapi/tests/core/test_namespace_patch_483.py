@@ -129,11 +129,15 @@ def test_a_change_that_removes_an_optional_key_that_starts_the_name_is_refused_a
     assert errors(found) == [("invalid_value", "company.net/unit")]
 
 
-def test_a_change_cannot_add_a_mnemonic_that_the_namespace_lacks():
+def test_a_change_adds_a_missing_mnemonic_only_as_the_start_of_the_name():
+    """#732: the owner's decision 2 on #26, "it stays a finding until someone chooses to add it". A namespace that lacks the
+    key (an adopted one) takes it with exactly the start of its name; any other value is refused and says what is taken."""
     lacking = {**CHANGE, "current_labels": {k: v for k, v in GIT.items() if k != "company.net/mnemonic"}}
-    found = KEYS.validate({"company.net/mnemonic": "abc"}, {}, **lacking)
-    assert errors(found) == [("invalid_value", "company.net/mnemonic")]
-    assert "adoption does" in found[0]["detail"]
+    assert KEYS.validate({"company.net/mnemonic": "abc"}, {}, **lacking) == []
+    for wrong in ("abd", "pay"):
+        found = KEYS.validate({"company.net/mnemonic": wrong}, {}, **lacking)
+        assert errors(found) == [("invalid_value", "company.net/mnemonic")], wrong
+        assert "a request can add it with the start of the namespace name" in found[0]["detail"]
 
 
 def test_a_suffix_key_that_cmapi_does_not_fill_in_is_fixed_on_a_change():

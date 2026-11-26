@@ -831,7 +831,7 @@ function changeRefusal(keys, rec, sent) {
       const prop = keys[map].properties[key], held = rec.git[map][key] ?? null;
       const fixedName = prop?.["x-cmapi-derived-from"] || prop?.["x-cmapi-namespace-prefix"] || prop?.["x-cmapi-namespace-suffix"];
       if (fixedName && value !== null && value === held) continue;
-      const keeps = held !== null ? `a change keeps '${held}'` : "a change cannot add it; adoption does (story #26)";
+      const keeps = held !== null ? `a change keeps '${held}'` : "a request can add it with the value it would have at create (#732)";
       if (prop?.["x-cmapi-derived-from"]) errors.push({ code: "derived_key", key, kind, detail: `cmapi sets ${key}: ${keeps}` });
       else if (prop && value === null && keys[map].required?.includes(key)) errors.push({ code: "missing_required_key", key, kind, detail: prop["x-cmapi-rule"] ?? "required" });
       else if (prop?.["x-cmapi-namespace-prefix"] || prop?.["x-cmapi-namespace-suffix"]) errors.push({ code: "invalid_value", key, kind, detail: `part of the namespace's fixed name: ${keeps}` });
