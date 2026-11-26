@@ -175,7 +175,7 @@ A role can have a list of environments. The route checks the permission again wh
 
 | Route group | Where the environment comes from | Source |
 |---|---|---|
-| Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:265`, `:515` |
+| Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:265`, `:516` |
 | Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:196`, `:236` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:103`, `:116`, `:130` |
 | Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:151`, `:182`, `:200`, `:225`, `:257` |
@@ -282,7 +282,7 @@ When a person calls, cmapi records the request under the caller of the token. Th
 | Value | Where it comes from | Where it is kept |
 |---|---|---|
 | `sub` | The claim `sub` (`claims.py:70`) | The database. Self-approval compares it (`approvals.py:339-340`) |
-| Username | The claim `preferred_username` (`claims.py:64`) | The database, and as a label of the namespace (`claims.py:3-5`) |
+| Username | The claim `preferred_username` (`claims.py:78`) | The database, and as a label of the namespace (`claims.py:3-5`) |
 | `email` | The claim `email` (`claims.py:74`) | The database |
 | `employee_id` | The claim `employee_id` (`claims.py:78`) | The database |
 | Given, middle and family name | The claims of the same names (`claims.py:75-77`) | The database |
@@ -319,7 +319,7 @@ A tool signs in with the client credentials grant. It is a service client, or an
 | The tool sends `onBehalfOf`: a username or an employee ID | cmapi looks the value up in the directory. The person must be enabled, or the answer is 422 `unknown-user`. The person is recorded as the requester and the tool as the caller. The request is recorded as automated | `checks.py:89-95` |
 | A person sends `onBehalfOf` | 422 `on-behalf-of-not-allowed` | `checks.py:74-78`; `problem_docs.py:77` |
 
-Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:596`, `approvals.py:339-340`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:232-234`, `approvals.py:337-338`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
+Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:600`, `approvals.py:339-340`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:232-234`, `approvals.py:337-338`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
 
 With `onBehalfOf`, cmapi trusts the tool to name the person. The directory proves that the person exists and is enabled. It does not prove that the person signed in.
 

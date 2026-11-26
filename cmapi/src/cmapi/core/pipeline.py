@@ -165,7 +165,7 @@ def approval_view(req: Requirement | None, ledger: ApprovalLedger | None) -> dic
 class Pipeline:
     def __init__(self, cfg: InstanceConfig, registry: ClusterRegistry, git: HostGitProvider, validator: Validator,
                  capacity: CapacityBackend | SimulatedCapacity, directory: CachedDirectory | None,
-                 reserved_patterns: list[str], auto_paused: Any = lambda: False):
+                 reserved_patterns: list[str], auto_paused: Any = lambda session=None: False):
         self.cfg, self.registry, self.git, self.validator = cfg, registry, git, validator
         self.capacity, self.directory, self.reserved = capacity, directory, reserved_patterns
         self.renderer = ManifestRenderer(cfg.tiers, cfg.metadata)
@@ -496,12 +496,13 @@ class Pipeline:
             return refusal
         return Problem.policy_violation("Metadata refused", protection) if protection else None
 
-    def _decide(self, facts: Mapping[str, Any], team_auto_today: int = 0) -> Requirement:
+    def _decide(self, facts: Mapping[str, Any], team_auto_today: int = 0, session: Any = None) -> Requirement:
+        """`session`: the transaction to read the auto-approval switch in, when the caller holds one (submit, the revert job)."""
         # Refused here, before the rules, so the answer names the instance that serves the environment (#671). The revert job
         # reaches this with an environment from a stored request, which a later configuration may no longer serve.
         if facts["environment"] not in self.cfg.allowed_environments:
             raise environment_not_served(self.cfg, facts["environment"])
-        req = self.cfg.approvals.decide(facts, paused=bool(self.auto_paused()), team_auto_today=team_auto_today)
+        req = self.cfg.approvals.decide(facts, paused=bool(self.auto_paused(session)), team_auto_today=team_auto_today)
         if req.auto_fallback:
             AUTO_FALLBACKS.labels(req.auto_fallback).inc()
         return req
@@ -582,7 +583,10 @@ class Pipeline:
         rid = repo.next_id()              # takes the day's advisory lock: submits are serial from here to the commit
         if plan.action != "delete" and plan.facts.get("team"):
             # the daily allowance is counted at submit, under that lock, against the rows already recorded
-            plan.requirement = self._decide(plan.facts, team_auto_today=repo.auto_approvals_today(plan.facts["team"]))
+            # The switch is read in this transaction: a second pooled session here would wait for a connection that the
+            # submits queued behind the advisory lock hold, and time out (the #695 review's pool starvation).
+            plan.requirement = self._decide(plan.facts, team_auto_today=repo.auto_approvals_today(plan.facts["team"]),
+                                            session=repo.s)
         files = plan.files
         if plan.spec is not None:
             plan.spec.request_id = rid

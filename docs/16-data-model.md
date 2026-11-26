@@ -13,8 +13,8 @@ The database is PostgreSQL through CloudNativePG, or an existing PostgreSQL serv
 | `approvals` | One approval of one request by one person | `RequestRepo.record_approval` (`repo.py:240`) | The approval ledger (`repo.py:226`) |
 | `jobs` | One unit of work for the worker, with its lease | `JobRepo.enqueue` (`repo.py:256`) | The worker: `JobRepo.claim` (`repo.py:269`) |
 | `audit_events` | One recorded action: who, what and on which target | `AuditRepo.record` (`repo.py:328`) | No route reads it yet. `AuditRepo.recent` exists (`repo.py:332`) |
-| `jwks_keys` | The last good signing keys of one issuer | `DbKeyStore.save` (`repo.py:363`) | `DbKeyStore.load` (`repo.py:358`), when a pod starts while Keycloak does not answer |
-| `admin_switches` | One switch of the instance, for example `auto-approval`, with who set it | `SwitchRepo.set` (`repo.py:344`) | `SwitchRepo.get` (`repo.py:340`) |
+| `jwks_keys` | The last good signing keys of one issuer | `DbKeyStore.save` (`repo.py:369`) | `DbKeyStore.load` (`repo.py:364`), when a pod starts while Keycloak does not answer |
+| `admin_switches` | One switch of the instance, for example `auto-approval`, with who set it | `SwitchRepo.set` (`repo.py:350`) | `SwitchRepo.get` (`repo.py:340`), for the admin view. Each approval decision reads the value with `SwitchRepo.value` (`repo.py:344`), in the caller's transaction when it has one |
 | `approval_notifications` | One notice that a channel recorded for a request | The worker job `channel_notify` (`jobs/channel_notify.py:30`) | The same job, to send a notice only once |
 | `expiration_notices` | One expiry notice for a namespace | No code writes it yet. The job `expire_check` is not built | No code reads it yet |
 | `policy_rejections` | One refusal of cmapi before Git on one UTC day, or Kyverno's warnings on a plan that became a request (#302) | `RejectionRepo.record` (`core/rejections.py`), from the namespace routes, `_submit` and the job `pr_checks`; pruned by the job `rejections_prune` | `GET /api/v1/policies/rejections` |

@@ -97,7 +97,9 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
     if action == "delete":
         pods, pvcs = ctx.pipeline.workload_counts(row.cluster_id, row.namespace)
         facts.update(pods=pods, pvcs=pvcs, namespaceAgeDays=0, protected=False)
-    requirement = ctx.pipeline._decide(facts)
+    # In this job's transaction, which holds the request's row lock (repo.move): a second pooled session would need a spare
+    # connection while it holds that lock (#696).
+    requirement = ctx.pipeline._decide(facts, session=s)
     who = Identity(sub=row.requester_sub, username=by, kind="user", client_id="cmapi-worker")
     requester = ctx.pipeline.requester_for(Identity(sub=row.requester_sub, username=row.requester_username, kind="user",
                                                     client_id="cmapi-worker", employee_id="revert",
