@@ -374,7 +374,7 @@ trust:
   caBundlePath: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
 ```
 
-- **Credential per cluster, scoped.** One ServiceAccount per cluster, limited to reading namespaces, quotas, limitranges, ServiceAccounts, RBAC objects, SCCs, users, groups and ArgoCD Applications, and creating SA tokens, and bound to cluster-monitoring-view for Thanos queries; everything else flows through ArgoCD. Not cluster-admin. Only the optional synchronous create path would add namespace create.
+- **Credential per cluster, scoped.** One ServiceAccount per cluster, limited to reading namespaces, quotas, limitranges, ServiceAccounts, RBAC objects, SCCs, users, groups and ArgoCD Applications, and creating SA tokens, and bound in openshift-monitoring alone to the platform's Role cluster-monitoring-metrics-api, with get on the thanos-querier Route, for Thanos queries (#724; never cluster-monitoring-view cluster-wide); everything else flows through ArgoCD. Not cluster-admin. Only the optional synchronous create path would add namespace create.
 - **Tokens from Secrets.** Each spoke issues its API token from a kubernetes.io/service-account-token Secret, rotated on a schedule. On the hub, all of them live in one Secret mounted as files, one per credentialRef, so onboarding is a Secret update plus POST /admin/reload: no restart and no Deployment edit. This keeps the mounted-YAML option from the Flask design and retires the CLUSTER\_IDS envFrom pattern.
 - **Enterprise CA.** A ConfigMap labelled config.openshift.io/inject-trusted-cabundle: "true", mounted as one PEM path that Fabric8 trusts for every cluster.
 - **Client.** An OpenShiftClient adapter per cluster, built from the registry at startup and on reload, giving native groups() and users().
@@ -605,7 +605,7 @@ Every lifecycle change is an edit to one project-meta.yml file; namespace-config
 - Request over 3x the 14-day peak: flagged as possible over-provisioning.
 - Up to 2x the peak: auto-eligible with the normal approval count.
 
-On a single cluster, query that cluster's Thanos Querier (thanos-querier in openshift-monitoring) with a cluster-monitoring-view token. A cluster label only exists if ACM Observability aggregates the fleet. Platform Prometheus keeps 15 days by default, so live windows stop at 14 days and longer peaks come from the hourly snapshot tables in the v2 design.
+On a single cluster, query that cluster's Thanos Querier (thanos-querier in openshift-monitoring) with the reader's token, bound to the Role cluster-monitoring-metrics-api there (#724). A cluster label only exists if ACM Observability aggregates the fleet. Platform Prometheus keeps 15 days by default, so live windows stop at 14 days and longer peaks come from the hourly snapshot tables in the v2 design.
 
 **Expiration example.** The TTL is a date, not a duration, so extending it is a simple edit:
 

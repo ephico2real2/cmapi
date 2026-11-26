@@ -137,11 +137,14 @@ def approval_status(request_id: RequestId, who: Identity = Depends(require("requ
               returns="The request with this approval recorded; `status` says whether more approvals are needed.",
               permission="requests:approve",
               response_model=ChangeRequest, status_code=200,
-              problems=["object-not-found", "not-pending", "already-approved", "self-approval", "not-eligible", "environment-forbidden"])
+              problems=["object-not-found", "not-pending", "already-approved", "self-approval", "not-eligible", "environment-forbidden",
+                        "capacity-exceeded"])
 def approve(request_id: RequestId, body: DecisionBody | None = None, who: Identity = Depends(require("requests:approve")),
             c: AppContext = Depends(ctx)) -> dict:
     """Records one approval from an eligible person. When every slot is filled the request becomes approved
-    and the worker opens the bot PR. The approver's own token decides: no relay, no Git review."""
+    and the worker opens the bot PR. The approver's own token decides: no relay, no Git review. The last approval checks
+    the capacity that the request holds again: when the cluster can no longer take it, 422 capacity-exceeded, and neither the
+    approval nor the state change is recorded."""
     comment = (body.comment if body else "") or ""
     with c.db.session() as s:
         repo, jobs = RequestRepo(s), JobRepo(s)
@@ -159,6 +162,9 @@ def approve(request_id: RequestId, body: DecisionBody | None = None, who: Identi
         AuditRepo(s).record(who, "request.approve", request_id, {"comment": comment})
         if met:
             repo.move(row, E.APPROVED, who.username, "approval count met")
+            # "approved: The count is met (auto or :approve) and capacity still fits" (docs/01): after the row lock that move
+            # takes, and under the cluster's lock (#62).
+            c.pipeline.capacity.confirm(s, row.request_id, row.cluster_id, row.env)
             if row.approved_at and row.created_at and row.requirement:
                 APPROVAL_WAIT.labels(row.requirement.get("rule", "")).observe((row.approved_at - row.created_at).total_seconds())
             jobs.enqueue("push_branch", request_id=request_id, cluster_id=row.cluster_id)
@@ -213,10 +219,12 @@ def cancel(request_id: RequestId, who: Identity = Depends(require("requests:canc
                       "failed), the merge (merge_failed), or the apply, the prune or the sync watch (sync_failed).",
               permission="requests:retry",
               response_model=ChangeRequest, status_code=200,
-              problems=["object-not-found", "invalid-transition", "change-pending", "environment-forbidden"])
+              problems=["object-not-found", "invalid-transition", "change-pending", "environment-forbidden",
+                        "capacity-exceeded"])
 def retry(request_id: RequestId, who: Identity = Depends(require("requests:retry")), c: AppContext = Depends(ctx)) -> dict:
     """Queues the next delivery step; the worker runs it after this answer. From failed: re-takes the namespace lock (409
-    if another request holds it) and pushes the branch and opens the PR again. From merge_failed: merges again. From
+    if another request holds it) and the capacity the request held (422 capacity-exceeded if the cluster can no longer take
+    it), and pushes the branch and opens the PR again. From merge_failed: merges again. From
     sync_failed: applies again (an apply that had not finished), looks for the pruned namespace again (a delete), or
     watches the sync again."""
     with c.db.session() as s:
@@ -225,6 +233,8 @@ def retry(request_id: RequestId, who: Identity = Depends(require("requests:retry
         c.cfg.roles.require(who, "requests:retry", row.env)
         before = row.status
         after = repo.move(row, E.RETRY, who.username, "retry requested")
+        if after is S.APPROVED:
+            c.pipeline.capacity.confirm(s, row.request_id, row.cluster_id, row.env)   # the hold it took again still fits (#62)
         row.attempts = 0
         AuditRepo(s).record(who, "request.retry", request_id, {"from": before})
         # Which job :retry runs (#286; Fable's design 2.5).

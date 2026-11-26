@@ -11,7 +11,9 @@ and the six checks before a cluster is read (docs/01, "Cluster connections and m
        caData alone, else trusted: the image's system store and the bundles of CMAPI_TRUSTED_CA_FILE.
     4. Connect: GET /version.
     5. Identity: users/~ must be cmapi-system:cmapi-reader.
-    6. Capability: list namespaces.
+    6. Capability: list namespaces. When the instance reads usage (capacity.yaml usage.source thanos), also the reader's own
+       grants for the cluster's Thanos Querier in openshift-monitoring (#724): each one missing is a finding on a cluster that
+       stays connected, and its usage is unavailable with that finding as the reason (capacity/thanos.py).
 
 Each refusal is a finding on that cluster only, and nothing one cluster sends or holds stops the others, the start or the
 relist (#419): an answer the client cannot read is `bad-response`. A connected cluster with no clusters.yaml entry
@@ -54,6 +56,24 @@ from cmapi.core.tiers import qty
 STATUSES = ("connected", "not-imported", "invalid-secret", "unreachable", "cert-verify-failed", "auth_failed",
             "wrong-identity", "forbidden", "bad-response")
 NO_IMPORT_SECRET = "no import Secret"          # the finding of a not-imported cluster, from the start and from the relist
+# The reader's reads of the cluster's Thanos Querier for usage.source thanos (#724), each with the grant of the baseline that gives
+# it (examples/baseline/cmapi-reader-rbac.yaml). The Route: capacity/thanos.py's ROUTE_PATH, when clusters.yaml has no thanosUrl.
+# The query: the Querier's kube-rbac-proxy allows get on prometheuses/api "k8s" in openshift-monitoring
+# (cluster-monitoring-operator release-4.18 and release-4.22, assets/thanos-querier/kube-rbac-proxy-web-secret.yaml).
+MONITORING_NAMESPACE = "openshift-monitoring"
+ROUTE_READ = ({"verb": "get", "group": "route.openshift.io", "resource": "routes", "name": "thanos-querier"},
+              "get on Route thanos-querier (Role and RoleBinding cmapi-reader-thanos-route)")
+QUERY_READ = ({"verb": "get", "group": "monitoring.coreos.com", "resource": "prometheuses", "subresource": "api", "name": "k8s"},
+              "get on prometheuses/api k8s (RoleBinding cmapi-reader-metrics-api of Role cluster-monitoring-metrics-api)")
+GRANT_CHECK = "create localsubjectaccessreviews (Role and RoleBinding cmapi-reader-grant-check)"
+# The reader's groups as a ServiceAccount, without system:authenticated: a grant to every user (on CRC, another project's
+# ClusterRoleBinding of cluster-monitoring-view) is not cmapi's and must not hide a missing one of its own (#724).
+READER_GROUPS = ["system:serviceaccounts", "system:serviceaccounts:cmapi-system"]
+USAGE_FINDING = "usage: "                        # the start of every finding of the usage grants
+USAGE_UNCHECKED = USAGE_FINDING + "the reader's grants could not be checked: "
+USAGE_NO_MONITORING = USAGE_FINDING + "the cluster serves no monitoring.coreos.com/v1, so it has no OpenShift monitoring"
+USAGE_FIX = ("Apply the reader's openshift-monitoring grants of examples/baseline/cmapi-reader-rbac.yaml on the cluster; until "
+             "then its usage is unavailable.")
 HEADER_TOKEN = re.compile(r"[\x21-\x7e]+")      # visible ASCII: what a bearer token in an Authorization header may hold
 # Kubernetes date-time annotations carry a full timestamp with an explicit offset.
 TOKEN_EXPIRY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?"
@@ -100,6 +120,8 @@ class ClusterState:
     status_since: datetime | None = None
     secret_name: str | None = None
     last_probe_at: datetime | None = None
+    # The findings of the usage grants (#724), also in `findings`: while any is here, the cluster's usage is unavailable.
+    usage_findings: list[str] = field(default_factory=list)
 
     @property
     def environment(self) -> str | None:
@@ -116,6 +138,13 @@ class ClusterState:
         return state, detail[:300]
 
     def _fix(self, finding: str) -> str:
+        if finding.startswith(USAGE_FINDING):
+            if finding == USAGE_NO_MONITORING:
+                return "No grant can fix this: the cluster has no OpenShift monitoring, so its usage stays unavailable."
+            if finding.startswith(USAGE_UNCHECKED) and GRANT_CHECK not in finding:
+                # The API server or one of its authorizers failed, which no grant fixes (#724): the next check asks again.
+                return "Check the cluster's API server and its authorizers; the next import check, or :probe, asks again."
+            return USAGE_FIX
         if self.status == "invalid-secret":
             if finding.startswith("duplicate cluster ID"):
                 return "Keep exactly one import Secret labelled with this cluster ID."
@@ -369,7 +398,8 @@ class ClusterRegistry:
                  trusted_ca_file: str | None = None, insecure_environments: Iterable[str] = (), relist_seconds: int = 300,
                  client_factory: Callable[..., KubeClient] = KubeClient, start_caches: bool = True,
                  reports_factory: Callable[[ClusterState, KubeClient], ReportCache | None] | None = None,
-                 nodes_factory: Callable[[ClusterState, KubeClient], NodeCache | None] | None = None):
+                 nodes_factory: Callable[[ClusterState, KubeClient], NodeCache | None] | None = None,
+                 usage_grants: bool = False):
         self.policies = dict(policies)
         self.source, self.relist_seconds = source, relist_seconds
         # CMAPI_TRUSTED_CA_FILE's value for the trusted mode (None reads the variable at each check), and the environments
@@ -380,6 +410,9 @@ class ClusterRegistry:
         self.reports_factory = reports_factory
         # None, or None from the factory: no node cache for that cluster, so its allocatable is not known.
         self.nodes_factory = nodes_factory
+        # True when the instance reads usage from each cluster's Thanos Querier (capacity.yaml usage.source thanos, #724):
+        # each check then asks whether the reader's own grants allow it.
+        self.usage_grants = usage_grants
         self.clusters: dict[str, ClusterState] = {cid: ClusterState(cid, p) for cid, p in self.policies.items()}
         self._lock = threading.RLock()
         self._refresh_lock = threading.Lock()
@@ -466,6 +499,7 @@ class ClusterRegistry:
             status, found, version = self._probe(client, trust)
             if status != "connected":
                 return self._set(st, status, found, version, secret, trust, probed=True)
+            usage = self._usage_grants(client, st.policy) if self.usage_grants else []
             # Anything the client verifies with is in the fingerprint (G6 of #434): a rotated caData, a new server name, a
             # change of mode or a bundle that changed gives the caches the new client, not only a new token or URL.
             if st.client is None or self._fingerprints.get(cluster_id) != fp:
@@ -475,6 +509,9 @@ class ClusterRegistry:
                 with self._lock:
                     # Together, under the lock `quota_watch` reads them under: a read never pairs one cache with another's ledger.
                     st.client, st.ledger, st.cache = client, ledger, cache
+                    # Readers can query this client while its watches start. Publish its own decision with it.
+                    forms = _diagnostic_forms(secret)
+                    st.usage_findings = [redact(f, forms) for f in usage]
                 st.reports = self.reports_factory(st, client) if self.reports_factory else None
                 st.nodes = self.nodes_factory(st, client) if self.nodes_factory else None
                 if self.start_caches:
@@ -486,7 +523,7 @@ class ClusterRegistry:
                 self._fingerprints[cluster_id] = fp
                 adopted = True
             # Cache setup can still fail after the probe. Publish only the completed check.
-            return self._set(st, "connected", [], version, secret, trust, probed=True)
+            return self._set(st, "connected", usage, version, secret, trust, probed=True, usage=usage)
         except Exception as exc:                           # the remote check ran, even if cache setup then failed
             return self._check_failed(st, secret, exc, probed=True)
         finally:
@@ -534,9 +571,42 @@ class ClusterRegistry:
             return "bad-response", [str(exc)], version
         return "connected", [], version
 
+    @staticmethod
+    def _usage_grants(client: KubeClient, policy: ClusterPolicy | None) -> list[str]:
+        """The findings of the reader's own grants for the cluster's Thanos Querier, [] when it holds them (#724).
+
+        Asked of the API server by a LocalSubjectAccessReview in openshift-monitoring, for the reader with its ServiceAccount
+        groups and without system:authenticated, so only a grant to the reader or its ServiceAccount groups counts, never one
+        to every user. The live query does not prove that: the Querier's kube-rbac-proxy reviews the token's own user, groups
+        included. The Route is read only without a clusters.yaml thanosUrl (capacity/thanos.py). A cluster that serves no
+        monitoring.coreos.com/v1 has no OpenShift monitoring, and one finding says so. A check that cannot be asked is a
+        finding too: an unknown grant is not taken as held."""
+        try:
+            if not client.served("monitoring.coreos.com/v1"):
+                return [USAGE_NO_MONITORING]
+        except (KubeError, ClusterUnreachable, BadResponse) as exc:
+            return [USAGE_UNCHECKED + str(exc)[:200]]
+        reads = [QUERY_READ] if policy and policy.thanos_url else [ROUTE_READ, QUERY_READ]
+        missing: list[str] = []
+        try:
+            for attributes, grant in reads:
+                allowed = client.access_review(MONITORING_NAMESPACE, READER_IDENTITY, READER_GROUPS, attributes)
+                if allowed is None:          # the authorizer failed to decide: not a missing grant
+                    return [USAGE_UNCHECKED + "the API server reported an authorization evaluation error"]
+                if not allowed:
+                    missing.append(f"{USAGE_FINDING}missing grant in {MONITORING_NAMESPACE}: {grant}")
+        except KubeError as exc:
+            cause = f"missing grant in {MONITORING_NAMESPACE}: {GRANT_CHECK}" if exc.status == 403 else str(exc)[:200]
+            return [USAGE_UNCHECKED + cause]
+        except (ClusterUnreachable, BadResponse) as exc:
+            return [USAGE_UNCHECKED + str(exc)[:200]]
+        return missing
+
     def _set(self, st: ClusterState, status: str, findings: list[str], version: str | None,
-             secret: Mapping[str, Any], trust: Trust | None = None, *, probed: bool = False) -> ClusterState:
-        """Records one check's outcome. `trust` is the mode the check used, None when it ended before one was chosen."""
+             secret: Mapping[str, Any], trust: Trust | None = None, *, probed: bool = False,
+             usage: list[str] | None = None) -> ClusterState:
+        """Records one check's outcome. `trust` is the mode the check used, None when it ended before one was chosen.
+        `usage`: those of `findings` that are the usage grants' (#724)."""
         # KubeClient redacts its token before any cut (#420). This second pass covers every other way a finding is made:
         # GET /api/v1/clusters serves findings to each clusters:read caller, and the log below writes them.
         forms = _diagnostic_forms(secret)
@@ -546,11 +616,14 @@ class ClusterRegistry:
         with self._lock:
             previous_status = st.status
             changed = (previous_status, st.findings) != (status, findings)
-            first_connected = status == "connected" and st.checked_at is None and previous_status == "not-imported"
+            # A first import with a usage finding (#724) is logged: it is connected, not healthy.
+            first_connected = (status == "connected" and not findings and st.checked_at is None
+                               and previous_status == "not-imported")
             if status != "connected" and st.cache is not None:
                 self._stop_caches(st)
                 st.cache, st.ledger, st.client = None, None, None
             st.status, st.findings, st.server_version = status, findings, version
+            st.usage_findings = [redact(f, forms) for f in usage or []]
             st.checked_at = datetime.now(timezone.utc)
             if status != previous_status:
                 st.status_since = st.checked_at
@@ -573,7 +646,7 @@ class ClusterRegistry:
             previous = self._set_trust(st, trust)
         self._log_mode(st.cluster_id, previous, trust)
         if changed and not first_connected:
-            emit = log.info if status == "connected" else log.warning
+            emit = log.info if status == "connected" and not findings else log.warning
             emit("cluster_import", cluster_id=st.cluster_id, status=status, previous=previous_status, findings=findings)
         return st
 
@@ -625,7 +698,7 @@ class ClusterRegistry:
             for cid, st in self.clusters.items():
                 if cid not in by_id and st.status != "not-imported":
                     previous_status = st.status
-                    st.status, st.findings = "not-imported", [NO_IMPORT_SECRET]
+                    st.status, st.findings, st.usage_findings = "not-imported", [NO_IMPORT_SECRET], []
                     st.secret_name = st.token_expires_at = None
                     set_token_expiry(cid, None)
                     st.status_since = datetime.now(timezone.utc)

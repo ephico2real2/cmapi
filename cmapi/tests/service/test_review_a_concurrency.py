@@ -121,6 +121,9 @@ def test_natural_race_rate_two_approvers(world, capsys):
         parallel(lambda: call("amy"), lambda: call("bob"))
         if client.get(f"/api/v1/requests/{rid}", headers=auth(keys, "ola", **OLA)).json()["status"] != "approved":
             stuck += 1
+        # Measured: let its capacity go. Forty small namespaces hold 320 cores on a 128-core cluster, and since #62 a request
+        # holds its quota until it ends, so the seventeenth would be refused as capacity-exceeded, not raced.
+        assert client.post(f"/api/v1/requests/{rid}:cancel", headers=auth(keys, "ola", **OLA)).status_code == 200
     with capsys.disabled():
         print(f"\n[measure] natural race, no barrier: {stuck}/{N} two-seat requests stuck pending after two approvals")
     assert stuck == 0

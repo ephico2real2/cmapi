@@ -1,6 +1,7 @@
 """The capacity arithmetic that the plan's check and GET /api/v1/capacity share (#302), and capacity.yaml as code reads it.
 
-One definition, so the commitment the Capacity tab shows is the one a plan is judged by (a service test holds them equal):
+One definition, so the commitment the Capacity tab shows is the one a plan is judged by (a service test holds them equal while
+no request holds capacity; the plan's check also counts the holds of open requests, #62, which the tab does not show yet):
     limit      = size × overcommit                 (size: clusters.yaml simulatedCapacity, else the nodes' allocatable)
     commitment = committed ÷ limit                 (may pass 1: quota is not capacity, and Kubernetes lets it pass)
     headroom   = limit − committed                 (negative when over)

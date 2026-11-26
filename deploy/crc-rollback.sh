@@ -65,11 +65,13 @@ for o in "service cmapi-api" "service cmapi-api-pods" "service cmapi-worker" "se
   # shellcheck disable=SC2086  # "kind name"
   del $o -n cmapi
 done
-# The reader's grants for Thanos in openshift-monitoring (#310): its bindings, then its Role. cluster-monitoring-metrics-api is the
-# monitoring operator's Role and stays.
+# The reader's grants for Thanos in openshift-monitoring (#310) and their check's (#724): the bindings, then the Roles.
+# cluster-monitoring-metrics-api is the monitoring operator's Role and stays.
 del rolebinding cmapi-reader-metrics-api -n openshift-monitoring
 del rolebinding cmapi-reader-thanos-route -n openshift-monitoring
+del rolebinding cmapi-reader-grant-check -n openshift-monitoring
 del role cmapi-reader-thanos-route -n openshift-monitoring
+del role cmapi-reader-grant-check -n openshift-monitoring
 del namespace cmapi-np-probe
 del namespace cmapi-imports
 del namespace cmapi-system

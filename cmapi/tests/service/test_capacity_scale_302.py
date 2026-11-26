@@ -50,10 +50,17 @@ def test_fifty_thousand_quotas_and_five_thousand_nodes(world, capsys):
         timings.append(time.perf_counter() - started)
         assert r.status_code == 200
     gets = statistics.median(timings)
+    # The check in a transaction, as submit makes it: the ledger's totals and one indexed read of the cluster's holds (#62).
+    with ctx.db.session() as s:
+        started = time.perf_counter()
+        for _ in range(100):
+            cap = ctx.pipeline.capacity.check("CRC", "dev", 1, 2**30, session=s)
+        check = (time.perf_counter() - started) / 100
+    # A plan outside a transaction (a dry run, the plan before submit) opens one pooled session for that read.
     started = time.perf_counter()
     for _ in range(100):
-        cap = ctx.pipeline.capacity.check("CRC", "dev", 1, 2**30)
-    check = (time.perf_counter() - started) / 100
+        ctx.pipeline.capacity.check("CRC", "dev", 1, 2**30)
+    check_alone = (time.perf_counter() - started) / 100
 
     [c] = r.json()["clusters"]
     assert c["cpu"]["committed"] == QUOTAS * 500 and c["managedNamespaces"] == QUOTAS
@@ -63,8 +70,12 @@ def test_fifty_thousand_quotas_and_five_thousand_nodes(world, capsys):
     per_node = (kept - base) / NODES
     with capsys.disabled():
         print(f"\n#302 scale: list {QUOTAS} quotas {list_quotas:.2f}s, list {NODES} nodes {list_nodes:.2f}s; "
-              f"GET median {gets * 1000:.1f} ms; check {check * 1000:.3f} ms; node cache keeps {per_node:.0f} B per node "
+              f"GET median {gets * 1000:.1f} ms; check {check * 1000:.3f} ms in a transaction, "
+              f"{check_alone * 1000:.3f} ms with its own session; node cache keeps {per_node:.0f} B per node "
               f"({(kept - base) / 2**20:.1f} MiB), peak during the list {(peak - base) / 2**20:.1f} MiB")
     assert gets < 0.050, f"GET took {gets * 1000:.1f} ms after the lists"
     assert check < 0.005, f"a plan's check took {check * 1000:.2f} ms"
+    # Measured 7.2 and 8.0 ms on 2026-11-26 (macOS, PostgreSQL 16 on 127.0.0.1): the session's checkout, BEGIN and COMMIT, flat in
+    # the number of quotas. Parsing the 50,000 quotas again would take over a second (design B, M2: 337 ms per 10,000).
+    assert check_alone < 0.020, f"a plan's check with its own session took {check_alone * 1000:.2f} ms"
     assert per_node < 2048, f"{per_node:.0f} B kept per node"
