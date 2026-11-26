@@ -16,3 +16,5 @@
 .cp-mono { font-family: var(--pf-t--global--font--family--mono); }
 /* The New namespace preview and the Namespaces change box (issue 484) stay in view beside a long form, as the mockups' (issue 479, P6); below md (48rem, PatternFly's grid) the one column keeps it in flow. */
 @media (min-width: 48rem) { .cp-sticky { position: sticky; inset-block-start: var(--pf-t--global--spacer--md); } }
+/* The Missing metadata panel above the namespace table (issue 739): the space PatternFly puts between stacked items. */
+.cp-gap-below { margin-block-end: var(--pf-t--global--spacer--md); }

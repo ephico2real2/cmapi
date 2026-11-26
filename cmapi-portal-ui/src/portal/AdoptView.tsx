@@ -6,9 +6,13 @@
 //   1. AdoptView: the candidates of the cluster (useAdoptionList "candidates") and the labelled namespaces that a rule skips
 //      (useAdoptionList "skipped"), each read now from the cluster.
 //   2. "Adopt <ns>" opens AdoptOne, whose address is #namespaces?view=adopt&cluster=<id>&adopt=<ns>.
-//   3. Check (dry run): POST .../namespaces/{ns}:adopt?dryRun=true (useAdoptPlan). The plan shows the objects read, its findings,
-//      the keys under a skip prefix, what stays unmanaged, the files and the approval. Nothing is written.
-//   4. Submit adoption request: the same body with one Idempotency-Key (useSubmitAdoption); a 202 shows the request.
+//   3. Missing metadata (#739): below the plan, one field for each required key that the namespace lacks (the candidate's
+//      missingKeys), and the optional ones behind "More". A key that cmapi fills in or that starts the name is read-only with
+//      the API's value and always sent; an empty field adds nothing, and its key stays a finding until a request adds it.
+//   4. Check (dry run): POST .../namespaces/{ns}:adopt?dryRun=true with the keys (useAdoptPlan). The plan shows the objects
+//      read, the keys it adds, its findings, the keys under a skip prefix, what stays unmanaged, the files and the approval.
+//      Nothing is written.
+//   5. Submit adoption request: the same body with one Idempotency-Key (useSubmitAdoption); a 202 shows the request.
 import {
   ActionGroup, Alert, AlertActionLink, Button, CodeBlock, CodeBlockCode, EmptyState, EmptyStateBody, ExpandableSection, Form, FormGroup, Grid,
   GridItem, Label, List, ListItem, Skeleton, Stack, TextArea, Title
@@ -21,13 +25,21 @@ import { useAdoptionList, useAdoptPlan, useSubmitAdoption } from "../api/hooks";
 import type { AdoptionStanding, ChangeRequest, Cluster, Plan, PlannedAdoption } from "../api/hooks";
 import { ApiProblem } from "../api/problem";
 import { Callout, Hint, Panel, Small } from "../components/ui";
+import { checkField, errorsByField } from "./metadataForm";
+import type { MetaForm } from "./metadataForm";
+import { MissingMetadata } from "./MissingMetadata";
+import { addedOf, missingFields, stillMissing } from "./missingKeys";
+import type { MissingField } from "./missingKeys";
+import { sharedPatternTest } from "./patterns";
 import { approvalCard } from "./plan";
 import type { TabProps } from "./route";
 
 const PASSED = "The check passed (dry run, 200). Nothing is written yet.";
 
 /** The candidates and the skipped namespaces of one cluster, and the adoption of one of them. */
-export function AdoptView({ cluster, adopt, onAdopt, open }: { cluster: Cluster; adopt: string; onAdopt: (ns: string) => void; open: TabProps["open"] }) {
+export function AdoptView({ cluster, adopt, form, onAdopt, open }: {
+  cluster: Cluster; adopt: string; form: MetaForm; onAdopt: (ns: string) => void; open: TabProps["open"];
+}) {
   const candidates = useAdoptionList(cluster.clusterId, "candidates");
   const skipped = useAdoptionList(cluster.clusterId, "skipped");
   return (
@@ -43,7 +55,11 @@ export function AdoptView({ cluster, adopt, onAdopt, open }: { cluster: Cluster;
         <Title headingLevel="h3" size="md">Labelled, and skipped</Title>
         <StandingTable result={skipped} empty="No labelled namespace is skipped." label={`Labelled namespaces of ${cluster.clusterId} that are not adopted`} />
       </Panel>
-      {adopt && <AdoptOne key={`${cluster.clusterId}/${adopt}`} cluster={cluster} ns={adopt} open={open} />}
+      {adopt && candidates.state === "loading" && <Skeleton />}
+      {adopt && candidates.state !== "loading" && (
+        <AdoptOne key={`${cluster.clusterId}/${adopt}`} cluster={cluster} ns={adopt} form={form} open={open}
+          missing={candidates.state === "ok" ? candidates.data.items.find((s) => s.name === adopt)?.missingKeys ?? [] : []} />
+      )}
     </Stack>
   );
 }
@@ -80,9 +96,15 @@ function StandingTable({ result, empty, label, onAdopt }: {
   );
 }
 
-/** The plan of one adoption beside its Justification, Check and Submit. */
-function AdoptOne({ cluster, ns, open }: { cluster: Cluster; ns: string; open: TabProps["open"] }) {
+/** The plan of one adoption, the metadata it lacks below it, and beside them its Justification, Check and Submit. */
+function AdoptOne({ cluster, ns, form, missing, open }: {
+  cluster: Cluster; ns: string; form: MetaForm; missing: NonNullable<AdoptionStanding["missingKeys"]>; open: TabProps["open"];
+}) {
   const [why, setWhy] = useState("");
+  // The values typed into the Missing metadata fields, by valueKey; the fields' own problems after the last Check.
+  const [typed, setTyped] = useState<Record<string, string>>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string | null>>({});
+  const fields = missingFields(form, missing);
   const [asked, setAsked] = useState<PlannedAdoption | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState<ChangeRequest | null>(null);
@@ -96,19 +118,39 @@ function AdoptOne({ cluster, ns, open }: { cluster: Cluster; ns: string; open: T
     if (sent.current?.request !== request) sent.current = { key: crypto.randomUUID(), request };
     return sent.current.key;
   };
-  const current: PlannedAdoption = { clusterId: cluster.clusterId, ns, justification: why.trim() };
+  const current: PlannedAdoption = { clusterId: cluster.clusterId, ns, justification: why.trim(), ...addedOf(fields, typed) };
   const planIsOfForm = asked !== null && JSON.stringify(asked) === JSON.stringify(current);
   const planOk = plan.state === "ok" && planIsOfForm ? plan.data : null;
   const canSubmit = planOk !== null && submit.state !== "sending" && done === null;
 
-  const onCheck = () => {
+  // A refusal of the dry run that names a field puts its words under that field (errorsByField, by the form's field id).
+  const refusedBy = plan.state === "refused" && planIsOfForm ? errorsByField(plan.errors ?? [], form).byField : {};
+  const shownErrors: Record<string, string | null> = Object.fromEntries(fields.map((f) => [f.id, fieldErrors[f.id] ?? refusedBy[f.field.id] ?? null]));
+
+  /** The form's own checks of each value typed, by the API's rules, then the dry run of exactly this adoption. */
+  const onCheck = async () => {
     setDone(null);
     setNotSent(null);
+    const found: Record<string, string | null> = {};
+    for (const f of fields) {
+      const value = typed[f.id] ?? "";
+      // An empty field adds nothing: the key stays missing and a finding, as the owner's decision 2 on #26 says.
+      if (f.fixed === null && value !== "") found[f.id] = await checkField(f.field, value, { namespace: ns, labelValue: form.labelValue }, sharedPatternTest, true);
+    }
+    setFieldErrors(found);
+    const bad = fields.filter((f) => found[f.id]);
     if (!current.justification) { setProblem("Justification: say why this namespace is adopted."); return; }
+    if (bad.length) { setProblem(`Missing metadata: ${bad.map((f) => `${f.field.title ?? f.field.key}: ${found[f.id]}`).join("; ")}`); return; }
     setProblem(null);
     if (planIsOfForm) plan.reload();
     else setAsked(current);
   };
+  const type = (f: MissingField, value: string) => {
+    setTyped((t) => ({ ...t, [f.id]: value }));
+    setFieldErrors((e) => ({ ...e, [f.id]: null }));
+    setDone(null);
+  };
+  const left = stillMissing(fields, typed);
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!canSubmit || !asked) return;
@@ -136,7 +178,7 @@ function AdoptOne({ cluster, ns, open }: { cluster: Cluster; ns: string; open: T
       return (
         <Callout tone="ok" title={PASSED}>
           <div>{`${appr.title}. ${appr.detail}`}</div>
-          <Small>{`${(planOk.findings ?? []).length} findings · ${planOk.adoption?.objects.length ?? 0} objects read · ${appr.rule}`}</Small>
+          <Small>{`${(planOk.findings ?? []).length} findings · ${planOk.adoption?.objects.length ?? 0} objects read · ${addedCount(planOk)} keys added · ${appr.rule}`}</Small>
         </Callout>
       );
     }
@@ -154,9 +196,18 @@ function AdoptOne({ cluster, ns, open }: { cluster: Cluster; ns: string; open: T
   return (
     <Grid hasGutter>
       <GridItem md={7}>
-        <Panel title={`Adopt ${ns}`}>
-          {planOk ? <PlanDetail plan={planOk} /> : <Small>Press Check (dry run) to read the namespace from the cluster and see what its adoption writes.</Small>}
-        </Panel>
+        <Stack hasGutter>
+          <Panel title={`Adopt ${ns}`}>
+            {planOk ? <PlanDetail plan={planOk} /> : <Small>Press Check (dry run) to read the namespace from the cluster and see what its adoption writes.</Small>}
+          </Panel>
+          <Panel title="Missing metadata">
+            <Hint>
+              {`The keys that the rules declare and ${ns} lacks. The adoption adds what you fill in; a key that cmapi fills in or that starts the name is added with its one value. Leave a field empty to add it later: each required key stays a finding until a request adds it.`}
+            </Hint>
+            <MissingMetadata fields={fields} values={typed} errors={shownErrors} prefix="adopt" onChange={type} />
+            {left.length > 0 && <Small>{`Still missing after this adoption: ${left.map((f) => f.field.title ?? f.field.key).join(", ")}.`}</Small>}
+          </Panel>
+        </Stack>
       </GridItem>
       <GridItem md={5} className="cp-sticky">
         <Panel title="Your adoption">
@@ -166,7 +217,7 @@ function AdoptOne({ cluster, ns, open }: { cluster: Cluster; ns: string; open: T
             </FormGroup>
             <div id="adopt-status">{status()}</div>
             <ActionGroup>
-              <Button variant="secondary" type="button" onClick={onCheck}>Check (dry run)</Button>
+              <Button variant="secondary" type="button" onClick={() => void onCheck()}>Check (dry run)</Button>
               <Button variant="primary" type="submit" isAriaDisabled={!canSubmit} aria-describedby="adopt-status" isLoading={submit.state === "sending"}>Submit adoption request</Button>
             </ActionGroup>
           </Form>
@@ -176,10 +227,16 @@ function AdoptOne({ cluster, ns, open }: { cluster: Cluster; ns: string; open: T
   );
 }
 
-/** What the plan read and writes: the objects, the findings, the skipped keys, what stays unmanaged, and each file. */
+/** How many labels and annotations the adoption adds (#739), from the plan's metadataDiff. */
+const addedCount = (plan: Plan): number =>
+  Object.keys(plan.metadataDiff?.labels ?? {}).length + Object.keys(plan.metadataDiff?.annotations ?? {}).length;
+
+/** What the plan read and writes: the objects, the keys it adds, the findings, the skipped keys, what stays unmanaged, and each file. */
 function PlanDetail({ plan }: { plan: Plan }) {
   const adoption = plan.adoption;
   const unmanaged = Object.entries(adoption?.notAdopted ?? {}).filter(([, n]) => n !== 0);
+  const added = (["labels", "annotations"] as const).flatMap((m) => Object.entries(plan.metadataDiff?.[m] ?? {})
+    .map(([key, c]) => ({ kind: m === "labels" ? "label" : "annotation", key, value: c.after ?? "" })));
   return (
     <Stack hasGutter>
       <Title headingLevel="h3" size="md">Objects read from the cluster</Title>
@@ -194,6 +251,14 @@ function PlanDetail({ plan }: { plan: Plan }) {
           ))}
         </Tbody>
       </Table>
+      {added.length > 0 && (
+        <>
+          <Title headingLevel="h3" size="md">Keys this adoption adds</Title>
+          <List aria-label="Keys this adoption adds">
+            {added.map((a) => <ListItem key={`${a.kind}:${a.key}`}><code>{`${a.kind} ${a.key}: ${a.value}`}</code></ListItem>)}
+          </List>
+        </>
+      )}
       <Title headingLevel="h3" size="md">Findings: reported, never changed</Title>
       {(plan.findings ?? []).length === 0 ? <Small>No finding: the namespace follows every rule.</Small> : (
         <List aria-label="Findings">
