@@ -63,9 +63,10 @@ monitoring operator's, `openshift/cluster-monitoring-operator` branch `release-4
      `get` on `namespaces` is the check of the user-defined Prometheus's `/federate`
      (`assets/prometheus-user-workload/kube-rbac-proxy-federate-secret.yaml`).
 
-So the namespaced Role is the least grant that the Route accepts, and it is the one the vendor names for this purpose. Stated
-honestly: the reader already holds `get` on `namespaces` cluster-wide for its watch cache, so `cluster-monitoring-view` would add
-little to it in practice. The namespaced binding still adds only what the query needs, and does not depend on that overlap.
+The namespaced Role is the narrowest documented platform role for the Querier API. A custom Role could grant only the GET
+verb cmapi uses. The reader already holds cluster-wide `get` on `namespaces` for its watch cache, which satisfies the
+separate user-workload `/federate` authorization check. Step 23 checks the namespace boundary of the new metrics grant
+by asking for the same `prometheuses/api` name `k8s` in another namespace.
 
 5. **The 4.22 doc's other sentence.** `modules/monitoring-about-accessing-monitoring-web-service-apis.adoc`: "To access Thanos Ruler
    and Thanos Querier service APIs, the requesting account must have `get` permission on the namespaces resource, which can be granted
@@ -107,4 +108,31 @@ changed here: docs/02 is a live Claude Doc, edited there first.
 | `test_crc_reads_usage_from_thanos_and_kind_reads_none` | fails | passes |
 | `test_crc_reader_may_query_thanos_through_the_namespaced_monitoring_role_alone` | fails | passes |
 | `test_crc_rollback_names_every_object_the_run_creates` | passes | failed with the three objects and the old rollback; passes with the rollback naming them |
-| `deploy/tests/crc-scripts-test.sh`: the proof stops without the Route grant, with the query allowed only by a binding to everyone, with the user-defined Prometheus reachable, with no or zero `kube_resourcequota` | n/a | each stops |
+| `deploy/tests/crc-scripts-test.sh`: the proof stops without the Route grant, with the query allowed only by a binding to everyone, with the same named metrics API permission extending to the user-workload namespace, with a positive count carrying a store warning, with no or zero `kube_resourcequota` | n/a | each stops |
+
+## Review and the coordinator's rulings (2026-11-26)
+
+**Reviewer 1:** Codex gpt-6.2-astra xhigh (`review/reviewer-1-codex.md`). It **confirmed the RBAC**:
+- `cluster-monitoring-metrics-api` is the smallest documented platform role;
+- the Route `get` is required, because no `thanosUrl` is set;
+- the rollback removes exactly the three new objects.
+
+Its findings, all fixed with Codex's patch:
+- **Medium:** the negative SubjectAccessReview asked about `prometheuses/api` `user-workload`, which a broad grant would not have matched either, so it could certify a false isolation. It now checks the boundary correctly.
+- **Medium:** the reader smoke test used the workstation CA, omitted `partial_response=false`, and ignored the status and warnings. A Thanos answer cmapi treats as unavailable could pass it. It now checks them.
+- **Low:** an edit to a comment in the kind ConfigMap triggered a rollout. Reverted.
+
+**Reviewer 2:** PR #724, which is stacked on this branch, gives cmapi's reader the same grant on every onboarded cluster. It gets two reviewers over the same RBAC, which is the second look at it. This PR's code change after review is limited to the proof scripts and that comment.
+
+**OpenShift 4.18+:** the Role and the Thanos Querier web proxy's check are identical on release-4.18 and release-4.22 (see the PR comment).
+
+**Owner, 2026-11-26:** "cmapi must grant it own permission to the pods with or without openshift coo". This PR grants cmapi's own RoleBindings, and the proof excludes `system:authenticated`.
+
+**Run:**
+- `crc-scripts-test.sh`: 0 failed;
+- plain manifests, usage review and reader import: 116 passed;
+- render: 0 failed;
+- shellcheck: clean;
+- citations: 0 problems.
+
+**docs/13 test** (with PyYAML): 0 cases failed, 0 mutants survived.

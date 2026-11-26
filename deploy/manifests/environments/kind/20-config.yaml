@@ -50,8 +50,8 @@ data:
     snapshotInterval: 30m
     overcommit: {"dev":{"cpu":2,"memory":1.25},"rnd":{"cpu":2,"memory":1.25}}
     targets: {"dev":{"commitment":{"critical":0.95,"warn":0.85},"utilisation":{"critical":0.9,"warn":0.75}},"rnd":{"commitment":{"critical":0.95,"warn":0.85},"utilisation":{"critical":0.9,"warn":0.75}}}
-    # Live 14-day usage and the daily verdicts (#310): none, so every plan and row says insufficient data. A kind cluster has no
-    # OpenShift monitoring and no Thanos Querier to read.
+    # Live 14-day usage and the daily verdicts (#310): none, so every plan and row says insufficient data. CRC runs with
+    # openshift-monitoring off (#489), and the reader has no cluster-monitoring-view grant here.
     usage: {"source":"none"}
   approval-rules.yaml: |
     # examples/instances/nonprod/approval-rules.yaml: deployed as config/approval-rules.yaml on the nonprod instance

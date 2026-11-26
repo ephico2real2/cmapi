@@ -32,14 +32,14 @@ case "$s" in
   # crc-image.sh (#545): the pull secret's type, GHCR's answer through the cluster's importer, the import, and the image stream tag. Each answer
   # is the object the API returns, rendered with the script's own output template by a real kubectl, offline, so a wrong path in the script fails here.
   "get secret cmapi-ghcr-pull -n cmapi --ignore-not-found -o jsonpath={.type}") [ -n "${STUB_NO_PULL_SECRET:-}" ] || printf '%s' "${STUB_PULL_SECRET_TYPE:-kubernetes.io/dockerconfigjson}"; exit 0;;
-  # The proof's SubjectAccessReviews for the reader's Thanos grants (#310): each allowed by cmapi's own RoleBinding, the user-defined
-  # Prometheus refused. A review that names system:authenticated is allowed by a binding to everyone, as on CRC, so it proves nothing.
-  "create -o jsonpath={.status.allowed} {.status.reason} -f -") body=$(cat); printf '%s\n' "$body" >>"$ARGV_LOG.sar"
+  # The proof's SubjectAccessReviews for the reader's Thanos grants (#310): each allowed by cmapi's own RoleBinding. The same API resource is refused
+  # in another namespace. A review that names system:authenticated is allowed by a binding to everyone, as on CRC, so it proves nothing.
+  "create -o go-template={{if .status.evaluationError}}inconclusive{{else}}{{.status.allowed}} {{.status.reason}}{{end}} -f -") body=$(cat); printf '%s\n' "$body" >>"$ARGV_LOG.sar"
     case "$body" in *system:authenticated*) printf 'true RBAC: allowed by ClusterRoleBinding "everyone"'; exit 0;; esac
     case "$body" in
       *'"name":"thanos-querier"'*) printf '%s' "${STUB_SAR_ROUTE-true RBAC: allowed by RoleBinding \"cmapi-reader-thanos-route/openshift-monitoring\" of Role \"cmapi-reader-thanos-route\" to ServiceAccount \"cmapi-reader/cmapi-system\"}";;
-      *'"name":"k8s"'*) printf '%s' "${STUB_SAR_API-true RBAC: allowed by RoleBinding \"cmapi-reader-metrics-api/openshift-monitoring\" of Role \"cluster-monitoring-metrics-api\" to ServiceAccount \"cmapi-reader/cmapi-system\"}";;
-      *'"name":"user-workload"'*) printf '%s' "${STUB_SAR_UWM-false }";;
+      *'"namespace":"openshift-user-workload-monitoring","group":"monitoring.coreos.com","resource":"prometheuses","subresource":"api","name":"k8s"'*) printf '%s' "${STUB_SAR_UWM-false }";;
+      *'"namespace":"openshift-monitoring","group":"monitoring.coreos.com","resource":"prometheuses","subresource":"api","name":"k8s"'*) printf '%s' "${STUB_SAR_API-true RBAC: allowed by RoleBinding \"cmapi-reader-metrics-api/openshift-monitoring\" of Role \"cluster-monitoring-metrics-api\" to ServiceAccount \"cmapi-reader/cmapi-system\"}";;
       *'"resource":"localsubjectaccessreviews"'*) printf '%s' "${STUB_SAR_CHECK-true RBAC: allowed by RoleBinding \"cmapi-reader-grant-check/openshift-monitoring\" of Role \"cmapi-reader-grant-check\" to ServiceAccount \"cmapi-reader/cmapi-system\"}";;
       *) echo "stub oc: unhandled review $body" >&2; exit 3;;
     esac; exit 0;;
@@ -213,7 +213,16 @@ Content-Security-Policy: default-src 'self'; script-src 'self'
       printf '%s\n%s' "${STUB_PLAN_BODY-{\"changes\":{\"clusters/CRC/namespaces/abc-proof-plan-dev/namespace.yaml\":\"+\"\}\}}" "${STUB_PLAN:-200}"; exit 0;;
     # Prometheus's answer: a series per target, each with its job label, as the ServiceMonitors make them (job is the Service's name).
     */api/v1/query*) api='{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'; wrk='{"metric":{"job":"cmapi-worker"},"value":[0,"1"]}'; quotas='{"metric":{},"value":[0,"108"]}'
-      case "$*" in *'count(kube_resourcequota)'*) case "$STDIN_SEEN" in *"reader.$TOKEN"*) ;; *) exit 22;; esac; printf '{"data":{"result":[%s]}}' "${STUB_QUOTAS-$quotas}";; *cluster_token_expiry_seconds*' > bool 0'*) printf '{"data":{"result":[%s]}}' "${STUB_EXPIRY-$api,$wrk}";; *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-$api,$wrk}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-$api,$wrk}";; esac; exit 0;;
+      case "$*" in
+        *'count(kube_resourcequota)'*)
+          case "$STDIN_SEEN" in *"reader.$TOKEN"*) ;; *) exit 22;; esac
+          for arg in partial_response=false dedup=true timeout=10s; do
+            case " $* " in *" --data-urlencode $arg "*) ;; *) exit 22;; esac
+          done
+          while [ "$1" != --cacert ]; do shift || exit 22; done
+          cmp -s "$2" "$STUB_CA" || exit 60
+          printf '{"status":"success","warnings":%s,"data":{"resultType":"vector","result":[%s]}}' "${STUB_WARNINGS-[]}" "${STUB_QUOTAS-$quotas}";;
+        *cluster_token_expiry_seconds*' > bool 0'*) printf '{"data":{"result":[%s]}}' "${STUB_EXPIRY-$api,$wrk}";; *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-$api,$wrk}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-$api,$wrk}";; esac; exit 0;;
   esac
   [ -z "$wants" ] || printf '%s' "$code"; exit 0
 fi
@@ -397,11 +406,11 @@ ln -s "$W" "$B"; got=$("$D/crc-backup.sh" >"$W/out" 2>&1; echo $?); [ "$got" != 
 # crc-proof.sh
 export STUB_PROOF=1 CMAPI_PROOF_SCRAPE_TRIES=1 CMAPI_CRC_CA=$W/mac.pem; P=$W/rendered; mkdir -p "$P"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa\n' >"$P/IMAGE"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@sha256:pppp\n' >"$P/PORTAL_IMAGE"
 : >"$ARGV_LOG.sar"; want "proof passes when all is right" 0 "$(run "$D/crc-proof.sh" "$P")"; [ "$(tail -1 "$W/out")" = "proof: all passed" ] || bad "the proof's last line: $(tail -1 "$W/out")"
-# The reader's Thanos grants (#310) and the import check's review of them (#724): four reviews, each for the reader and its own
+# The reader's Thanos grants (#310) and the import check's review of them (#724): each review for the reader and its own
 # groups alone, its own token's query, and cmapi's own check of CRC with no usage finding.
 grep -qxF "proof: cmapi's import check finds the reader's own usage grants on CRC: no usage finding" "$W/out" \
   && ok "the proof records cmapi's import check of the usage grants" || bad "the import check's record: $(grep -i 'usage' "$W/out" | head -1)"
-grep -qxF 'proof: the reader reads Thanos by cmapi-reader-thanos-route and cmapi-reader-metrics-api alone, not the user-defined Prometheus: count(kube_resourcequota) = 108' "$W/out" \
+grep -qxF 'proof: the reader has the two cmapi Thanos grants in openshift-monitoring: count(kube_resourcequota) = 108' "$W/out" \
   && ok "the proof records the reader's Thanos grants and its query" || bad "the reader's Thanos record: $(grep -i thanos "$W/out" | head -1)"
 [ "$(grep -c '"user":"system:serviceaccount:cmapi-system:cmapi-reader","groups":\["system:serviceaccounts","system:serviceaccounts:cmapi-system"\]' "$ARGV_LOG.sar")" = 4 ] \
   && ! grep -q 'system:authenticated' "$ARGV_LOG.sar" && ok "each review names the reader's groups without system:authenticated" || bad "the reviews: $(cat "$ARGV_LOG.sar")"
@@ -501,9 +510,11 @@ grep -q '^FAIL: the reader may not create localsubjectaccessreviews/ in openshif
 pstop "a usage finding of cmapi's import check on CRC" 'STUB_CLUSTERS={"clusterId":"CRC","status":"connected","findings":["usage: missing grant in openshift-monitoring: x"]}'
 grep -q "^FAIL: cmapi's import check of CRC is not connected without usage findings: connected usage: missing grant" "$W/out" && ok "a usage finding on CRC is named" || bad "a usage finding on CRC was not named: $(tail -1 "$W/out")"
 pstop "CRC not connected" 'STUB_CLUSTERS={"clusterId":"CRC","status":"forbidden","findings":[]}'
-pstop "the reader reaching the user-defined Prometheus" 'STUB_SAR_UWM=true RBAC: allowed by ClusterRoleBinding "x" of ClusterRole "cluster-monitoring-view" to ServiceAccount "cmapi-reader/cmapi-system"'
+pstop "the named monitoring API grant extends to another namespace" 'STUB_SAR_UWM=true RBAC: allowed by ClusterRoleBinding "x" of ClusterRole "cluster-monitoring-view" to ServiceAccount "cmapi-reader/cmapi-system"'
+pstop "a positive count with a Thanos store warning" 'STUB_WARNINGS=["store unavailable"]'
+pstop "an inconclusive scope review" 'STUB_SAR_UWM=inconclusive'
 pstop "no kube_resourcequota series as the reader" STUB_QUOTAS=
-pstop "kube_resourcequota counted 0 as the reader" 'STUB_QUOTAS={"value":[0,"0"]}'
+pstop "kube_resourcequota counted 0 as the reader" 'STUB_QUOTAS={"metric":{},"value":[0,"0"]}'
 pstop "a target Prometheus does not scrape" 'STUB_UP={"value":[0,"1"]}'
 pstop "two api targets up and no worker" 'STUB_UP={"metric":{"job":"cmapi-api"},"value":[0,"1"]},{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'
 pstop "worker has not observed the bounded import" 'STUB_EXPIRY={"metric":{"job":"cmapi-api"},"value":[0,"1"]}'

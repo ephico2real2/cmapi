@@ -92,7 +92,7 @@ subjects:
 ---
 # The query: the Route's kube-rbac-proxy allows a request whose token may get prometheuses/api "k8s" in openshift-monitoring
 # (cluster-monitoring-operator, assets/thanos-querier/kube-rbac-proxy-web-secret.yaml). The platform's own Role
-# cluster-monitoring-metrics-api grants that and nothing else, and OpenShift 4.22 names it for "access [to] Thanos Querier API
+# cluster-monitoring-metrics-api grants get, create and update on that named subresource. OpenShift 4.22 names it for "access [to] Thanos Querier API
 # endpoints". Not cluster-monitoring-view, the ClusterRole bound cluster-wide: it holds the same rule for every namespace, plus get
 # on namespaces, the gate of the user-defined Prometheus's /federate. docs/reviews/2026-11-26-crc-usage-thanos/ has the sources.
 apiVersion: rbac.authorization.k8s.io/v1
