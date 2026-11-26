@@ -682,7 +682,8 @@ class Pipeline:
         beyond = {k: v for k, v in beyond.items() if k not in approved or qty(approved[k]) != qty(v["requested"])}
         existing = namespace_doc(current) is not None
         exposure_base = old_hard if existing or tier not in offered else offered[tier].quota
-        facts = {**tiers.compare(env, old_tier, old_hard, tier, hard).facts(),
+        # A create has no quota change: a planned one carries no tierChange or quotaIncreasePct, and neither does its restore.
+        facts = {**(tiers.compare(env, old_tier, old_hard, tier, hard).facts() if existing else {}),
                  "capacity": cap.status, "capacityFresh": cap.fresh, "beyondTier": bool(beyond), "beyondTierKeys": sorted(beyond),
                  # A folder that Git no longer holds is written again as a create: exposure over what the tier gives, and the
                  # metadata of a new namespace (the first cmapi.net/team is no change of it).
@@ -693,6 +694,18 @@ class Pipeline:
         if old_hard and (old_hard.keys() != hard.keys() or any(qty(old_hard[k]) != qty(hard[k]) for k in hard)):
             usage_view, usage_facts = plan_usage(self.usage.namespace(cluster_id, ns), old_hard, hard)
             facts.update(usage_facts)
+        held_expiry = before["annotation"].get("cmapi.net/expires-at")
+        restored_expiry = after["annotation"].get("cmapi.net/expires-at")
+        if restored_expiry != held_expiry:
+            # The date that the restore writes, judged as the request that writes it: a create's expiry, a :set, an :extend or
+            # a :makePermanent. Its lifetime counts from the day the namespace was created on its cluster, as a change's does:
+            # one that is not there counts from today, as a create does.
+            created = created_day(self.registry.cache(cluster_id).namespace(ns)) or utc_today()
+            expiry = self.cfg.expiration.plan_restore(
+                env, created, date.fromisoformat(restored_expiry) if restored_expiry else None,
+                held=date.fromisoformat(held_expiry) if held_expiry else None, existing=existing)
+            if expiry:
+                facts.update(expiry.facts())
         return cap, facts, usage_view, beyond
 
     def _live_committed(self, cluster_id: str, ns: str, current: Mapping[str, str | None]) -> dict[str, Decimal]:

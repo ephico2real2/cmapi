@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import shutil
 
+import pytest
 import yaml
 from sqlalchemy import text
 
@@ -39,17 +40,19 @@ def test_a_change_that_drops_the_nodeport_bound_is_exposure(test_config, tmp_pat
         assert any("networkExposure" in r for r in plan.json()["approval"]["reasons"]), plan.json()["approval"]
 
 
-def test_a_revert_that_removes_the_nodeport_bound_is_exposure(world):
-    """Git's quota had no services.nodeports (an older catalog); a label change rendered "0"; its revert removes it."""
+@pytest.mark.parametrize("key", ["services.nodeports", "services.loadbalancers"])
+def test_a_revert_that_removes_the_nodeport_bound_is_exposure(world, key):
+    """Git's quota had no services.nodeports (an older catalog); a label change rendered "0"; its revert removes it. The same
+    for services.loadbalancers."""
     client, ctx, git, kube, validator, keys = world
     created(world)
     rq = yaml.safe_load(git.branches["main"][QUOTA_FILE])
-    del rq["spec"]["hard"]["services.nodeports"]
+    del rq["spec"]["hard"][key]
     git.branches["main"][QUOTA_FILE] = yaml.safe_dump(rq, sort_keys=False)
     git._sha("main")
     low = patch(world, LABEL, dry_run=False).json()["requestId"]
     run_jobs(ctx)
-    assert yaml.safe_load(git.branches["main"][QUOTA_FILE])["spec"]["hard"]["services.nodeports"] == "0"
+    assert yaml.safe_load(git.branches["main"][QUOTA_FILE])["spec"]["hard"][key] == "0"
     with ctx.db.session() as s:
         s.execute(text("update change_requests set status='sync_failed' where request_id=:r"), {"r": low})
     assert client.post(f"/api/v1/requests/{low}:revert", headers=auth(keys, "opal", **OPAL)).status_code == 200
