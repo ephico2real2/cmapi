@@ -82,6 +82,10 @@ grep -q "sha256:DIGEST" "$D/manifests/environments/crc/realm/20-realm-sync.yaml"
 m=$(grep -rF "$INTERNAL" "$W/o5/components" "$W/o5/environment" | wc -l | tr -d ' ')
 want "five placeholders filled for crc" "$m filled for crc, not 5" [ "$m" = 5 ]
 want "the realm import has no image of ours" "the realm import names the image" sh -c "! grep -q cmapi@ '$W/o5/environment/realm/10-realm-import.yaml'"
+# CRC's source tests check the actual rules and usage setting. Verify both files reach the runbook paths.
+for f in 20-config.yaml reader/00-cmapi-reader.yaml; do
+  want "crc renders $f verbatim" "crc lost or changed $f" cmp -s "$D/manifests/environments/crc/$f" "$W/o5/environment/$f"
+done
 CK=$(grep -h 'checksum/config:' "$W/o5/components/cmapi/20-api.yaml" | sed -E 's/^ *checksum\/config: //')
 for f in 10-env 20-config 30-trust; do
   cp "$D/manifests/environments/crc/$f.yaml" "$W/keep.yaml"; printf '# changed\n' >>"$D/manifests/environments/crc/$f.yaml"

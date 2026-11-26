@@ -1,7 +1,8 @@
 # The reader baseline as plain YAML: what cmapi needs to read a cluster, and nothing more. From examples/baseline/cmapi-reader-rbac.yaml,
 # cut to what the code calls: core/registry.py's six checks, core/clients/kube.py's WatchCache KINDS, pipeline.workload_counts, the
 # policy reports and ValidatingPolicies of core/clients/policyreports.py (#302), and the nodes of core/clients/nodes.py for the
-# Capacity tab (#302; the owner, 2026-11-18). Discovery needs no rule (system:discovery).
+# Capacity tab (#302; the owner, 2026-11-18), and the Thanos Querier of capacity/thanos.py for the live usage (#310, Part of #22).
+# Discovery needs no rule (system:discovery).
 # The identity check needs no rule here: users/~ and selfsubjectreviews are for every authenticated user. Later waves add their own
 # rule in their own pull request. The import Secret holding this token is not YAML: deploy/crc-reader-import.sh writes it.
 apiVersion: v1
@@ -61,5 +62,44 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata: {name: cmapi-reader-renew, namespace: cmapi-system}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-reader-renew}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}
+---
+# The live 14-day usage and the daily verdicts (#310, capacity.yaml usage.source thanos), two grants in openshift-monitoring alone.
+# The Route: capacity/thanos.py reads the host of Route thanos-querier (ROUTE_PATH) when clusters.yaml has no thanosUrl.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cmapi-reader-thanos-route
+  namespace: openshift-monitoring
+  labels: {app.kubernetes.io/part-of: cmapi}
+rules:
+  - apiGroups: [route.openshift.io]
+    resources: [routes]
+    resourceNames: [thanos-querier]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cmapi-reader-thanos-route
+  namespace: openshift-monitoring
+  labels: {app.kubernetes.io/part-of: cmapi}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-reader-thanos-route}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}
+---
+# The query: the Route's kube-rbac-proxy allows a request whose token may get prometheuses/api "k8s" in openshift-monitoring
+# (cluster-monitoring-operator, assets/thanos-querier/kube-rbac-proxy-web-secret.yaml). The platform's own Role
+# cluster-monitoring-metrics-api grants get, create and update on that named subresource. OpenShift 4.22 names it for "access [to] Thanos Querier API
+# endpoints". Not cluster-monitoring-view, the ClusterRole bound cluster-wide: it holds the same rule for every namespace, plus get
+# on namespaces, the gate of the user-defined Prometheus's /federate. docs/reviews/2026-11-26-crc-usage-thanos/ has the sources.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cmapi-reader-metrics-api
+  namespace: openshift-monitoring
+  labels: {app.kubernetes.io/part-of: cmapi}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cluster-monitoring-metrics-api}
 subjects:
   - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}

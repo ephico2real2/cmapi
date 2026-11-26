@@ -59,9 +59,10 @@ data:
     snapshotInterval: 30m
     overcommit: {"dev":{"cpu":2,"memory":1.25},"rnd":{"cpu":2,"memory":1.25}}
     targets: {"dev":{"commitment":{"critical":0.95,"warn":0.85},"utilisation":{"critical":0.9,"warn":0.75}},"rnd":{"commitment":{"critical":0.95,"warn":0.85},"utilisation":{"critical":0.9,"warn":0.75}}}
-    # Live 14-day usage and the daily verdicts (#310): none, so every plan and row says insufficient data. CRC runs with
-    # openshift-monitoring off (#489), and the reader has no cluster-monitoring-view grant here.
-    usage: {"source":"none"}
+    # Live 14-day usage and the daily verdicts (#310, Part of #22): CRC's Thanos Querier, found by its Route thanos-querier in
+    # openshift-monitoring, with the reader's token. The owner turned monitoring back on, 2026-11-26; the reader's two grants in
+    # openshift-monitoring are in reader/00-cmapi-reader.yaml (docs/13, step 7). The only key that differs from kind's.
+    usage: {"source":"thanos"}
   approval-rules.yaml: |
     # examples/instances/nonprod/approval-rules.yaml: deployed as config/approval-rules.yaml on the nonprod instance
     # allowedEnvironments: ['rnd', 'dev']. Generated from examples/config/approval-rules.yaml.
