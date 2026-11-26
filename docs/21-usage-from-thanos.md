@@ -116,14 +116,14 @@ from the file. The file also creates the Namespace `cmapi-system` and the Servic
 | Rule | API group and resources | Verbs | Why cmapi needs it |
 |---|---|---|---|
 | 1 (`examples/baseline/cmapi-reader-rbac.yaml:23-25`) | core: `namespaces`, `nodes`, `resourcequotas`, `limitranges`, `serviceaccounts` | get, list, watch | Namespaces, ResourceQuotas and LimitRanges are the kinds `WatchCache` watches (`cmapi/src/cmapi/core/clients/kube.py:399`), and check 6 lists Namespaces (`cmapi/src/cmapi/core/registry.py:564`). `NodeCache` watches Nodes (`cmapi/src/cmapi/core/clients/nodes.py:33`, `:106`). ServiceAccount is named in the client's kind table (`cmapi/src/cmapi/core/clients/kube.py:40`), and no code lists it today |
-| 2 (`examples/baseline/cmapi-reader-rbac.yaml:26-28`) | core: `pods`, `persistentvolumeclaims` | list | The delete thresholds count a namespace's pods and PVCs: `Pipeline.workload_counts` (`cmapi/src/cmapi/core/pipeline.py:246-252`) |
+| 2 (`examples/baseline/cmapi-reader-rbac.yaml:26-28`) | core: `pods`, `persistentvolumeclaims` | list | The delete thresholds count a namespace's pods and PVCs: `Pipeline.workload_counts` (`cmapi/src/cmapi/core/pipeline.py:253-259`) |
 | 3 (`examples/baseline/cmapi-reader-rbac.yaml:29-31`) | `rbac.authorization.k8s.io`: `roles`, `rolebindings`, `clusterroles`, `clusterrolebindings` | get, list, watch | RoleBinding is named in the client's kind table (`cmapi/src/cmapi/core/clients/kube.py:41`); no code reads the other three today |
 | 4 (`examples/baseline/cmapi-reader-rbac.yaml:32-34`) | `security.openshift.io`: `securitycontextconstraints` | get, list, watch | No code reads it today |
 | 5 (`examples/baseline/cmapi-reader-rbac.yaml:35-37`) | `user.openshift.io`: `users`, `groups`, `identities` | get, list, watch | The identity check reads `users/~`, which every authenticated user may read (`cmapi/src/cmapi/core/clients/kube.py:261-263`); no code lists the others today |
 | 6 (`examples/baseline/cmapi-reader-rbac.yaml:38-40`) | `quota.openshift.io`: `clusterresourcequotas` | get, list, watch | No code reads it today |
 | 7 (`examples/baseline/cmapi-reader-rbac.yaml:41-43`) | `redhatcop.redhat.io`: `groupsyncs`, `namespaceconfigs`, `groupconfigs` | get, list | No code reads it today |
 | 8 (`examples/baseline/cmapi-reader-rbac.yaml:44-47`) | `config.openshift.io`: `oauths`, `resourceNames: [cluster]` | get | No code reads it today |
-| 9 (`examples/baseline/cmapi-reader-rbac.yaml:48-50`) | `argoproj.io`: `applications` | get, list, watch | The sync poll reads the root Application: `ArgoCdSignal.status` (`cmapi/src/cmapi/core/sync.py:98`), called from `cmapi/src/cmapi/jobs/watch_sync.py:126` |
+| 9 (`examples/baseline/cmapi-reader-rbac.yaml:48-50`) | `argoproj.io`: `applications` | get, list, watch | The sync poll reads the root Application: `ArgoCdSignal.status` (`cmapi/src/cmapi/core/sync.py:98`), called from `cmapi/src/cmapi/jobs/watch_sync.py:138` |
 | 10 (`examples/baseline/cmapi-reader-rbac.yaml:51-53`) | `wgpolicyk8s.io`: `policyreports`, `clusterpolicyreports` | get, list, watch | The Policies tab's `ReportCache` watches both (`cmapi/src/cmapi/core/clients/policyreports.py:37`) |
 | 11 (`examples/baseline/cmapi-reader-rbac.yaml:54-56`) | `policies.kyverno.io`: `validatingpolicies`, `mutatingpolicies`, `generatingpolicies`, `deletingpolicies`, `imagevalidatingpolicies` | get, list, watch | Only `validatingpolicies` is read (`cmapi/src/cmapi/core/clients/policyreports.py:38`); the other four are not |
 | 12 (`examples/baseline/cmapi-reader-rbac.yaml:57-59`) | `kyverno.io`: `clusterpolicies`, `policies` | get, list | No code reads it today |
@@ -213,7 +213,7 @@ they are kept. While any finding stands, `ThanosQuerier.query` refuses before it
 - **The daily usage sweep** reads the same source, every namespace of a cluster at one instant, in batches of eight, with a
   120-second timeout per query (`cmapi/src/cmapi/capacity/usage.py:256-264`, `cmapi/src/cmapi/capacity/sweep.py:87`).
 - **A namespace create never queries Thanos.** Only a quota change on an existing namespace reads usage
-  (`cmapi/src/cmapi/core/pipeline.py:442-449`). A test creates a namespace on PostgreSQL with `usage.source: thanos` and both
+  (`cmapi/src/cmapi/core/pipeline.py:449-456`). A test creates a namespace on PostgreSQL with `usage.source: thanos` and both
   grants missing: it is auto-approved, reaches `synced`, and makes no monitoring call; the quota change after it plans with
   usage `unavailable` (`cmapi/tests/service/test_reader_thanos_grants_724.py:428-470`).
 

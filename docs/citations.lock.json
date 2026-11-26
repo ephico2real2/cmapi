@@ -1547,7 +1547,7 @@
  "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/policyreports.py|38-38": [
   "POLICY_KINDS = (\"ValidatingPolicy\",)"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/pipeline.py|246-252": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/pipeline.py|253-259": [
   "    def workload_counts(self, cluster_id: str, ns: str) -> tuple[int, int]:",
   "        \"\"\"Pods and PVCs in a namespace, for the delete thresholds. A live read: unknown is 503, never 0.\"\"\"",
   "        client = self.registry.cache(cluster_id).client",
@@ -1556,7 +1556,7 @@
   "            return (len(client.list(\"Pod\", namespace=ns)[\"items\"]),",
   "                    len(client.list(\"PersistentVolumeClaim\", namespace=ns)[\"items\"]))"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/pipeline.py|442-449": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/pipeline.py|449-456": [
   "        # A quota change on an existing namespace reads its live 14-day usage (docs/01, \"Quota changes on existing namespaces\");",
   "        # nothing else does: \"Never queried while creating a namespace or setting its first quota\" (docs/01, Thanos on onboarding).",
   "        usage_view, usage_facts = None, {}",
@@ -1682,7 +1682,7 @@
  "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/sync.py|98-98": [
   "        app = self.client.get(f\"/apis/argoproj.io/v1alpha1/namespaces/{self.namespace}/applications/{self.application}\")"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/jobs/watch_sync.py|126-126": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/jobs/watch_sync.py|138-138": [
   "            app = ArgoCdSignal(reader, ctx.delivery.argocd_namespace,"
  ],
  "docs/21-usage-from-thanos.md|cmapi/tests/service/test_reader_thanos_grants_724.py|428-470": [
