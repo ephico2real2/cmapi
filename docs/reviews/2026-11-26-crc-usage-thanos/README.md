@@ -134,3 +134,5 @@ Its findings, all fixed with Codex's patch:
 - render: 0 failed;
 - shellcheck: clean;
 - citations: 0 problems.
+
+**docs/13 test** (with PyYAML): 0 cases failed, 0 mutants survived.
