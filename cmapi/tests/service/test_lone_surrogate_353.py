@@ -22,6 +22,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from cmapi.plugins.expiration.rules import utc_today
 from test_client_input_653 import NUL_REFUSED
 from test_custom_tier_change import URL, custom, synced
 from test_flow import AMY, NS, OLA, auth
@@ -134,7 +135,7 @@ def test_a_surrogate_pair_is_one_character_and_is_taken(world):
 
 def test_a_patch_with_a_team_annotation_holding_a_lone_surrogate_is_refused(world):
     client, ctx, git, kube, validator, keys = world
-    etag = synced(world, {**custom(), "expiresAt": (date.today() + timedelta(days=10)).isoformat()}, approvals=1)
+    etag = synced(world, {**custom(), "expiresAt": (utc_today() + timedelta(days=10)).isoformat()}, approvals=1)
     before, prs = recorded(world), dict(git.prs)
     for dry_run in (True, False):
         r = send(world, "PATCH", ONE + ("?dryRun=true" if dry_run else ""), raw({"annotations": {"note": "a\ud800"}}),

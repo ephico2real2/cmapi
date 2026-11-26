@@ -10,6 +10,7 @@ from datetime import date, timedelta
 import yaml
 
 from cmapi.core.metadata import DEFAULT_LIVE_ONLY_KEYS, MetadataKeys
+from cmapi.plugins.expiration.rules import utc_today
 from test_flow import OPAL
 from test_helm_metadata_values import _chart_keys, _helm, _rendered_keys
 from test_namespace_contract_479 import URL, design_config, design_world  # noqa: F401  (fixtures)
@@ -30,7 +31,7 @@ def edit_git(world, change) -> None:
 def set_expiry_dry_run(world):
     """The expiry call :set as a dry run, with the etag of the current read."""
     client, ctx, git, kube, validator, keys = world
-    until = (date.today() + timedelta(days=20)).isoformat()
+    until = (utc_today() + timedelta(days=20)).isoformat()
     return client.post(f"{URL}/{NS}/expiration:set?dryRun=true", json={"until": until},
                        headers=headers(keys, etag=read(world)["etag"]))
 

@@ -14,6 +14,7 @@ import pytest
 
 from cmapi.core.errors import Problem
 from cmapi.core.pipeline import Pipeline
+from cmapi.plugins.expiration.rules import utc_today
 
 from test_expirations import created_namespace, write
 from test_flow import NS, OLA, auth, run_jobs
@@ -69,7 +70,7 @@ def test_a_delete_replay_without_if_match_is_428(world):
 
 def test_an_expiry_replay_without_if_match_is_428(world):
     client, ctx, git, kube, validator, keys = world
-    etag = created_namespace(client, ctx, keys, expiresAt=(date.today() + timedelta(days=10)).isoformat())
+    etag = created_namespace(client, ctx, keys, expiresAt=(utc_today() + timedelta(days=10)).isoformat())
     key = str(uuid.uuid4())
     first = write(client, keys, "extend", {"days": 7}, etag, key=key)
     assert first.status_code == 202, first.text
@@ -88,6 +89,8 @@ def test_delete_with_only_a_quota_left_in_git_finds_no_namespace(etag):
     pipeline = Mock(spec=Pipeline)
     pipeline.registry, pipeline.cfg = Mock(), Mock()
     pipeline._read_folder.return_value = ({"folder/quota.yaml": "kind: ResourceQuota\n"}, "a" * 40)
+    # plan_delete authorizes, then plans in _plan_delete, which expire_check's delete shares (#263): both run for real here.
+    pipeline._plan_delete = lambda *a, **kw: Pipeline._plan_delete(pipeline, *a, **kw)
     with pytest.raises(Problem) as problem:
         Pipeline.plan_delete(pipeline, Mock(), "CRC", "payments-dev", if_match=etag)
     assert (problem.value.status, problem.value.code) == (404, "object-not-found")

@@ -12,6 +12,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import text
 
+from cmapi.plugins.expiration.rules import utc_today
 from test_flow import AMY, NS, OLA, auth, run_jobs
 
 URL = "/api/v1/clusters/CRC/namespaces"
@@ -36,14 +37,14 @@ def requests(ctx) -> int:
 
 def the_six(world) -> list[tuple[str, str, dict | None, str | None]]:
     """(method, path, body, etag) of each write with a dry run, each one that would be accepted on its own."""
-    dated = created(world, "payments-dev", expiresAt=(date.today() + timedelta(days=10)).isoformat())
+    dated = created(world, "payments-dev", expiresAt=(utc_today() + timedelta(days=10)).isoformat())
     permanent = created(world, "orders-dev")
     one, other = f"{URL}/payments-dev", f"{URL}/orders-dev"
     return [("POST", URL, {**NS, "namespace": "ledger-dev"}, None),
             ("PATCH", one, {"labels": {"cmapi.net/cost-center": "cc-4411"}}, dated),
             ("DELETE", one, None, dated),
             ("POST", f"{one}/expiration:extend", {"days": 5}, dated),
-            ("POST", f"{other}/expiration:set", {"until": (date.today() + timedelta(days=20)).isoformat()}, permanent),
+            ("POST", f"{other}/expiration:set", {"until": (utc_today() + timedelta(days=20)).isoformat()}, permanent),
             ("POST", f"{one}/expiration:makePermanent", {}, dated)]
 
 

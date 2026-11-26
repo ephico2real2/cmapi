@@ -11,6 +11,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Literal, Mapping
 
+from cmapi.core.errors import Problem
+
+# The name of cmapi's own expire_check, the requester of the delete it opens after an expiry's grace (core/pipeline.py). No
+# token and no directory entry may carry it: a request's requester may cancel it by username (routers/requests.py), and the
+# audit trail names the actor by username, so a person or client of that name would act as the worker and be recorded as it.
+EXPIRY_NAME = "cmapi-expire-check"
+
 _LABEL_VALUE = re.compile(r"^[a-z0-9]([-a-z0-9_.]{0,61}[a-z0-9])?$")
 
 
@@ -20,6 +27,11 @@ def label_value_of(username: str) -> str:
     if not _LABEL_VALUE.fullmatch(v):
         raise ValueError(f"username {username!r} cannot be a label value")
     return v
+
+
+def is_reserved(sub: str | None, username: str | None) -> bool:
+    """True for the subject or the username of cmapi's own worker identity, in any case (Keycloak lower-cases usernames)."""
+    return sub == EXPIRY_NAME or (username or "").casefold() == EXPIRY_NAME
 
 
 @dataclass(frozen=True)
@@ -51,6 +63,8 @@ class Identity:
     def from_claims(cls, claims: Mapping[str, Any], audience: str) -> "Identity":
         username = claims.get("preferred_username", claims["sub"])
         service = username.startswith("service-account-")
+        if is_reserved(claims["sub"], username.removeprefix("service-account-")):
+            raise Problem(401, "unauthenticated", f"The identity {EXPIRY_NAME} is cmapi's own and no token may carry it")
         roles = claims.get("resource_access", {}).get(audience, {}).get("roles", [])
         return cls(
             sub=claims["sub"],

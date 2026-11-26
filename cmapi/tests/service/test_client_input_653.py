@@ -17,6 +17,7 @@ from datetime import date, timedelta
 import pytest
 
 from cmapi.core.docs import api_routes
+from cmapi.plugins.expiration.rules import utc_today
 from conftest import build_world
 from test_api_docs import bundles  # noqa: F401  (the fixture of the static files)
 from test_custom_tier_change import SIZES, URL, approve_and_sync, custom, synced
@@ -94,7 +95,7 @@ def test_a_nul_in_a_decision_or_a_switch_is_validation_failed(world):
 ], ids=["patch-annotation", "patch-justification", "extend-justification"])
 def test_a_nul_in_a_change_is_validation_failed(world, method, path, body):
     client, ctx, git, kube, validator, keys = world
-    etag = synced(world, {**custom(), "expiresAt": (date.today() + timedelta(days=10)).isoformat()}, approvals=1)
+    etag = synced(world, {**custom(), "expiresAt": (utc_today() + timedelta(days=10)).isoformat()}, approvals=1)
     r = client.request(method, ONE + path, json=body, headers={**auth(keys, "ola", **OLA), "If-Match": etag})
     assert_nul_refused(r, BODY_DETAIL)
 
@@ -118,7 +119,7 @@ def test_every_request_body_is_a_request_body(world):
 @pytest.mark.parametrize("days", [10 ** 10, 999_999_999, 3_000_000])
 def test_extend_by_more_days_than_a_date_can_hold_is_expiration_limit(world, days):
     client, ctx, git, kube, validator, keys = world
-    etag = synced(world, {**custom(), "expiresAt": (date.today() + timedelta(days=10)).isoformat()}, approvals=1)
+    etag = synced(world, {**custom(), "expiresAt": (utc_today() + timedelta(days=10)).isoformat()}, approvals=1)
     r = client.post(f"{ONE}/expiration:extend?dryRun=true", json={"days": days},
                     headers={**auth(keys, "ola", **OLA), "If-Match": etag})
     assert r.status_code == 422 and r.json()["code"] == "expiration-limit", r.text

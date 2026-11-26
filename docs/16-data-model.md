@@ -75,7 +75,7 @@ A changed server default is not compared. To add a column: change the model, wri
 
 ## What the database does not hold
 
-- The names and the employee ID of a requester are in `change_requests.requester` only. They are never written to Git (`cmapi/src/cmapi/core/identity/claims.py:43-48`).
+- The names and the employee ID of a requester are in `change_requests.requester` only. They are never written to Git (`cmapi/src/cmapi/core/identity/claims.py:55-60`).
 - No token, password or client secret is in any table. `jwks_keys` holds public keys.
 - The live state of a namespace is not stored. It comes from the watch cache of each cluster, in the memory of the process.
 - The capacity ledger (the committed CPU and memory of each cluster) has no table. The watch cache builds it in memory as it admits each quota (`cmapi/src/cmapi/core/capacity_ledger.py`, #302).

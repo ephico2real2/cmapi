@@ -679,7 +679,9 @@ class ExpirationPage(Api):
     rules: dict[str, ExpirationRulesView] = Field(description="The expiration rules of each environment in the caller's scope where "
                                                               "a namespace can expire (config/expiration.yaml). Empty on an instance "
                                                               "where none can, such as prod")
-    today: date = Field(description="The day that `daysLeft` and `state` are counted from: the day the API plans an extension from",
+    today: date = Field(description="The day that `daysLeft` and `state` are counted from: the day the API plans an extension "
+                                    "from, and the day the daily expiry check counts from. Today's date in UTC, whatever the "
+                                    "server's time zone",
                         examples=["2026-11-16"])
 
 

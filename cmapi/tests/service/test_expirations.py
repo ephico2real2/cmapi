@@ -13,6 +13,7 @@ import pytest
 
 import cmapi.plugins.expiration.router as expiration_mod
 from cmapi.core.db.models import ExpirationNoticeRow
+from cmapi.plugins.expiration.rules import utc_today
 from test_flow import AMY, NS, OLA, auth, run_jobs
 
 TODAY = date(2026, 11, 16)
@@ -212,7 +213,7 @@ def write(client, keys, path: str, body: dict, etag: str | None, *, dry: bool = 
 def test_set_gives_a_permanent_namespace_a_date_and_the_list_shows_the_date_that_git_holds(world):
     client, ctx, git, kube, validator, keys = world
     etag = created_namespace(client, ctx, keys)
-    until = (date.today() + timedelta(days=20)).isoformat()
+    until = (utc_today() + timedelta(days=20)).isoformat()
     dry = write(client, keys, "set", {"until": until, "justification": "One sprint"}, etag, dry=True)
     assert dry.status_code == 200, dry.text
     assert dry.json()["changes"] == {"clusters/CRC/namespaces/payments-dev/namespace.yaml": "changed"}
@@ -237,10 +238,10 @@ def test_set_gives_a_permanent_namespace_a_date_and_the_list_shows_the_date_that
 
 def test_extend_has_a_dry_run_and_the_list_follows_the_extension(world):
     client, ctx, git, kube, validator, keys = world
-    etag = created_namespace(client, ctx, keys, expiresAt=(date.today() + timedelta(days=10)).isoformat())
+    etag = created_namespace(client, ctx, keys, expiresAt=(utc_today() + timedelta(days=10)).isoformat())
     dry = write(client, keys, "extend", {"days": 7}, etag, dry=True)
     assert dry.status_code == 200 and dry.json()["approval"]["slots"] == [], dry.text
-    want = (date.today() + timedelta(days=17)).isoformat()
+    want = (utc_today() + timedelta(days=17)).isoformat()
     assert f"cmapi.net/expires-at: '{want}'" in dry.json()["files"]["clusters/CRC/namespaces/payments-dev/namespace.yaml"]
     assert len(client.get("/api/v1/requests", headers=auth(keys, "ola", **OLA)).json()["items"]) == 1
     r = write(client, keys, "extend", {"days": 7}, etag)
@@ -253,7 +254,7 @@ def test_extend_has_a_dry_run_and_the_list_follows_the_extension(world):
 
 def test_make_permanent_needs_approver_platform_and_removes_the_date(world):
     client, ctx, git, kube, validator, keys = world
-    etag = created_namespace(client, ctx, keys, expiresAt=(date.today() + timedelta(days=10)).isoformat())
+    etag = created_namespace(client, ctx, keys, expiresAt=(utc_today() + timedelta(days=10)).isoformat())
     dry = write(client, keys, "makePermanent", {}, etag, dry=True)
     assert dry.status_code == 200, dry.text
     assert [s["group"] for s in dry.json()["approval"]["slots"]] == ["approver-platform"]
@@ -273,7 +274,7 @@ def test_make_permanent_needs_approver_platform_and_removes_the_date(world):
 def test_one_key_on_set_and_on_extend_until_is_two_requests_not_a_replay(world):
     client, ctx, git, kube, validator, keys = world
     etag = created_namespace(client, ctx, keys)
-    until, key = (date.today() + timedelta(days=20)).isoformat(), str(uuid.uuid4())
+    until, key = (utc_today() + timedelta(days=20)).isoformat(), str(uuid.uuid4())
     first = write(client, keys, "set", {"until": until}, etag, key=key)
     assert first.status_code == 202, first.text
     assert write(client, keys, "set", {"until": until}, etag, key=key).json()["requestId"] == first.json()["requestId"], "the same call is a replay"
@@ -299,7 +300,7 @@ def test_the_creation_time_is_read_with_and_without_a_z():
 def test_a_date_kept_where_expiration_is_now_off_is_made_permanent_from_the_list(world, monkeypatch):
     """End to end (#479, ruling on F02): dated while dev took expiry; dev turned off; the list offers Make permanent; it plans."""
     client, ctx, git, kube, validator, keys = world
-    until = (date.today() + timedelta(days=20)).isoformat()
+    until = (utc_today() + timedelta(days=20)).isoformat()
     etag = created_namespace(client, ctx, keys, expiresAt=until)
     envs = ctx.cfg.expiration.envs
     monkeypatch.setitem(envs, "dev", replace(envs["dev"], enabled=False))

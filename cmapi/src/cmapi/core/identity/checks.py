@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from cmapi.core.errors import Problem
-from cmapi.core.identity.claims import Identity, Person
+from cmapi.core.identity.claims import Identity, Person, is_reserved
 from cmapi.core.identity.directory import CachedDirectory, DirectoryProvider
 
 _LOCAL = re.compile(r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$")
@@ -89,7 +89,7 @@ def resolve_requester(caller: Identity, on_behalf_of: str | None,
     if directory is None:
         raise Problem.unprocessable("unknown-user", "No directory is configured")
     person = directory.get_user(on_behalf_of) or directory.find_by_employee_id(on_behalf_of)
-    if person is None or not person.enabled:
+    if person is None or not person.enabled or is_reserved(person.sub, person.username):
         raise Problem.unprocessable("unknown-user", f"{on_behalf_of} is not an enabled user",
                                     onBehalfOf=on_behalf_of)
     return Requester(person=person, caller=caller, automated=True)

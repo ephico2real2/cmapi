@@ -242,7 +242,8 @@ def test_each_operation_has_a_sample_from_a_run(world):
 
     # ---- a namespace with an expiry, and an extension of it; then a request that is rejected, and one that its requester cancels
     from datetime import date, timedelta
-    sprint = client.post(base, json={**NS, "namespace": "sprint-dev", "expiresAt": (date.today() + timedelta(days=20)).isoformat()},
+    from cmapi.plugins.expiration.rules import utc_today
+    sprint = client.post(base, json={**NS, "namespace": "sprint-dev", "expiresAt": (utc_today() + timedelta(days=20)).isoformat()},
                          headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}", "Idempotency-Key": str(uuid.uuid4())})
     assert sprint.status_code == 202, sprint.text
     if sprint.json()["status"] == "pending_approval":
@@ -352,7 +353,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
     def etag_of(ns: str) -> str:
         return client.get(f"{base}/{ns}", headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}"}).json()["etag"]
 
-    until = (date.today() + timedelta(days=21)).isoformat()
+    until = (utc_today() + timedelta(days=21)).isoformat()
     fresh = client.post(base, json={**NS, "namespace": "notes-dev"},
                         headers={"Authorization": f"Bearer {keys.token('ola', **OLA)}", "Idempotency-Key": str(uuid.uuid4())})
     assert fresh.status_code == 202, fresh.text

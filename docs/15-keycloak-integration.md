@@ -40,9 +40,9 @@ Each client that gets a token for the API has the default scopes `basic`, `cmapi
 | Scope | Mapper | Claim in the access token | cmapi reads it as |
 |---|---|---|---|
 | `cmapi-audience` | Audience | `aud` contains `cmapi-nonprod` | The audience check (`cmapi/src/cmapi/core/auth.py:199-201`) |
-| `roles` | Client roles | `resource_access.cmapi-nonprod.roles` | The roles of the caller (`cmapi/src/cmapi/core/identity/claims.py:54`) |
-| `cmapi-identity` | Group membership, full path | `groups`, for example `/cmapi/app-cmapi-rbac-requester` | The approving groups (`claims.py:66`) |
-| `cmapi-identity` | User attribute `employeeId` | `employee_id` | The requester's record (`claims.py:64`) |
+| `roles` | Client roles | `resource_access.cmapi-nonprod.roles` | The roles of the caller (`cmapi/src/cmapi/core/identity/claims.py:68`) |
+| `cmapi-identity` | Group membership, full path | `groups`, for example `/cmapi/app-cmapi-rbac-requester` | The approving groups (`claims.py:80`) |
+| `cmapi-identity` | User attribute `employeeId` | `employee_id` | The requester's record (`claims.py:78`) |
 | `cmapi-identity` | User attribute `middleName` | `middle_name` | The requester's record |
 | `profile` | Username, first name, last name | `preferred_username`, `given_name`, `family_name` | The username and the record |
 | `email` | Email | `email` | The record |

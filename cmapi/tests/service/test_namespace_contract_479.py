@@ -21,7 +21,7 @@ import pytest
 import yaml
 
 from cmapi.core.metadata import MetadataKeys
-from cmapi.plugins.expiration.rules import ExpirationRules
+from cmapi.plugins.expiration.rules import ExpirationRules, utc_today
 from conftest import EXAMPLES, build_world
 from metadata_corpus import SchemaReader
 from test_flow import OLA, auth
@@ -453,7 +453,7 @@ def test_an_environment_with_expiration_off_refuses_expires_at(test_config, fres
         client, ctx, git, kube, validator, keys = world
         body = {"namespace": "payments-dev", "labels": {"cmapi.net/team": "payments"},
                 "annotations": {"cmapi.net/team-dl": "payments-team@ephico2real.com"},
-                "expiresAt": (date.today() + timedelta(days=20)).isoformat()}
+                "expiresAt": (utc_today() + timedelta(days=20)).isoformat()}
         r = client.post(URL, json=body, headers={**auth(keys, "ola", **OLA), "Idempotency-Key": "479-expiry-off"})
         assert r.status_code == 422 and r.json()["code"] == "expiration-not-allowed", r.text
         assert not any("payments-dev" in path for branch in git.branches.values() for path in branch), "nothing is written"
@@ -465,7 +465,7 @@ def test_an_environment_with_expiration_off_writes_neither_expiry_key(test_confi
         body = {"namespace": "payments-dev", "labels": {"cmapi.net/team": "payments"},
                 "annotations": {"cmapi.net/team-dl": "payments-team@ephico2real.com"}}
         ns = rendered_namespace(dry_run(client, keys, body))
-        with_date = dry_run(client, keys, {**body, "expiresAt": (date.today() + timedelta(days=20)).isoformat()})
+        with_date = dry_run(client, keys, {**body, "expiresAt": (utc_today() + timedelta(days=20)).isoformat()})
     assert "cmapi.net/expires-at" not in ns["metadata"]["annotations"] and "cmapi.net/expiry" not in ns["metadata"]["labels"]
     assert with_date.status_code == 422 and with_date.json()["code"] == "expiration-not-allowed"
 

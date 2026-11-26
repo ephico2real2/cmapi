@@ -17,6 +17,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from cmapi.plugins.expiration.rules import utc_today
 from test_flow import NS, OLA, auth, run_jobs
 
 URL = "/api/v1/clusters/CRC/namespaces/payments-dev"
@@ -89,7 +90,7 @@ def test_an_expiry_write_takes_a_list(world):
     """:extend, :set and :makePermanent plan through the same comparison as PATCH (_expiry_write -> plan_namespace)."""
     client, ctx, git, kube, validator, keys = world
     tag = _created(client, ctx, keys)
-    until = (date.today() + timedelta(days=20)).isoformat()
+    until = (utc_today() + timedelta(days=20)).isoformat()
     r = client.post(f"{URL}/expiration:set?dryRun=true", json={"until": until, "justification": "One sprint"},
                     headers={**auth(keys, "ola", **OLA), "If-Match": f'"0", "{tag}"'})
     assert r.status_code == 200, r.text
@@ -101,7 +102,7 @@ def _send(client, method: str, headers: dict):
         return client.patch(URL, json={"tier": "medium"}, headers=headers)
     if method == "delete":
         return client.delete(URL, headers=headers)
-    until = (date.today() + timedelta(days=20)).isoformat()
+    until = (utc_today() + timedelta(days=20)).isoformat()
     return client.post(f"{URL}/{method}", json={"until": until, "justification": "One sprint"}, headers=headers)
 
 

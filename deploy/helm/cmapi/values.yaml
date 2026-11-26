@@ -188,7 +188,7 @@ capacity:
     source: none
 
 notifier:
-  smtp: {}                         # host, port, from, starttls; empty: the email channel is off
+  smtp: {}                         # host, port, from, tls (starttls or implicit; always verified); empty: the email channel is off
 
 # -------------------------------------------------------------------------- database
 database:
