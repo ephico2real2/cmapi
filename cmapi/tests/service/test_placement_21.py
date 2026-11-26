@@ -25,8 +25,6 @@ from cmapi.capacity.usage import PromUsage
 from cmapi.core.capacity import CapacitySettings
 from cmapi.core.db.repo import JobRepo, RequestRepo, utcnow
 from cmapi.core.errors import Problem
-from cmapi.core.placement import PlacementSettings
-from cmapi.plugins.capacity import placement as placing
 from test_capacity_ledger_302 import node
 from test_capacity_reservations_62 import body, committed, holds, who
 from test_flow import OLA, auth, run_jobs
@@ -290,6 +288,7 @@ def test_zone_failure_headroom_excludes_a_cluster_that_would_not_survive_losing_
     cores: without it the limit is 64 × 0.25 × 2.0 = 32 cores. With 20 committed, a small namespace (8) still fits after a zone
     is lost, a medium one (16) does not."""
     client, ctx, git, kube, validator, keys = world
+    from cmapi.core.placement import PlacementSettings          # here, so a tree without it fails this test alone
     ctx.placement = PlacementSettings({"zoneFailureEnvironments": ["dev"]})
     nodes(kube)
     snapshot(world)
@@ -342,6 +341,7 @@ def test_concurrent_placements_cannot_overbook(world):
     nodes(kube)
     snapshot(world)
     committed(ctx, 104)
+    from cmapi.plugins.capacity import placement as placing    # here, so a tree without it fails this test alone
     results: list[str] = []
     barrier = threading.Barrier(8)
 
