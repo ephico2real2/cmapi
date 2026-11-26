@@ -455,12 +455,12 @@ def test_a_0007_insert_in_the_window_no_longer_escapes_the_caller_index(empty_sc
         before = _state(c)
         assert before[0] == {"a-svc-for-ola": ("k9", "fp-a-svc-for-ola", None), "b-svc-for-amy": ("k9", "fp-b-svc-for-amy", None)}
 
-        out = _refused(empty_schema, "head")
+        out = _refused(empty_schema, "0009")
         assert "live requests share one caller's Idempotency-Key (a-svc-for-ola, b-svc-for-amy)" in out, out[-800:]
         assert _state(c) == before and before[2] == "0008"
 
         c.execute("UPDATE change_requests SET created_at = now() - interval '25 hours' WHERE request_id = 'a-svc-for-ola'")
-        _run(empty_schema, "head")
+        _run(empty_schema, "0009")
         rows, indexes, version = _state(c)
         assert version == "0009" and indexes == {"uq_cr_idempotency_caller": CALLER_INDEX}, indexes
         assert rows == {"a-svc-for-ola": (None, None, None), "b-svc-for-amy": ("k9", "fp-b-svc-for-amy", "sub-svc")}, rows

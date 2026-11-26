@@ -42,9 +42,9 @@ def _seconds(value):
 
 def test_a_run_that_applies_two_revisions_names_them_in_order_with_their_times(empty_schema):
     _migrated("0007", url=empty_schema)
-    e = _migrated("head", url=empty_schema)
+    e = _migrated("0009", url=empty_schema)
     assert e["level"] == "info" and e["timestamp"]
-    assert (e["direction"], e["target"], e["from_revision"], e["revision"]) == ("upgrade", "head", "0007", REQUIRED_REVISION)
+    assert (e["direction"], e["target"], e["from_revision"], e["revision"]) == ("upgrade", "0009", "0007", "0009")
     assert [s["revision"] for s in e["applied"]] == ["0008", "0009"]
     steps = sum(_seconds(s["seconds"]) for s in e["applied"])
     lock_wait, transaction, total = (_seconds(e[k]) for k in ("lock_wait_seconds", "transaction_seconds", "total_seconds"))
@@ -64,9 +64,9 @@ def test_a_run_from_an_empty_database_starts_from_none(empty_schema):
 
 
 def test_a_downgrade_names_the_revisions_it_undid(empty_schema):
-    _migrated("head", url=empty_schema)
+    _migrated("0009", url=empty_schema)
     e = _migrated("0007", "--downgrade", url=empty_schema)
-    assert (e["direction"], e["from_revision"], e["revision"]) == ("downgrade", REQUIRED_REVISION, "0007")
+    assert (e["direction"], e["from_revision"], e["revision"]) == ("downgrade", "0009", "0007")
     assert [s["revision"] for s in e["applied"]] == ["0009", "0008"]
 
 
@@ -125,7 +125,7 @@ def test_each_time_holds_its_own_work_and_the_transaction_ends_after_its_commit(
     first, second, commit = 0.5, 1.0, 0.4
     _migrated("0007", url=empty_schema)
     env = {**os.environ, "CMAPI_DATABASE_URL": empty_schema, "PYTHONPATH": str(ROOT / "cmapi/src"), "PYTHONDONTWRITEBYTECODE": "1"}
-    p = subprocess.run([sys.executable, "-c", SLOW, str(first), str(second), str(commit), "head"], env=env,
+    p = subprocess.run([sys.executable, "-c", SLOW, str(first), str(second), str(commit), "0009"], env=env,
                        capture_output=True, text=True, timeout=120)
     assert p.returncode == 0, (p.stdout + p.stderr)[-800:]
     e = json.loads(p.stdout)

@@ -15,8 +15,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "core"))
 
+import conftest                                                           # noqa: E402
 from cmapi.capacity.sweep import VerdictRepo, run_sweep                     # noqa: E402
 from cmapi.capacity.usage import EXPECTED_STEPS, PromUsage                # noqa: E402
+from cmapi.core.db import Database                                         # noqa: E402
 from cmapi.core.db.models import AnalysisSweepRow, NamespaceVerdictRow    # noqa: E402
 from cmapi.core.db.repo import JobRepo                                    # noqa: E402
 from test_flow import NS, OLA, auth, run_jobs                             # noqa: E402
@@ -313,3 +315,14 @@ def test_two_workers_run_one_sweep_a_day(world, fleet):
         assert len(pending) == 1 and pending[0].run_after > datetime.now(timezone.utc) + timedelta(hours=23)
         done = s.query(JobRow).filter(JobRow.kind == "usage_sweep", JobRow.done_at.is_not(None)).all()
         assert len(done) == 1 and done[0].attempts == 1
+
+
+def test_a_database_at_0009_is_behind_this_code(monkeypatch):
+    """#712: the sweep and GET /api/v1/quotas read 0010's tables, so /readyz waits until the migrate initContainer has run
+    0010. Before: REQUIRED_REVISION was 0009, and a 0009 schema read ok."""
+    db = Database(conftest.DB_URL)
+    monkeypatch.setattr(db, "schema_version", lambda: "0009")
+    try:
+        assert db.schema_status() == "behind: at 0009, needs 0010"
+    finally:
+        db.engine.dispose()

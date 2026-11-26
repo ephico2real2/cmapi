@@ -1,7 +1,12 @@
 """PR #707's review (#310): the live usage reader, the Thanos client, the sweep and the approval gate. Reviewer 1 (Codex) and
-reviewer 2 (Opus). No network and no database: the Thanos Querier is an httpx MockTransport or usage_fake.FakeMetrics."""
+reviewer 2 (Opus). No network and no database: the Thanos Querier is an httpx MockTransport or usage_fake.FakeMetrics.
+
+It lives in tests/service because what it tests is the service's: the Thanos client goes through core/clients/kube.py, which
+logs and counts with structlog and prometheus_client, and the sweep and the plan import SQLAlchemy. tests/core runs with only
+examples/local/requirements.txt (CI job reference-code, #693)."""
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -17,15 +22,17 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
-from cmapi.capacity import thanos, usage
-from cmapi.capacity.sweep import quota_now, row_verdict
-from cmapi.capacity.verdicts import Verdict, judge
-from cmapi.core.approvals import ApprovalRules
-from cmapi.core.clients import kube
-from cmapi.core.clients.trust import Trust
-from cmapi.core.pipeline import Plan
-from cmapi.core.registry import load_policies
-from usage_fake import Fake, FakeMetrics
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "core"))
+
+from cmapi.capacity import thanos, usage                    # noqa: E402
+from cmapi.capacity.sweep import quota_now, row_verdict     # noqa: E402
+from cmapi.capacity.verdicts import Verdict                 # noqa: E402
+from cmapi.core.approvals import ApprovalRules              # noqa: E402
+from cmapi.core.clients import kube                         # noqa: E402
+from cmapi.core.clients.trust import Trust                  # noqa: E402
+from cmapi.core.pipeline import Plan                        # noqa: E402
+from cmapi.core.registry import load_policies               # noqa: E402
+from usage_fake import Fake, FakeMetrics                    # noqa: E402
 
 TOKEN = "sha256~reader-token-of-the-review-707-fixture"     # long enough for redact (8 characters or more)
 
@@ -200,7 +207,7 @@ class Slow:
 
 def test_one_deadline_for_the_whole_live_read(monkeypatch):
     """docs/02: "one live query, with a 10-second timeout. If Thanos cannot answer, the plan carries usage: unavailable"."""
-    monkeypatch.setattr(thanos, "LIVE_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(usage, "LIVE_TIMEOUT_SECONDS", 0.1)
     slow = Slow(2)
     started = time.monotonic()
     try:
@@ -212,7 +219,7 @@ def test_one_deadline_for_the_whole_live_read(monkeypatch):
 
 
 def test_the_sweep_has_a_deadline_per_batch(monkeypatch):
-    monkeypatch.setattr(thanos, "SWEEP_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(usage, "SWEEP_TIMEOUT_SECONDS", 0.1)
     slow = Slow(2)
     try:
         with pytest.raises(usage.MetricsUnavailable, match="within 0.1 seconds"):
@@ -274,14 +281,6 @@ def test_an_unpopulated_quota_status_is_no_used_quantity():
     ns = {"metadata": {"name": "ns", "labels": {"cmapi.net/managed": "true"}}}
     cache = SimpleNamespace(all=lambda kind: [quota] if kind == "ResourceQuota" else [ns])
     assert quota_now(cache)["ns"][0]["cpu"] is None
-
-
-def test_a_quota_with_no_used_value_is_insufficient_data_not_right_sized():
-    from test_usage_verdicts_310 import DEV, QUOTAS, usage as complete
-    verdicts = judge("dev", DEV, complete(), {"memory": 4.}, QUOTAS)
-    assert [v.verdict for v in verdicts if v.resource == "cpu"] == ["insufficient-data"]
-    exhausted = complete(quota={"cpu": usage.QuotaHistory(.5, .2, 1.)})
-    assert any(v.verdict == "quota-tight" for v in judge("dev", DEV, exhausted, {}, QUOTAS))
 
 
 def test_with_no_source_a_stored_verdict_is_not_served():

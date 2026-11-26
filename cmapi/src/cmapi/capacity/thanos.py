@@ -17,14 +17,12 @@ from datetime import datetime
 from typing import Any, Callable
 from weakref import WeakKeyDictionary
 
-from cmapi.capacity.usage import MetricsUnavailable
+from cmapi.capacity.usage import LIVE_TIMEOUT_SECONDS, MetricsUnavailable
 from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeError
 from cmapi.core.errors import Problem
 from cmapi.core.registry import ClusterRegistry
 
 ROUTE_PATH = "/apis/route.openshift.io/v1/namespaces/openshift-monitoring/routes/thanos-querier"
-LIVE_TIMEOUT_SECONDS = 10.0          # docs/02: "A quota change on an existing namespace makes one live query, with a 10-second timeout"
-SWEEP_TIMEOUT_SECONDS = 120.0        # docs/03, "Running the sweep": "a 120-second timeout per query"
 
 
 class ThanosQuerier:

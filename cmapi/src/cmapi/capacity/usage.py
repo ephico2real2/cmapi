@@ -48,6 +48,10 @@ EXPECTED_STEPS = WINDOW_DAYS * 24 * 12          # 4,032 five-minute steps: docs/
 MIN_COVERAGE = 0.8                              # docs/03: "a namespace needs at least 80% of the window's steps"
 CACHE_SECONDS = 600                             # docs/02: live usage "cached 10 minutes"
 SWEEP_BATCH = 8                                 # the sweep's queries in flight at once
+# The reader's deadlines live here, not in thanos.py: this module is imported without the service's packages (tests/core,
+# #693), and thanos.py, the adapter, reaches the cluster client and so structlog.
+LIVE_TIMEOUT_SECONDS = 10.0     # docs/02: "A quota change on an existing namespace makes one live query, with a 10-second timeout"
+SWEEP_TIMEOUT_SECONDS = 120.0   # docs/03, "Running the sweep": "a 120-second timeout per query"
 RESOURCES = ("cpu", "memory")
 QUOTA_KEYS = {"cpu": "requests.cpu", "memory": "requests.memory"}
 
@@ -231,7 +235,6 @@ class PromUsage:
         if hit and started - hit[0] < self.cache_seconds:
             return hit[1]
         at = datetime.fromtimestamp(self.clock(), timezone.utc)
-        from cmapi.capacity.thanos import LIVE_TIMEOUT_SECONDS
         try:
             answers = self._run(self.metrics, cluster_id, usage_queries(selector(namespace)), at, LIVE_TIMEOUT_SECONDS)
         except MetricsUnavailable as exc:
@@ -248,7 +251,6 @@ class PromUsage:
     def cluster(self, cluster_id: str, *, idle_days: int, ceiling: float, at: datetime) -> dict[str, NamespaceUsage]:
         """Every namespace that any figure names. MetricsUnavailable when a query fails: docs/03, "A failed or warned query
         gives that cluster's namespaces insufficient-data for the day"; the sweep writes that."""
-        from cmapi.capacity.thanos import SWEEP_TIMEOUT_SECONDS
         # Eight in flight at most, as before; each batch has docs/03's "120-second timeout per query".
         queries = list(sweep_queries(idle_days, ceiling).items())
         answers: dict[str, list[dict[str, Any]]] = {}
@@ -310,7 +312,7 @@ def usage_source(raw: Mapping[str, Any] | None, registry: Any) -> UsageSource:
         raise ValueError(f"capacity.yaml: usage.source is one of {list(SOURCES)}, not {source!r}")
     if source == "none":
         return NoUsage()
-    from cmapi.capacity.thanos import SWEEP_TIMEOUT_SECONDS, ThanosQuerier
+    from cmapi.capacity.thanos import ThanosQuerier       # the adapter, imported only when an instance names it
     return PromUsage(ThanosQuerier(registry), sweep_metrics=ThanosQuerier(registry, SWEEP_TIMEOUT_SECONDS))
 
 

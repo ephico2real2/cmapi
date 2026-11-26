@@ -220,3 +220,11 @@ def test_analysis_yaml_overrides_a_served_environment_and_refuses_anything_else(
 
 def test_metrics_unavailable_is_a_runtime_error():
     assert issubclass(MetricsUnavailable, RuntimeError)
+
+
+def test_a_quota_with_no_used_value_is_insufficient_data_not_right_sized():
+    """PR #707's review: a quota whose `used` is not known is never judged right-sized from the other figures."""
+    verdicts = judge("dev", DEV, usage(), {"memory": 4.}, QUOTAS)
+    assert [v.verdict for v in verdicts if v.resource == "cpu"] == ["insufficient-data"]
+    exhausted = usage(quota={"cpu": QuotaHistory(.5, .2, 1.)})
+    assert any(v.verdict == "quota-tight" for v in judge("dev", DEV, exhausted, {}, QUOTAS))
