@@ -760,7 +760,9 @@ try {
         await checkButton(page).click();
         await panel(page).locator(".pf-v6-c-alert").filter({ hasText: PASSED }).waitFor();
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `New namespace: no sideways scroll at ${width} px`);
-        await page.screenshot({ path: join(shots, `new-namespace-${width}.png`), fullPage: true });
+        await placementCard(page).scrollIntoViewIfNeeded();
+        await page.screenshot({ path: join(shots, `new-namespace-${width}.png`) });
+        await placementCard(page).screenshot({ path: join(shots, `placement-preview-${width}.png`) });
         await open(page, "#capacity");
         await page.locator("table[aria-label=Clusters] tbody tr").first().waitFor();
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `Capacity: no sideways scroll at ${width} px`);
