@@ -20,7 +20,7 @@ from cmapi.core.identity.claims import Identity
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.pipeline import Pipeline, folder_etag
 from cmapi.core.ports import CapacityResult
-from cmapi.plugins.expiration.rules import ExpirationRules, ExpiryInfo
+from cmapi.plugins.expiration.rules import ExpirationRules, ExpiryInfo, utc_today
 from cmapi.tools.openapi import load
 
 NS = "abc-payments-dev"
@@ -49,7 +49,7 @@ def namespace_doc(plan) -> dict:
 def dated_then_switched_off() -> tuple[Pipeline, str, str]:
     """A namespace created with a date while dev took expiry; then dev's expiration is turned off. (pipe, etag, date)"""
     pipe = planner()
-    day = (date.today() + timedelta(days=7)).isoformat()
+    day = (utc_today() + timedelta(days=7)).isoformat()
     first = pipe.plan_namespace(OLA, "CRC", {**BODY, "expiresAt": day}, action="create")
     stored = {p: t for p, t in first.files.items() if t is not None}
     pipe.git.read_folder.return_value = stored, "base"
@@ -114,5 +114,5 @@ def test_extend_and_set_stay_refused_where_expiration_is_off(change, reason):
 def test_make_permanent_of_a_permanent_namespace_where_expiration_is_off_is_still_expiration_not_allowed():
     rules = ExpirationRules({"environments": {"dev": {"enabled": False}}})
     with pytest.raises(Problem) as refused:
-        rules.plan_make_permanent(ExpiryInfo(NS, "dev", created=date.today(), expires_at=None))
+        rules.plan_make_permanent(ExpiryInfo(NS, "dev", created=utc_today(), expires_at=None))
     assert refused.value.code == "expiration-not-allowed"

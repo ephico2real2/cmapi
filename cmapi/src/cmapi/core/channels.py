@@ -31,6 +31,36 @@ class PortalChannel:
         return {"recipients": [request["requester"]["requester"]["username"]], "where": "the Requests tab", "decision": decision}
 
 
+class EmailNotifier:
+    """The Notifier port (core/ports.py) over SMTP: one message to a list of addresses. The approval email channel sends
+    through it, and so do expire_check's notices to a team DL. The login comes from the environment, never the file."""
+
+    def __init__(self, smtp: Mapping[str, Any]):
+        self.smtp = smtp
+
+    def send(self, to: list[str], subject: str, body: str, links: Mapping[str, str] | None = None) -> None:
+        msg = EmailMessage()
+        msg["From"] = self.smtp.get("from", "cmapi@ephico2real.com")
+        msg["To"] = ", ".join(to)
+        msg["Subject"] = subject
+        msg.set_content(body + "".join(f"\n{name}: {url}" for name, url in (links or {}).items()))
+        host, port = self.smtp.get("host", "localhost"), int(self.smtp.get("port", 25))
+        with smtplib.SMTP(host, port, timeout=10) as conn:
+            if self.smtp.get("starttls"):
+                conn.starttls()
+            user, password = os.environ.get("CMAPI_SMTP_USER"), os.environ.get("CMAPI_SMTP_PASSWORD")
+            if user and password:
+                conn.login(user, password)
+            conn.send_message(msg)
+
+
+def notifier_for(ctx: Any) -> EmailNotifier | None:
+    """The Notifier for a message to a team DL, such as an expiry notice: email when integrations.yaml sets
+    notifier.smtp.host. None without it: the notice is then recorded and shown on the portal's Expiration tab only."""
+    smtp = (ctx.integrations.get("notifier") or {}).get("smtp")
+    return EmailNotifier(smtp) if smtp and smtp.get("host") else None
+
+
 class EmailChannel:
     name = "email"
 
@@ -48,19 +78,7 @@ class EmailChannel:
         return link_id, f"{self.portal_url}/#{self.instance}/approvals?request={request_id}&link={link_id}"
 
     def _send(self, to: list[str], subject: str, body: str) -> None:
-        msg = EmailMessage()
-        msg["From"] = self.smtp.get("from", "cmapi@ephico2real.com")
-        msg["To"] = ", ".join(to)
-        msg["Subject"] = subject
-        msg.set_content(body)
-        host, port = self.smtp.get("host", "localhost"), int(self.smtp.get("port", 25))
-        with smtplib.SMTP(host, port, timeout=10) as conn:
-            if self.smtp.get("starttls"):
-                conn.starttls()
-            user, password = os.environ.get("CMAPI_SMTP_USER"), os.environ.get("CMAPI_SMTP_PASSWORD")
-            if user and password:
-                conn.login(user, password)
-            conn.send_message(msg)
+        EmailNotifier(self.smtp).send(to, subject, body)
 
     def notify_pending(self, request: Mapping[str, Any], groups: list[str]) -> dict[str, Any]:
         to = [self.group_mail.get(g, f"cmapi-{g}@{self.smtp.get('domain', 'ephico2real.com')}") for g in groups]

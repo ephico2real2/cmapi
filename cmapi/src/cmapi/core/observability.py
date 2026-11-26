@@ -56,6 +56,8 @@ GIT_ORPHANS = Counter("cmapi_git_orphans_total", "Branches and PRs that git_reco
 REQUESTS_STALLED = Gauge("cmapi_requests_stalled", "pr_open requests with no PR and no job, older than syncTimeout")
 JOBS_PENDING = Gauge("cmapi_jobs_pending", "Jobs waiting to run", ["kind"])
 JOB_FAILURES = Counter("cmapi_job_failures_total", "Jobs that raised", ["kind"])
+EXPIRY_ACTIONS = Counter("cmapi_expiry_actions_total", "What expire_check did for a namespace: notice, notice_failed, grace, "
+                         "delete_opened, delete_held or error", ["action", "environment"])
 LEAD_TIME = Histogram("cmapi_change_lead_time_seconds", "Submit to synced", ["plugin", "action", "approval"],
                       buckets=(30, 60, 120, 300, 600, 1800, 3600, 14400, 86400))
 APPROVAL_WAIT = Histogram("cmapi_approval_wait_seconds", "pending_approval to approved", ["rule"],

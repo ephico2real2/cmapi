@@ -39,9 +39,11 @@ from cmapi.core.registry import ClusterRegistry
 from cmapi.core.render.manifests import (DELETED, ManifestRenderer, NamespaceSpec, diff_files, folder, objects_of, own_quota,
                                          plan_hash, quotas_kept)
 from cmapi.core.tiers import EXPOSURE_KEYS, QuotaChange, flatten_limits, qty
-from cmapi.plugins.expiration.rules import ExpiryInfo
+from cmapi.plugins.expiration.rules import ExpiryInfo, utc_day, utc_today
 
 SYSTEM_PREFIX = "cmapi.net/"
+# The requester of the delete that expire_check opens after an expiry's grace: cmapi itself, never a person's identity.
+EXPIRY_REQUESTER = Identity(sub="cmapi-expire-check", username="cmapi-expire-check", kind="service", client_id="cmapi-worker")
 
 
 @dataclass
@@ -329,26 +331,26 @@ class Pipeline:
             expires = _date(body["expiresAt"]) if body.get("expiresAt") else kept
             exp_facts: dict[str, Any] = {}
             if action == "create":
-                p = self.cfg.expiration.plan_create(env, expires, date.today()) if expires else None
+                p = self.cfg.expiration.plan_create(env, expires, utc_today()) if expires else None
                 if p:
                     exp_facts = p.facts()
             elif body.get("extendDays") or body.get("extendUntil") or body.get("expiresAt") or body.get("makePermanent"):
                 # maxLifetimeDays counts from the day the namespace was created on its cluster (docs/01, Namespace expiration).
                 # A namespace that is not on the cluster yet counts from today, as a create does. A cluster that cannot be read
                 # is a 503 from the cache, never a lifetime of zero days: that would skip approver-platform.
-                created = created_day(cache.namespace(ns)) or date.today()
+                created = created_day(cache.namespace(ns)) or utc_today()
                 info = ExpiryInfo(ns, env, created=created, expires_at=date.fromisoformat(old_exp) if old_exp else None)
                 if body.get("makePermanent"):
                     p = self.cfg.expiration.plan_make_permanent(info)
                     expires = None
                 elif body.get("extendDays") or body.get("extendUntil"):
                     # :extend moves the date that exists, by days or to a date; :set (expiresAt) gives a permanent one its first.
-                    p = self.cfg.expiration.plan_extend(info, date.today(),
+                    p = self.cfg.expiration.plan_extend(info, utc_today(),
                                                         days=int(body["extendDays"]) if body.get("extendDays") else None,
                                                         until=_date(body["extendUntil"]) if body.get("extendUntil") else None)
                     expires = p.new_date
                 else:
-                    p = self.cfg.expiration.plan_set(info, expires, date.today())
+                    p = self.cfg.expiration.plan_set(info, expires, utc_today())
                     expires = p.new_date
                 exp_facts = p.facts()
             resolved = self.cfg.tiers.resolve(env, tier)
@@ -512,7 +514,31 @@ class Pipeline:
         self.check_env_served(env)
         self.cfg.roles.require(who, "namespaces:write", env)
         self.check_plugin_offered("namespaces", env)
-        requester = self.requester_for(who, None)
+        return self._plan_delete(st, who, self.requester_for(who, None), ns, if_match=if_match, reason=reason,
+                                 extra_facts=extra_facts)
+
+    def plan_expiry_delete(self, cluster_id: str, ns: str, *, expires_at: date, facts: Mapping[str, Any]) -> Plan:
+        """The delete that expire_check opens after grace (docs/01, Namespace expiration): the normal delete plan, decided by
+        the approval rules (the expired-namespace policy and its guards, or the environment's delete rule), delivered by a bot
+        PR and held by Argo CD for an operator's prune confirmation. Its requester is cmapi itself (EXPIRY_REQUESTER), not a
+        person: no token stands behind it, so no role is checked, and no person is kept from approving it.
+
+        Refused, so the check holds it and tries the next day, when expiration is off in the environment (prod is always
+        off) or when Git's `cmapi.net/expires-at` is not the date the check acted on (412 precondition-failed): the date moved
+        after the read."""
+        st = self.registry.writable(cluster_id)
+        env = st.policy.environment
+        self.check_env_served(env)
+        self.check_plugin_offered("namespaces", env)
+        if not self.cfg.expiration.allows(env):
+            raise Problem.unprocessable("expiration-not-allowed", f"Namespaces in {env} do not expire")
+        requester = Requester(person=EXPIRY_REQUESTER, caller=EXPIRY_REQUESTER, automated=True)
+        return self._plan_delete(st, EXPIRY_REQUESTER, requester, ns, if_match=None, reason="expired", extra_facts=facts,
+                                 expires_at=expires_at)
+
+    def _plan_delete(self, st: Any, who: Identity, requester: Requester, ns: str, *, if_match: str | None,
+                     reason: str | None, extra_facts: Mapping[str, Any] | None, expires_at: date | None = None) -> Plan:
+        cluster_id, env = st.cluster_id, st.policy.environment
         prev, base_sha = self._read_folder(cluster_id, ns)
         ns_doc = namespace_doc(prev)
         if ns_doc is None:
@@ -520,6 +546,11 @@ class Pipeline:
         etag = folder_etag(prev)
         if reason != "expired":
             check_if_match(if_match, etag, "delete")
+        if expires_at is not None:
+            held = (ns_doc["metadata"].get("annotations") or {}).get("cmapi.net/expires-at")
+            if held != expires_at.isoformat():
+                # The date moved after expire_check read it, as a 412 says of a folder that changed since a caller's read.
+                raise Problem(412, "precondition-failed", f"Git holds the expiry {held!r} for {ns}, not {expires_at.isoformat()}")
         removed = self.removable_folder(cluster_id, ns, base_sha)
         labels = ns_doc["metadata"].get("labels", {})
         live = None
@@ -527,10 +558,8 @@ class Pipeline:
             live = self.registry.cache(cluster_id).namespace(ns)
         except Problem:
             pass
-        age_days = 0
-        if live and live.get("metadata", {}).get("creationTimestamp"):
-            created = date.fromisoformat(live["metadata"]["creationTimestamp"][:10])
-            age_days = (date.today() - created).days
+        created = created_day(live)
+        age_days = (utc_today() - created).days if created else 0
         pods, pvcs = self.workload_counts(cluster_id, ns)
         facts = {"plugin": "namespaces", "action": "delete", "environment": env, "namespace": ns, "clusterId": cluster_id,
                  "team": labels.get("cmapi.net/team"), "automated": requester.automated,
@@ -651,11 +680,7 @@ def _date(v: Any) -> date:
 
 def created_day(obj: Mapping[str, Any] | None) -> date | None:
     """The UTC day a namespace was created on its cluster (metadata.creationTimestamp), or None when it is not known."""
-    stamp = ((obj or {}).get("metadata") or {}).get("creationTimestamp")
-    try:
-        return date.fromisoformat(str(stamp)[:10]) if stamp else None
-    except ValueError:
-        return None
+    return utc_day(((obj or {}).get("metadata") or {}).get("creationTimestamp"))
 
 
 def _hard(doc: Mapping[str, Any] | None) -> dict[str, str] | None:

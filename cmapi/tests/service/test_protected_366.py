@@ -78,8 +78,9 @@ def test_an_expiry_change_keeps_the_protection(world, route):
     """#374: :extend, :set and :makePermanent plan through plan_namespace too. :set gives a permanent namespace its date;
     the other two change a date that exists."""
     from datetime import date, timedelta
+    from cmapi.plugins.expiration.rules import utc_today
     client, ctx, git, *_, keys = world
-    day = lambda n: (date.today() + timedelta(days=n)).isoformat()   # noqa: E731
+    day = lambda n: (utc_today() + timedelta(days=n)).isoformat()   # noqa: E731
     if route == "expiration:set":
         created(world, {"cmapi.net/protected": "true"}, "opal", OPAL)
     else:
