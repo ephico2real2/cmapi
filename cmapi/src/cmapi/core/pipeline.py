@@ -408,10 +408,13 @@ class Pipeline:
         if action == "update" and reason is None:
             # A PATCH, whose body can add a key: the expiry calls (reason expiration:...) cannot, so they get no finding.
             findings = [*findings, *self._held_key_findings(cluster_id, ns, labels, anns)]
-        old_hard = {}
-        if old_tier and not quotas_held:
-            # A custom namespace: what Git holds, as it is. It was approved, so no bound is checked again (#214).
-            old_hard = dict(old_quota or {}) if custom_before else self.cfg.tiers.quota_for(env, old_tier)
+        # Every change is sized from the quota that Git holds and the cluster enforces, never from the catalog (#710). A
+        # namespace rendered from an older catalog is tier-outdated, and the change that renders it again is "an ordinary
+        # update request: the plan diff shows old and new values, increases go through the capacity check and reserve the
+        # delta, [...] and the approval rules apply as for any quota change" (docs/02, "Changing a tier"). A label change
+        # renders the tier too, so a catalog that grew since must not reach Git as a raise of zero. A create has nothing in
+        # Git; a custom value that Git holds was approved, so no bound is checked again (#214).
+        old_hard = dict(old_quota or {}) if action != "create" and not quotas_held else {}
         cpu_delta = float(qty(hard.get("requests.cpu", "0")) - qty(old_hard.get("requests.cpu", "0")))
         mem_delta = float(qty(hard.get("requests.memory", "0")) - qty(old_hard.get("requests.memory", "0")))
         cap = self.capacity.check(cluster_id, env, max(cpu_delta, 0), max(mem_delta, 0))
@@ -424,9 +427,8 @@ class Pipeline:
         if action != "create" and not quotas_held:
             # Compare the hard limits in Git with what will be rendered. The tier catalog can change
             # between requests, and a change can move only pods, limits, or another quota resource.
-            previous = old_quota or {}
-            if previous.keys() != hard.keys() or any(qty(previous[k]) != qty(hard[k]) for k in hard):
-                usage_view, usage_facts = plan_usage(self.usage.namespace(cluster_id, ns), previous, hard)
+            if old_hard.keys() != hard.keys() or any(qty(old_hard[k]) != qty(hard[k]) for k in hard):
+                usage_view, usage_facts = plan_usage(self.usage.namespace(cluster_id, ns), old_hard, hard)
         facts = {"plugin": "namespaces", "action": action, "environment": env, "namespace": ns, "clusterId": cluster_id,
                  "team": labels.get("cmapi.net/team"), "tier": tier, "capacity": cap.status, "capacityFresh": cap.fresh,
                  "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,
@@ -436,15 +438,17 @@ class Pipeline:
         if quotas_held:
             # The tier is the one Git holds (a move is refused above) and no quota changes.
             facts.update(QuotaChange("custom" if resolved.custom else "same", {}, {}).facts())
-        elif old_tier and action != "create":
-            facts.update(self.cfg.tiers.compare(env, old_tier, old_hard or hard, tier, hard).facts())
+        elif action != "create":
+            # quotaIncreasePct over what Git holds; none held is a write from nothing, 100% on each key (compare). tierChange
+            # is from the tier that Git's Namespace names; one that names none and is not moved is rendered on `tier`.
+            facts.update(self.cfg.tiers.compare(env, old_tier if old_tier or moved else tier, old_hard, tier, hard).facts())
         # Beyond the tier: each overridable value that differs from the tier and from the value that Git holds. A value that
         # was approved before is not beyond the tier again.
         beyond = {k: v for k, v in self.cfg.tiers.beyond(env, tier, hard, limit_range).items()
                   if k not in approved or qty(approved[k]) != qty(v["requested"])}
         # Network exposure: the new quota has more load balancers or NodePorts than Git holds (for a new namespace: than the
         # tier gives). It does not depend on the beyond-tier keys: a change to a tier with a higher value raises it too.
-        exposure_base = hard if quotas_held else (old_quota or {}) if old_tier else resolved.quota
+        exposure_base = hard if quotas_held else resolved.quota if action == "create" else old_hard
         raised = [k for k in sorted(EXPOSURE_KEYS) if qty(hard.get(k, "0")) > qty(exposure_base.get(k, "0"))]
         facts.update({"beyondTier": bool(beyond), "beyondTierKeys": sorted(beyond), "networkExposure": bool(raised)})
         requirement = self._decide(facts)

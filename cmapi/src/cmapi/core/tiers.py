@@ -696,9 +696,10 @@ class TierCatalog:
             raise TierError("tier-not-offered", f"Custom quotas are not offered in {env}")
         return custom, self.quota_for(env, custom, hard)
 
-    def compare(self, env: str, current_tier: str, current_hard: Mapping[str, str],
+    def compare(self, env: str, current_tier: str | None, current_hard: Mapping[str, str],
                 new_tier: str, new_hard: Mapping[str, str],
                 used: Mapping[str, str] | None = None) -> QuotaChange:
+        """current_hard: what Git holds (#710). current_tier None, or a tier the catalog no longer has, ranks below every tier."""
         pct, delta, below = {}, {}, []
         for k in self.sizable:
             old, new = qty(current_hard.get(k, "0")), qty(new_hard[k])
