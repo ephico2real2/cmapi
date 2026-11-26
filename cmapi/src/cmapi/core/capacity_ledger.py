@@ -238,6 +238,13 @@ class CapacityLedger:
                     self._acc.add(figures, 1)
 
     # ---- reads
+    def namespace_committed(self, namespace: str) -> dict[str, Decimal]:
+        """What one namespace adds to `committed` now, per resource, in cores and bytes: 0 for a resource it does not bound."""
+        with self._lock:
+            figures = self._figures.get(namespace)
+        bounds = figures.bounds if figures else (None, None)
+        return {r: amount(b.hard) if b else Decimal(0) for r, b in zip(RESOURCES, bounds)}
+
     def totals(self) -> LedgerTotals:
         with self._lock:
             return self._acc.totals(self._scoped)

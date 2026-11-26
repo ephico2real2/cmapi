@@ -94,11 +94,11 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
     facts = {"plugin": "namespaces", "action": action, "environment": row.env, "namespace": row.namespace,
              "clusterId": row.cluster_id, "team": row.team, "automated": True, "reason": "revert",
              "capacity": "fits", "capacityFresh": True, "warnings": []}
-    cap, usage = CapacityResult("fits", True, None, {"source": "revert"}), None
+    cap, usage, beyond = CapacityResult("fits", True, None, {"source": "revert"}), None, {}
     if action == "update":
         # What it writes back is a change of what Git holds now, sized and reviewed as any (#710). capacity-exceeded fails the
         # job as a Git outage does: the transaction is rolled back and the request stays sync_failed.
-        cap, restore_facts, usage = ctx.pipeline.restore_facts(row.cluster_id, row.env, row.namespace, now_files, prev)
+        cap, restore_facts, usage, beyond = ctx.pipeline.restore_facts(row.cluster_id, row.env, row.namespace, now_files, prev)
         facts.update(restore_facts)
     else:
         pods, pvcs = ctx.pipeline.workload_counts(row.cluster_id, row.namespace)
@@ -111,7 +111,8 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
                                                     client_id="cmapi-worker", employee_id="revert",
                                                     roles=frozenset({"cmapi-onboarding"})), None)
     plan = Plan(row.cluster_id, row.namespace, row.env, action, "namespaces", None, files, now_files, changes, requirement,
-                cap, facts, requester, [], base_sha, reason="revert", usage=usage)
+                cap, facts, requester, [], base_sha, reason="revert", usage=usage,
+                beyond_tier=ctx.pipeline.beyond_view(facts, beyond))
     new = ctx.pipeline.submit(who, plan, repo, jobs, idempotency_key=None, body_fingerprint="revert:" + row.request_id,
                               justification=f"Revert of {row.request_id}")
     repo.event(row, "revert_opened", "worker", new.request_id)

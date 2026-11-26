@@ -135,6 +135,19 @@ def test_compare_gives_approval_facts(cat):
     assert down.tier_change == "down" and down.below_used == ["requests.cpu"]
 
 
+def test_a_missing_tier_ranks_below_a_tier_of_order_zero():
+    """compare: a tier that is None, or that the catalog no longer has, ranks below every tier, and TierDef.order is any
+    unique int. A revert can restore a tier the catalog dropped (Pipeline.restore_facts, #718): from small at order 0 that is
+    down, never the same; and a move from no tier up to small is up."""
+    r = raw()
+    r["tiers"]["small"]["order"] = 0
+    c = TierCatalog(r, ALL)
+    small = c.quota_for("prod", "small")
+    assert c.compare("prod", "small", small, "retired", small).tier_change == "down"
+    assert c.compare("prod", None, small, "small", small).tier_change == "up"
+    assert c.compare("prod", None, small, "retired", small).tier_change == "same"
+
+
 def test_render_matches_the_example_namespace_folder(cat):
     rq, lrs = cat.render(namespace="payments-dev", cluster_id="OCP_GF15", instance="nonprod", env="dev",
                          tier="medium", request_id="req-20261104-2b17")
