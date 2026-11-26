@@ -216,10 +216,10 @@ say "the reader lists what it needs, and reads no Secret and writes nothing"
 # The live usage (#310, usage.source thanos): the reader's two grants in openshift-monitoring, each by cmapi's own RoleBinding. A
 # SubjectAccessReview names the reader's groups without system:authenticated: impersonation (--as) always adds that group, and a
 # cluster may grant monitoring to it (on CRC another project's chart binds cluster-monitoring-view to system:authenticated), which
-# would hide a missing grant here. The user-defined Prometheus's API, which cluster-monitoring-view would reach, stays refused.
+# would hide a missing grant here. Check the same named resource outside the granted namespace as a scope control.
 sar() {   # sar <namespace> <group> <resource> <subresource> <name>: "<allowed> <reason>" for the reader alone
   printf '{"apiVersion":"authorization.k8s.io/v1","kind":"SubjectAccessReview","spec":{"user":"system:serviceaccount:cmapi-system:cmapi-reader","groups":["system:serviceaccounts","system:serviceaccounts:cmapi-system"],"resourceAttributes":{"verb":"get","namespace":"%s","group":"%s","resource":"%s","subresource":"%s","name":"%s"}}}' "$@" \
-    | oc_ create -o 'jsonpath={.status.allowed} {.status.reason}' -f -
+    | oc_ create -o 'go-template={{if .status.evaluationError}}inconclusive{{else}}{{.status.allowed}} {{.status.reason}}{{end}}' -f -
 }
 granted() {   # granted <binding> <sar args>: allowed, and by that RoleBinding of openshift-monitoring
   local got; got=$(sar "${@:2}") || fail "a SubjectAccessReview for the reader failed"
@@ -227,14 +227,38 @@ granted() {   # granted <binding> <sar args>: allowed, and by that RoleBinding o
 }
 granted cmapi-reader-thanos-route openshift-monitoring route.openshift.io routes "" thanos-querier
 granted cmapi-reader-metrics-api openshift-monitoring monitoring.coreos.com prometheuses api k8s
-case "$(sar openshift-user-workload-monitoring monitoring.coreos.com prometheuses api user-workload)" in false*) ;; *) fail "the reader may reach the user-defined Prometheus's API";; esac
-# And the query cmapi makes, with a reader token of ten minutes, the shortest a TokenRequest takes, on stdin like the session's.
-reader_token=$(oc_ create token cmapi-reader -n cmapi-system --duration=10m) || fail "no token for the reader"
-quotas=$(printf 'header = "Authorization: Bearer %s"\n' "$reader_token" | c --config - --get --data-urlencode 'query=count(kube_resourcequota)' "https://$(oc_ get route thanos-querier -n openshift-monitoring -o 'jsonpath={.spec.host}')/api/v1/query" \
-  | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else 0)') || fail "the Thanos Querier did not answer the reader's query"
-unset reader_token
-[ "${quotas%.*}" -gt 0 ] 2>/dev/null || fail "count(kube_resourcequota) as the reader is $quotas"
-say "the reader reads Thanos by cmapi-reader-thanos-route and cmapi-reader-metrics-api alone, not the user-defined Prometheus: count(kube_resourcequota) = $quotas"
+scope=$(sar openshift-user-workload-monitoring monitoring.coreos.com prometheuses api k8s) || fail "monitoring scope review failed"
+case "$scope" in "false "*) ;; *) fail "expected get on prometheuses/api k8s to be refused outside openshift-monitoring: $scope";; esac
+
+# Use the CA source of crc-reader-import.sh and the query options of ThanosQuerier.
+thanos=$(oc_ get route thanos-querier -n openshift-monitoring -o 'jsonpath={.spec.host}' --as=system:serviceaccount:cmapi-system:cmapi-reader)
+[ -n "$thanos" ] || fail "the reader could not discover the Thanos Route host"
+reader_query() (
+  local ca_file reader_token
+  ca_file=$(mktemp) || return 1
+  trap 'rm -f "$ca_file"' EXIT
+  oc_ get configmap kube-root-ca.crt -n cmapi-system -o 'jsonpath={.data.ca\.crt}' >"$ca_file" || return 1
+  reader_token=$(oc_ create token cmapi-reader -n cmapi-system --duration=10m) || return 1
+  printf 'header = "Authorization: Bearer %s"\n' "$reader_token" | curl -sS -m 15 --fail --cacert "$ca_file" --config - --get \
+    --data-urlencode 'query=count(kube_resourcequota)' --data-urlencode partial_response=false --data-urlencode dedup=true --data-urlencode timeout=10s \
+    "https://$thanos/api/v1/query"
+)
+quotas=$(reader_query | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if body.get("status") != "success" or body.get("warnings"):
+    sys.exit("Thanos returned an error or warning")
+data = body["data"]
+if data.get("resultType") != "vector" or len(data["result"]) != 1:
+    sys.exit("expected one count series")
+series = data["result"][0]
+if series.get("metric") != {} or len(series["value"]) != 2:
+    sys.exit("invalid count series")
+count = series["value"][1]
+if not isinstance(count, str) or not count.isascii() or not count.isdecimal() or int(count) < 1:
+    sys.exit("expected a positive quota count")
+print(count)') || fail "the Thanos Querier did not return a clean positive quota count for the reader"
+say "the reader has the two cmapi Thanos grants in openshift-monitoring: count(kube_resourcequota) = $quotas"
 # The Policies tab's premise (#302, #387): the API reads Kyverno's reports in wgpolicyk8s.io/v1alpha2 and finds the group by discovery
 # (core/clients/policyreports.py), so without it the tab reads "Kyverno not installed". Read as the reader, as the API reads: the
 # served groups, then the request of the API's own probe. openreports.io, where a later Kyverno writes its reports (#382), is recorded.
@@ -278,7 +302,6 @@ done
 say "the api and the worker connect to the database with sslmode=verify-full"
 
 # Prometheus, with no secret on any command line and none in the targets: Thanos Querier's Route, the session's token on stdin.
-thanos=$(oc_ get route thanos-querier -n openshift-monitoring -o 'jsonpath={.spec.host}')
 prom() { printf 'header = "Authorization: Bearer %s"\n' "$(oc_ whoami -t)" | c --config - --get --data-urlencode "query=$1" "https://$thanos/api/v1/query"; }
 # Each series as job=value, sorted: one series per target, named. A count and a sum alone would read two api series and no
 # worker as both targets (#280 review).
