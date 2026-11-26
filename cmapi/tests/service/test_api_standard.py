@@ -43,7 +43,7 @@ FASTAPI_DEFAULT = "Successful Response"
 MEDIA_TYPES = ("application/json", "text/csv")
 SCALARS = ("string", "integer", "number", "boolean")
 # S1: a summary starts with what the caller does. A new kind of operation adds its verb here.
-VERBS = {"Approve", "Cancel", "Change", "Confirm", "Create", "Delete", "Export", "Extend", "Get", "Give", "List", "Pause",
+VERBS = {"Adopt", "Approve", "Cancel", "Change", "Confirm", "Create", "Delete", "Export", "Extend", "Get", "Give", "List", "Pause",
          "Place", "Probe", "Reject", "Remove", "Resume", "Retry", "Revert", "Run", "Search"}         # Place, Run: #21
 # S3: the operations that need a token and no permission (GET /me is how a caller finds out what it may do).
 TOKEN_ONLY = {("get", "/api/v1/me")}

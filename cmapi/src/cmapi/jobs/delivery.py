@@ -16,13 +16,15 @@ from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from typing import Any, Iterator
 
+from cmapi.core import kube_yaml
+from cmapi.core.adoption import ADOPT_LABEL, AdoptionSettings, Staleness, cleaned, snapshot_hash, stale
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo
 from cmapi.core.git.base import BranchRequest
 from cmapi.core.git.oplog import git_context
 from cmapi.core.git.workspace import TRAILER_PLAN_HASH, TRAILER_REQUEST, request_branch
-from cmapi.core.lifecycle import State as S
+from cmapi.core.lifecycle import Event, State as S
 from cmapi.core.ports import PrRef
 from cmapi.core.render.manifests import NamespaceSpec, folder, plan_hash
 
@@ -122,6 +124,89 @@ def mark_apply_started(ctx: AppContext, request_id: str, head: str) -> bool:
             return False
         repo.event(row, APPLY_STARTED, "cmapi-deliverer", f"applying {head[:8]} before the merge", {"head": head})
     return True
+
+
+ADOPTION_STALE = "adoption-plan-stale"
+ADOPTION_LABEL_REMOVED = "adoption-label-removed"
+
+
+def adoption_stored(row: Any) -> dict[str, Any] | None:
+    """The snapshot that an adoption's plan stored (the adoption design's D6a and D16), or None for any other request."""
+    return (row.plan or {}).get("adoption") if row.plugin == "adoption" else None
+
+
+def adoption_staleness(ctx: AppContext, row: Any) -> Staleness | None:
+    """D16: read the live objects again and compare them with the plan's snapshot. None for any other request, and for an
+    adoption whose objects are still the ones it read. A cluster that does not answer raises, and the job retries."""
+    stored = adoption_stored(row)
+    if stored is None:
+        return None
+    live, quotas, limits = ctx.pipeline.live_objects(row.cluster_id, row.namespace)
+    consent = AdoptionSettings(label=stored.get("label") or ADOPT_LABEL, value=stored.get("value") or "true")
+    return stale(stored, live, quotas, limits, consent)
+
+
+def adoption_writes(ctx: AppContext, row: Any, files: dict[str, str], *, resuming: bool
+                    ) -> tuple[Staleness | None, dict[str, str]]:
+    """D16 at the write itself (apply mode). The live objects are read again, and each manifest carries the uid and
+    resourceVersion that the plan read, so the API server refuses the write of an object that was replaced or changed after
+    this read: a uid on an object that is gone is 409, another uid is 422 (immutable), another resourceVersion is 409.
+
+    A resumed delivery (a retry after apply_started, or watch_sync after the merge) skips each object that already holds
+    this request's manifest, which cmapi wrote; its live resourceVersion then stands for the plan's in the comparison. An
+    object changed by anyone else fails the comparison, so cmapi never writes the old values over the new ones.
+    Returns the staleness, or None and the files to write. A cluster that does not answer raises (Problem 503)."""
+    stored = adoption_stored(row) or {}
+    ns, quotas, limits = ctx.pipeline.live_objects(row.cluster_id, row.namespace)
+    live = {("ResourceQuota", o["metadata"]["name"]): o for o in quotas}
+    live.update({("LimitRange", o["metadata"]["name"]): o for o in limits})
+    if ns is not None:
+        live["Namespace", row.namespace] = ns
+    approved = {(i["kind"], i["name"]): dict(i) for i in stored.get("identity") or []}
+    skipped = [(d["kind"], d["key"]) for d in stored.get("keys") or [] if not d["kept"]]
+    writes: dict[str, str] = {}
+    for path, text in files.items():
+        doc, = kube_yaml.load_all(text)                    # one object in each file (D8)
+        key = doc["kind"], doc["metadata"]["name"]
+        ident = approved.get(key)
+        if not ident or not ident["uid"] or not ident["resourceVersion"]:
+            return Staleness("stale", f"the plan holds no uid and resourceVersion of {key[0]} {key[1]}"), {}
+        if resuming and key in live:
+            current = cleaned(live[key], key[0])
+            if key[0] == "Namespace":                       # D3a's decisions are the Namespace's keys
+                for kind, name in skipped:
+                    (current["metadata"].get("labels" if kind == "label" else "annotations") or {}).pop(name, None)
+            if current == doc:
+                ident["resourceVersion"] = live[key]["metadata"].get("resourceVersion", "")
+                continue
+        doc["metadata"].update(uid=ident["uid"], resourceVersion=ident["resourceVersion"])
+        writes[path] = kube_yaml.dump(doc, sort_keys=False)
+    consent = AdoptionSettings(label=stored.get("label") or ADOPT_LABEL, value=stored.get("value") or "true")
+    found = stale({"identity": list(approved.values())}, ns, quotas, limits, consent)
+    return found, ({} if found else writes)
+
+
+def adoption_base(row: Any) -> dict[str, str]:
+    """D6a, step 2: the base of an adoption's policy check is the snapshot that the approved plan stored, never a file of the
+    pull request. ValueError when the stored snapshot is not the one whose digest the plan recorded."""
+    stored = adoption_stored(row) or {}
+    files = dict(stored.get("snapshot") or {})
+    if snapshot_hash(files, stored.get("identity") or []) != stored.get("snapshotHash"):
+        raise ValueError("the stored snapshot of the adoption is not the one its plan recorded")
+    return files
+
+
+def end_adoption(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row: Any, found: Staleness, by: str) -> None:
+    """D16: a removed opt-in label cancels the request (the label is the consent); any other change since the plan fails it
+    with adoption-plan-stale. cmapi never writes the old values over the new ones: the operator plans again. The PR, if one is
+    open, is closed and the branch deleted."""
+    if found.code == "label-removed":
+        repo.event(row, ADOPTION_LABEL_REMOVED, by, found.detail[:300])
+        repo.move(row, Event.CANCEL, by, f"{ADOPTION_LABEL_REMOVED}: {found.detail}"[:240], actor_is_operator=True)
+    else:
+        repo.event(row, ADOPTION_STALE, by, found.detail[:300])
+        repo.move(row, Event.PR_FAILED, by, f"{ADOPTION_STALE}: {found.detail}"[:240])
+    end_pr(ctx, repo, jobs, row, f"{ADOPTION_LABEL_REMOVED if found.code == 'label-removed' else ADOPTION_STALE}: {found.detail}")
 
 
 def end_pr(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row: Any, why: str) -> None:

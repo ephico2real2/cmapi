@@ -17,7 +17,7 @@ from cmapi.core.git.workspace import BranchRefused, request_branch
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import GIT_ORPHANS
 from cmapi.core.render.manifests import folder
-from cmapi.jobs.delivery import branch_request, request_context
+from cmapi.jobs.delivery import adoption_staleness, branch_request, end_adoption, request_context
 
 
 def push_branch(ctx: AppContext, s: Session, job: JobRow) -> None:
@@ -41,6 +41,12 @@ def push_branch(ctx: AppContext, s: Session, job: JobRow) -> None:
             changed = f"folder changed in Git since the plan: {exc}"
         if changed:
             return _superseded(repo, jobs, job, row, changed)
+        # An adoption reads the live objects again when it is approved: this job is the first step after the approval (D16).
+        found = adoption_staleness(ctx, row)
+        if found is not None:
+            end_adoption(ctx, repo, jobs, row, found, "worker")
+            jobs.done(job)
+            return
         req = branch_request(ctx, row)
         jobs.fence()
         try:

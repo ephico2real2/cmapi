@@ -2,7 +2,7 @@
 
 This folder holds one figure set. It shows the architecture of cmapi as the portal mockup sees it.
 
-The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 43 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
+The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 46 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
 
 The map is held to the contract by a test. The portal that calls these endpoints is measured in `docs/09-portal-ui-testing.md`, each result with the cluster or the stand-in it ran on.
 
@@ -131,7 +131,7 @@ Three boxes were dashed because their state was not certain or not there. Argo C
 
 ## Built endpoints that no mockup action calls
 
-The mockup has no action for these 22 operations of `openapi.json`:
+The mockup has no action for these 25 operations of `openapi.json`:
 
 - `GET /api/v1/me`, `GET /api/v1/version`, `GET /api/v1/clusters`
 - `POST /api/v1/clusters/{id}:probe`: recheck a held cluster import (#397); the mockup has no probe action
@@ -142,6 +142,7 @@ The mockup has no action for these 22 operations of `openapi.json`:
 - `GET /api/v1/admin/auto-approval`, and `POST /api/v1/admin/auto-approval:pause` and `:resume`
 - `GET /api/v1/admin/git-log`, `GET /api/v1/admin/integrations`, `POST /api/v1/admin/prune:confirm`, `GET /api/v1/admin/plugins`
 - `GET /api/v1/clusters/{cluster_id}/capacity` and `POST /api/v1/clusters/{cluster_id}/capacity/snapshots:run`: one cluster's stored snapshot, and a run now (#21)
+- `GET /api/v1/clusters/{cluster_id}/adoption/candidates`, `GET /api/v1/clusters/{cluster_id}/adoption/skipped` and `POST /api/v1/clusters/{cluster_id}/namespaces/{ns}:adopt`: story #26. Main.dc.html has no adoption screen; the portal's Adopt view calls them, from its own mockup, mockup-adopt.html in docs/reviews/2026-11-14-issue-26-adoption/
 
 ## Text twins
 

@@ -18,6 +18,7 @@ from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import LEAD_TIME, log
 from cmapi.core.render.manifests import folder
 from cmapi.core.sync import ApplyDelivery, ArgoCdSignal, application_name, confirmed_by_read, not_synced
+from cmapi.jobs.delivery import ADOPTION_STALE, adoption_stored, adoption_writes
 
 
 def _deliverer(ctx: AppContext, cluster_id: str):
@@ -90,12 +91,23 @@ def watch_sync(ctx: AppContext, s: Session, job: JobRow) -> None:
             if not as_plan(lambda: ctx.git.read_folder(folder(row.cluster_id, row.namespace))[0] == files):
                 return _refuse(repo, jobs, row, job, "Git main's folder differs from the approved plan; nothing applied")
             d = ApplyDelivery(_deliverer(ctx, row.cluster_id))
-            live = d.client.get_object("Namespace", None, row.namespace)
-            if live is not None and not _managed(live):
-                # The plan-time check is hours old by now. Server-side apply with force would take it over.
-                return _refuse(repo, jobs, row, job, f"{row.namespace} exists on the cluster and cmapi does not manage it; nothing applied")
+            writes = files
+            if adoption_stored(row) is not None:
+                # An approved adoption writes only the objects its plan read, unchanged since but by cmapi's own write
+                # (story #26, D16); a namespace that is gone, or managed by another write, is refused too.
+                try:
+                    found, writes = adoption_writes(ctx, row, files, resuming=True)
+                except Problem as exc:                    # live_objects: the cluster did not answer
+                    raise ClusterUnreachable(exc.detail) from exc
+                if found is not None:
+                    return _refuse(repo, jobs, row, job, f"{ADOPTION_STALE}: {found.detail}; nothing applied")
+            else:
+                live = d.client.get_object("Namespace", None, row.namespace)
+                if live is not None and not _managed(live):
+                    # The plan-time check is hours old by now. Server-side apply with force would take it over.
+                    return _refuse(repo, jobs, row, job, f"{row.namespace} exists on the cluster and cmapi does not manage it; nothing applied")
             jobs.fence()
-            n = d.apply_folder(files)
+            n = d.apply_folder(writes)
             if removed:
                 from cmapi.core import kube_yaml
 

@@ -5295,6 +5295,146 @@ try {
     });
   }
 
+  // Story #26, the Adopt view of the Namespaces tab (mockup docs/reviews/2026-11-14-issue-26-adoption/mockup-adopt.html). The
+  // stand-in answers from the recorded samples of the adoption plugin: abc-rnd is the one candidate, legacy-tools is skipped.
+  const adoptPosts = (ns = "abc-rnd") => api.state.seen.filter((c) => c.method === "POST" && c.path === `/api/v1/clusters/CRC/namespaces/${ns}:adopt`);
+  const adoptStatus = async (page) => (await page.locator("#adopt-status").innerText()).replace(/\s+/g, " ");
+  const adoptCheck = (page) => panel(page).getByRole("button", { name: "Check (dry run)" });
+  const adoptSubmit = (page) => panel(page).getByRole("button", { name: "Submit adoption request" });
+  async function planAdoption(page) {
+    await open(page, "#namespaces?view=adopt&cluster=CRC");
+    await panel(page).getByRole("button", { name: "Adopt abc-rnd" }).click();
+    await page.getByLabel("Justification (required)").fill("Bring abc-rnd under cmapi");
+    await adoptCheck(page).click();
+    await panel(page).locator("#adopt-status").getByText("The check passed (dry run, 200). Nothing is written yet.").waitFor();
+  }
+
+  await check("26-A an operator adopts abc-rnd: the candidates and the skipped, Check (dry run) shows the plan, Submit opens one request", async () => {
+    const { context, page, errors } = await fresh({ user: "operator", clusters: NS_CLUSTERS });
+    await open(page, "#namespaces?view=adopt&cluster=CRC");
+    const candidates = panel(page).locator("table[aria-label='Namespaces of CRC that can be adopted'] tbody tr");
+    await candidates.first().waitFor();
+    assert.deepEqual(await candidates.evaluateAll((trs) => trs.map((tr) => tr.innerText.replace(/\s+/g, " ").trim())),
+      ["abc-rnd company.net/provisioner=cluster-configs Adopt abc-rnd"]);
+    await panel(page).getByText("tracked-elsewhere: The Argo CD Application legacy-tools tracks legacy-tools").waitFor();
+    await panel(page).getByRole("button", { name: "Adopt abc-rnd" }).click();
+    assert.match(page.url(), /#namespaces\?view=adopt&cluster=CRC&adopt=abc-rnd$/);
+    assert.equal(await adoptSubmit(page).getAttribute("aria-disabled"), "true", "no Submit before a passing check");
+    // Check with no justification sends nothing
+    await adoptCheck(page).click();
+    await panel(page).getByText("Justification: say why this namespace is adopted.").waitFor();
+    assert.equal(adoptPosts().length, 0);
+    await page.getByLabel("Justification (required)").fill("Bring abc-rnd under cmapi");
+    await adoptCheck(page).click();
+    await panel(page).locator("#adopt-status").getByText("The check passed (dry run, 200). Nothing is written yet.").waitFor();
+    // The approval is the recorded plan's (the stand-in answers from samples.json): its count, in the page's words.
+    const need = SAMPLES.operations["adoption_adopt:dryRun"].response.body.approval.slots.reduce((n, s) => n + s.count, 0);
+    assert.ok(need >= 1, "an adoption always needs an approver");
+    assert.match(await adoptStatus(page), new RegExp(`${need} approvals? in cmapi from approver-platform`));
+    const objects = panel(page).locator("table[aria-label='Objects read from the cluster'] tbody tr");
+    assert.deepEqual(await objects.evaluateAll((trs) => trs.map((tr) => tr.innerText.replace(/\s+/g, " ").trim())),
+      ["Namespace abc-rnd 100", "ResourceQuota abc-rnd-quota 101", "LimitRange abc-rnd-limits-cpu 102", "LimitRange abc-rnd-limits-memory 102"]);
+    await panel(page).getByRole("list", { name: "Findings" }).getByText(/company\.net\/provisioner=cluster-configs marks a namespace/).waitFor();
+    await panel(page).getByRole("button", { name: "clusters/CRC/namespaces/abc-rnd/namespace.yaml" }).click();
+    await panel(page).getByText("cmapi.net/adopt: 'true'").first().waitFor();
+    const [dry] = adoptPosts();
+    assert.equal(dry.query.dryRun, "true");
+    assert.deepEqual(dry.body, { justification: "Bring abc-rnd under cmapi" });
+    assert.equal(dry.key, null, "a dry run takes no Idempotency-Key");
+    await adoptSubmit(page).click();
+    await panel(page).getByText(/Request req-\d{8}-8\d{3} submitted \(202\)\./).waitFor();
+    const writes = adoptPosts().filter((c) => !c.query.dryRun);
+    assert.equal(writes.length, 1);
+    assert.match(writes[0].key, /^[0-9a-f-]{36}$/, "an Idempotency-Key from crypto.randomUUID");
+    assert.equal(await adoptSubmit(page).getAttribute("aria-disabled"), "true", "Submit goes off once the request is made");
+    await panel(page).getByRole("button", { name: "Open at current step" }).click();
+    await page.waitForURL(/#workflow\?request=req-/);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("26-R a namespace that is not a candidate is refused by the API, and the page says so", async () => {
+    const { context, page, errors } = await fresh({ user: "operator", clusters: NS_CLUSTERS });
+    expectedStatus = [409];
+    await open(page, "#namespaces?view=adopt&cluster=CRC&adopt=legacy-tools");
+    await page.getByLabel("Justification (required)").fill("Try it");
+    await adoptCheck(page).click();
+    await panel(page).getByText("Not adoptable: namespace-not-adoptable").waitFor();
+    assert.equal(await adoptSubmit(page).getAttribute("aria-disabled"), "true");
+    assert.equal(adoptPosts("legacy-tools").filter((c) => !c.query.dryRun).length, 0, "no write is sent");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("26-P without adoption:write there is no Adopt view, and its address shows the managed namespaces", async () => {
+    const { context, page, errors } = await fresh({ user: "requester", clusters: NS_CLUSTERS, metadataKeys: KEYS_479, namespaces: namespacesOfMockup() });
+    await open(page, "#namespaces?view=adopt&cluster=CRC");
+    await panel(page).getByLabel("Namespace", { exact: true }).waitFor();
+    assert.equal(await panel(page).getByRole("button", { name: "Adopt" }).count(), 0);
+    assert.equal(api.state.seen.filter((c) => c.path.includes("/adoption/")).length, 0, "no adoption call is made");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("26-6 the Adopt view says the mockup's words: each heading, label and button of the mockup is on the page", async () => {
+    const mockup = readFileSync(join(app, "..", "docs", "reviews", "2026-11-14-issue-26-adoption", "mockup-adopt.html"), "utf8");
+    // The structural words: the headings, the table headers, the labels and the buttons. The data of the mockup's sample stands
+    // in for the API's answer, which the page shows as the API gives it (MOCKUP-CONTRACT.md, the Adopt view).
+    const words = [...mockup.matchAll(/<(h2|h3|th|label|button)[^>]*>([^<]+)</g)].map((m) => m[2].trim())
+      .filter((t) => t && !t.startsWith("clusters/") && !/^Adopt ab[cd]-rnd$/.test(t) && t !== "Open at current step");   // after a submit: 26-A
+    assert.ok(words.length >= 15, `the mockup was read (${words.length} strings)`);
+    const { context, page, errors } = await fresh({ user: "operator", clusters: NS_CLUSTERS });
+    await planAdoption(page);
+    let shown = await panel(page).innerText();
+    shown += await page.locator("body").innerText();
+    const squeeze = (t) => t.replace(/\s+/g, "");
+    assert.deepEqual([...new Set(words)].filter((t) => !squeeze(shown).includes(squeeze(t))), [], "each word of the mockup is on the page");
+    assert.deepEqual(errors, []);
+    await context.close();
+    console.log(`  ${new Set(words).size} strings of the mockup compared`);
+  });
+
+  // The Adopt view at 390, 820 and 1440 px in each theme, axe at phone and desktop width; the screenshots at 390 and 1440 are the
+  // pull request's evidence (UPDATE_COMMITTED_SCREENSHOTS=1 writes them to screenshots/26-adopt).
+  const adoptShots = process.env.UPDATE_COMMITTED_SCREENSHOTS === "1" ? join(app, "screenshots", "26-adopt") : join(out, "26-adopt");
+  mkdirSync(adoptShots, { recursive: true });
+  for (const [state, reach] of [["candidates", (page) => open(page, "#namespaces?view=adopt&cluster=CRC").then(() => panel(page).getByRole("button", { name: "Adopt abc-rnd" }).waitFor())],
+    ["plan", planAdoption]]) {
+    await check(`26-L the Adopt view at 390, 820 and 1440 px in each theme, and axe at phone and desktop width: ${state}`, async () => {
+      let scans = 0;
+      for (const width of [390, 820, 1440]) {
+        const { context, page, errors } = await fresh({ user: "operator", clusters: NS_CLUSTERS, width });
+        await reach(page);
+        const height = await page.evaluate(() => Math.max(...[...document.querySelectorAll("*")].map((el) => el.scrollHeight)));
+        await page.setViewportSize({ width, height: height + 200 });
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+          await settle(page);
+          const layout = await page.evaluate(() => {
+            const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
+            return { doc: document.documentElement.scrollWidth - document.documentElement.clientWidth, main: main.scrollWidth - main.clientWidth, text: document.body.innerText };
+          });
+          assert.ok(layout.doc <= 0 && layout.main <= 0, `${state} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
+          assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object|null/, `${state} ${width} ${theme}: no leftover placeholder`);
+          if (state === "plan") {
+            const [plan, mine] = await Promise.all([panel(page).getByRole("heading", { name: "Adopt abc-rnd" }).boundingBox(),
+              panel(page).getByRole("heading", { name: "Your adoption" }).boundingBox()]);
+            assert.equal(mine.x > plan.x, width >= 768, `${state} ${width}: the adoption box is ${width >= 768 ? "beside" : "below"} the plan`);
+          }
+          await page.screenshot({ path: join(width === 820 ? out : adoptShots, `26-${state}-${width}-${theme}.png`), fullPage: true });
+          if (width !== 820) {
+            const scan = await new AxeBuilder({ page }).analyze();
+            scans++;
+            assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on ${state} at ${width} ${theme}`);
+          }
+        }
+        assert.deepEqual(errors, []);
+        await context.close();
+      }
+      console.log(`  ${state}: 3 widths, 2 themes, ${scans} axe scans`);
+    });
+  }
+
   await check("sign out ends the session at the issuer", async () => {
     const { context, page, errors } = await fresh();
     await open(page);

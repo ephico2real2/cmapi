@@ -1295,6 +1295,42 @@ export function apiHandler({ issuer, portalOrigin }) {
       state.keys.set(`${user.sub} ${call.key}`, { fingerprint: print, request });
       return ok(request, 202);
     }
+    // Story #26: the adoption plugin (cmapi/src/cmapi/plugins/adoption/router.py), answered from its recorded samples. The
+    // candidates are abc-rnd (the owner's sample); any other namespace is 409 namespace-not-adoptable, as the API says of one
+    // without the opt-in label.
+    const adoptionList = /^\/api\/v1\/clusters\/([^/]+)\/adoption\/(candidates|skipped)$/.exec(url.pathname);
+    if (adoptionList && req.method === "GET") {
+      const denied = lacks("adoption:write");
+      if (denied) return problem(res, denied, cors);
+      const sample = SAMPLES.operations[`adoption_${adoptionList[2]}`].response.body;
+      return ok(state.mode === "empty" ? { ...sample, items: [], total: 0 } : sample);
+    }
+    const adoptPath = /^\/api\/v1\/clusters\/([^/]+)\/namespaces\/([^/:]+):adopt$/.exec(url.pathname);
+    if (adoptPath && req.method === "POST") {
+      const [, clusterId, ns] = adoptPath;
+      const denied = lacks("adoption:write");
+      if (denied) return problem(res, denied, cors);
+      const dry = url.searchParams.get("dryRun") === "true";
+      if (!dry && !call.key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
+      const print = fingerprint({ namespace: ns, clusterId, action: "adopt", justification: body?.justification ?? null });
+      const held = dry ? null : state.keys.get(`${user.sub} ${call.key}`);
+      if (held) return held.fingerprint === print ? replayed(held) : problem(res, replayRefused(held), cors);
+      const candidates = SAMPLES.operations.adoption_candidates.response.body.items.map((i) => i.name);
+      if (!candidates.includes(ns)) {
+        const refusal = SAMPLES.problems["namespace-not-adoptable"].response.body;
+        return problem(res, { ...refusal, detail: `${ns} is not a candidate for adoption: ${ns} does not carry cmapi.net/adopt: "true"`,
+          rule: "not-labelled", state: "unlabelled" }, cors);
+      }
+      if (dry) return ok(SAMPLES.operations["adoption_adopt:dryRun"].response.body);
+      const sample = SAMPLES.operations.adoption_adopt.response.body;
+      const now = new Date().toISOString();
+      const requestId = `req-${now.slice(0, 10).replaceAll("-", "")}-8${String(++state.created).padStart(3, "0")}`;
+      const request = { ...sample, requestId, clusterId, namespace: ns, justification: body?.justification ?? null, createdAt: now, updatedAt: now,
+        events: [{ at: now, by: user.username, event: "plan_needs_approval", note: "", status: "pending_approval" }] };
+      state.items = [request, ...state.items];
+      state.keys.set(`${user.sub} ${call.key}`, { fingerprint: print, request });
+      return ok(request, 202);
+    }
     const nsPath = /^\/api\/v1\/clusters\/([^/]+)\/namespaces\/([^/:]+)$/.exec(url.pathname);
     const record = nsPath && state.namespaces.find((r) => r.clusterId === nsPath[1] && r.name === nsPath[2]);
     if (record && req.method === "GET") {

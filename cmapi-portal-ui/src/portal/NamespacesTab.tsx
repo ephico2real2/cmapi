@@ -14,8 +14,9 @@
 //   6. A 412 reads the namespace again; rebase puts the draft on the new Git and asks about each key that both sides changed.
 //      A 409 shows the holder, and Submit stays off until Reload.
 import {
-  ActionGroup, Alert, AlertActionLink, Button, EmptyState, EmptyStateBody, Flex, FlexItem, Form, FormGroup, FormHelperText, Grid, GridItem,
-  HelperText, HelperTextItem, Label, List, ListItem, Skeleton, Stack, TextArea, TextInput
+  ActionGroup, Alert, AlertActionLink, Button, EmptyState, EmptyStateBody, Flex, FlexItem, Form, FormGroup, FormHelperText, FormSelect,
+  FormSelectOption, Grid, GridItem, HelperText, HelperTextItem, Label, List, ListItem, Skeleton, Stack, TextArea, TextInput, ToggleGroup,
+  ToggleGroupItem
 } from "@patternfly/react-core";
 import { LockIcon } from "@patternfly/react-icons";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
@@ -31,6 +32,7 @@ import { extraInputId, ExtraKeysSection } from "./ExtraKeysSection";
 import { fieldName, FieldInput } from "./MetadataFields";
 import { checkExtras, checkExtraValue, checkField, errorsByField, nameEnds, valueKey } from "./metadataForm";
 import type { ExtraCheck, ExtraRow, Kind, MetaForm } from "./metadataForm";
+import { AdoptView } from "./AdoptView";
 import { NamespaceLookup } from "./NamespaceLookup";
 import { changeLines, isEditable, patchOf, rebase, rowsOf, valueNow, withValue } from "./namespaceChange";
 import type { ChangeLine, Draft, GitEdits, KeyRow, Maps } from "./namespaceChange";
@@ -40,6 +42,7 @@ import { EXPIRES_AT } from "./preview";
 import type { TabProps } from "./route";
 
 const PATCH_NAMESPACE = PERMISSION["PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}"];
+const ADOPT_NAMESPACE = PERMISSION["POST /api/v1/clusters/{cluster_id}/namespaces/{ns}:adopt"];
 /** How long the change waits after the last keystroke before it checks the fields, as the New namespace form (#336, D7). */
 const CHECK_AFTER_MS = 150;
 const NO_ROWS: Record<Kind, ExtraRow[]> = { label: [], annotation: [] };
@@ -91,9 +94,39 @@ export function NamespacesTab({ params, setParams, open }: TabProps) {
   }
   const cluster = clusters.data.items.find((c) => c.clusterId === clusterId);
   const start = nameEnds(form).start;
+  // Story #26: the Adopt view, for a person who may adopt in some environment (/me's access.permissions; each cluster's
+  // environment is checked by the API, and the list answers 403 outside it).
+  const mayAdopt = me.data.access.permissions.includes(ADOPT_NAMESPACE);
+  const adopting = mayAdopt && params.get("view") === "adopt";
+  const views = mayAdopt && (
+    <ToggleGroup aria-label="View">
+      <ToggleGroupItem text="Managed" isSelected={!adopting} onChange={() => setParams({ cluster: clusterId })} />
+      <ToggleGroupItem text="Adopt" isSelected={adopting} onChange={() => setParams({ view: "adopt", cluster: clusterId })} />
+    </ToggleGroup>
+  );
+  if (adopting) {
+    return (
+      <Stack hasGutter>
+        {head}
+        {views}
+        <Panel>
+          <FormGroup label="Cluster" fieldId="adopt-cluster">
+            <FormSelect id="adopt-cluster" value={cluster ? clusterId : ""} onChange={(_, id) => setParams({ view: "adopt", cluster: id })}>
+              <FormSelectOption value="" label="Choose a cluster…" isPlaceholder />
+              {clusters.data.items.map((c) => <FormSelectOption key={c.clusterId} value={c.clusterId} label={`${c.clusterId} (${c.environment ?? "no environment"})`} />)}
+            </FormSelect>
+          </FormGroup>
+        </Panel>
+        {cluster
+          ? <AdoptView cluster={cluster} adopt={params.get("adopt") ?? ""} open={open} onAdopt={(name) => setParams({ view: "adopt", cluster: clusterId, adopt: name })} />
+          : <EmptyState titleText="Choose a cluster to see the namespaces that can be adopted." headingLevel="h2" variant="sm" />}
+      </Stack>
+    );
+  }
   return (
     <Stack hasGutter>
       {head}
+      {views}
       <Panel>
         <NamespaceLookup clusters={clusters.data.items} clusterId={cluster ? clusterId : ""} chipTitle={start ? start.title ?? start.key : null}
           onCluster={(id) => setParams({ cluster: id })} onOpen={(name) => setParams({ cluster: clusterId, ns: name })} />

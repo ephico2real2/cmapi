@@ -53,7 +53,7 @@ HEAD, MERGE = "a" * 40, "b" * 40
 
 
 def row(status="pr_open"):
-    return NS(status=status, cluster_id="CRC", namespace="demo", request_id="req-1", action="create",
+    return NS(status=status, cluster_id="CRC", namespace="demo", request_id="req-1", plugin="namespaces", action="create",
               plan={"files": {REL: "approved"}, "prev": {}}, merge_sha=None,
               pr={"number": 1, "url": "", "branch": "cmapi/CRC/req-1", "head": HEAD})
 

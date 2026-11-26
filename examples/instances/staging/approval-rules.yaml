@@ -55,6 +55,14 @@ thresholds:
   add: 1
   group: approver-platform
   reason: Sensitive key changed
+- when: plugin == "adoption"        # an existing namespace taken over (story #26, the adoption design's D10)
+  add: 1
+  group: approver-platform
+  reason: Adoption of an existing namespace
+- when: plugin == "adoption" and findingCount > 0
+  add: 1
+  group: approver-platform
+  reason: Adoption with findings
 - when: expirationBeyondLimits
   add: 1
   group: approver-platform

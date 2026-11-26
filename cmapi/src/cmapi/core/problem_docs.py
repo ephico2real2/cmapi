@@ -26,6 +26,11 @@ ACTIONS: dict[str, str] = {
     "change-pending": "Wait for the open request in `detail` to finish, or cancel it. One object has one open change.",
     "namespace-exists": "Use another name, or change the namespace that exists.",
     "namespace-exists-unmanaged": "Use another name. cmapi does not manage the namespace that exists on the cluster.",
+    "namespace-not-adoptable": "Read `rule`. `not-labelled`: an owner of the namespace labels it `cmapi.net/adopt: \"true\"` to "
+                               "consent, then send the adoption again. `managed`: cmapi already manages it (or its folder is in "
+                               "Git); change it with a request instead. `tracked-elsewhere`: the Argo CD Application in "
+                               "`application` owns it; take it out of that Application first. `excluded` or `terminating`: "
+                               "it is never adopted.",
     "not-pending": "Read the request. Only a request in the state `pending_approval` takes an approval or a rejection.",
     "invalid-transition": "Read the request. Its state does not permit this action.",
     "already-approved": "Do nothing. Your approval is recorded, and another person must give the next one.",
