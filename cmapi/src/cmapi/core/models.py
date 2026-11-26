@@ -974,9 +974,9 @@ class CapacityCluster(Api):
                                                "or null if never imported.",
                                    examples=["2026-11-18T09:14:00Z"])
     basis: Literal["simulated", "allocatable"] | None = Field(
-        description="The size the commitment is measured against: `simulated` when clusters.yaml sets `simulatedCapacity` (what "
-                    "the plan's capacity check uses until cmapi-capacity, #21), else `allocatable` from the nodes. Null when "
-                    "neither is known", examples=["simulated"])
+        description="The size the commitment is measured against: `simulated` when clusters.yaml sets `simulatedCapacity`, else "
+                    "`allocatable` from the nodes. The plan's capacity check and placement use the same size, and a node read "
+                    "that is not fresh is unknown to them (#21). Null when neither is known", examples=["simulated"])
     nodes_state: NodesState = Field(description="What can be said of the nodes: `ok`; `loading`; `forbidden` (cmapi-reader may not "
                                                 "list nodes); `stale`; `not-imported` and `unreachable`, as `state`",
                                     examples=["ok"])

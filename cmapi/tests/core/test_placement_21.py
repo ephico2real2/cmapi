@@ -112,3 +112,13 @@ def test_capacity_yaml_snapshot_settings_and_their_defaults():
 def test_placement_yaml_is_checked_at_the_start(raw, problem):
     with pytest.raises(ValueError, match=problem):
         PlacementSettings(raw)
+
+
+def test_equal_fit_after_zone_loss_is_admitted_exactly():
+    # Removing the 2-core zone from 3 leaves exactly 1. Dividing first rounds 2/3.
+    zones = {"a": dict.fromkeys(("cpu", "memory"), D(2)), "b": dict.fromkeys(("cpu", "memory"), D(1))}
+    sizes = dict.fromkeys(("cpu", "memory"), D(3))
+    ask = Ask("prod", None, D(1), D(1), 0)
+    c = cluster("C", zones=zones, size=sizes, overcommit=dict.fromkeys(sizes, D(1)))
+    r, excluded = ranked(c, ask=ask)
+    assert not excluded and r[0].figures["cpu"]["zoneFailureHeadroomAfter"] == 0

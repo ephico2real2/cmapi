@@ -158,7 +158,8 @@ def measure(metrics: Any, cluster_id: str, interval_seconds: int, at: datetime) 
         for s in series:
             v = sample(s)
             if v is None:
-                continue
+                # A NaN or infinite sample is not a measure: the set is incomplete, never a 0 (docs/02, "never written as zero").
+                return Measured(failed=f"Thanos returned an invalid sample for {name}")
             m = s.get("metric") or {}
             key = f"{m['resource']}.{name}" if "resource" in m else name
             node = str(m.get("node") or "")

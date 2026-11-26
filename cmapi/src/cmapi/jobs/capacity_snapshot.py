@@ -42,5 +42,6 @@ def capacity_snapshot(ctx: AppContext, s: Session, job: JobRow) -> None:
     jobs.done(job)
     if only is None:
         repo.prune(now)
-        nxt = (at.timestamp() + interval) - now.timestamp()
+        # From the clock now, after the collection: the next run starts on the next boundary, not that much later.
+        nxt = (at.timestamp() + interval) - datetime.now(timezone.utc).timestamp()
         jobs.enqueue("capacity_snapshot", delay=max(nxt, 1), payload={"every": interval})

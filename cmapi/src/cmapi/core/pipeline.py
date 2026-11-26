@@ -432,13 +432,13 @@ class Pipeline:
         old_hard = binding_hard(old_quota) if action != "create" and not quotas_held else {}
         deltas = {k: qty(hard.get(f"requests.{k}", "0")) - qty(old_hard.get(f"requests.{k}", "0")) for k in ("cpu", "memory")}
         cpu_delta, mem_delta = float(deltas["cpu"]), float(deltas["memory"])
-        placement_id = self._placement(body, action, cluster_id, env, labels.get("cmapi.net/team"))
+        target = binding_hard(hard)
+        placement_id = self._placement(body, action, cluster_id, env, labels.get("cmapi.net/team"), target)
         cap = self.capacity.check(cluster_id, env, max(cpu_delta, 0), max(mem_delta, 0), exclude_placement=placement_id,
                                   namespace=ns)
         if cap.status == "exceeded":
             raise capacity_exceeded(cap)
         # What submit holds until the quota is live (#62): the increase just checked, and the binding quota it leads to.
-        target = binding_hard(hard)
         hold = CapacityHold.of(ns, {**deltas, "pods": qty(hard.get("pods", "0")) - qty(old_hard.get("pods", "0"))},
                                {k: qty(target[f"requests.{k}"]) if f"requests.{k}" in target else None
                                 for k in ("cpu", "memory")})
@@ -479,10 +479,13 @@ class Pipeline:
                     beyond_tier=beyond_view, metadata=metadata_view, metadata_diff=metadata_diff, usage=usage_view, hold=hold,
                     placement_id=placement_id)
 
-    def _placement(self, body: Mapping[str, Any], action: str, cluster_id: str, env: str, team: str | None) -> str | None:
+    def _placement(self, body: Mapping[str, Any], action: str, cluster_id: str, env: str, team: str | None,
+                   target: Mapping[str, str]) -> str | None:
         """The placement a create claims (#21): its hold must be active and unclaimed, and on the path's cluster, environment
         and team (NamespaceCreate.placement_id: "must match the path cluster, team and env"). The plan's check then leaves the
-        placement's hold out, since the create's own amount is the delta: counted once."""
+        placement's hold out, since the create's own amount is the delta: counted once. The create may ask for less CPU and
+        memory than the placement holds, never more: placement checked only its own amounts against the zone-failure headroom
+        (docs/02: "so a placed namespace still fits after losing a zone"), which the plan's check does not compute."""
         pid = body.get("placementId")
         if pid is None or action != "create":
             return None
@@ -496,6 +499,10 @@ class Pipeline:
         if wrong:
             raise Problem.unprocessable("placement-mismatch", f"Placement {pid} was made for another target: "
                                                               + "; ".join(wrong))
+        over = [r for r, amount in (("cpu", held.cpu), ("memory", held.memory)) if qty(target.get(f"requests.{r}", "0")) > amount]
+        if over:
+            raise Problem.unprocessable("placement-mismatch", f"Placement {pid} holds less {' and '.join(over)} than this create "
+                                                              "asks for. Place again for this tier.")
         return pid
 
     def _kept_metadata(self, prev_ns: Mapping[str, Any] | None, kind: str) -> dict[str, str]:

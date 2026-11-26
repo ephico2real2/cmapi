@@ -167,7 +167,7 @@ def test_without_a_simulated_size_the_basis_is_allocatable_and_over_shows_its_re
     [g] = body(client, keys)["groups"]
     assert g["status"] == "over" and g["cpu"]["headroom"] == 0 and g["cpu"]["largestPlacement"]["value"] == 0
     cap = ctx.pipeline.capacity.check("CRC", "dev", 0, 0)
-    assert cap.status == "unknown", "the plan keeps simulatedCapacity as its basis until cmapi-capacity (#21): the owner, 2026-11-18"
+    assert cap.status == "exceeded" and cap.detail["source"] == "allocatable"
 
 
 def test_without_a_simulated_size_and_with_nodes_forbidden_the_cluster_has_no_size(unsized):

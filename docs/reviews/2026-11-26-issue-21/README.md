@@ -51,3 +51,33 @@ gone (#303). The Capacity tab shows each cluster's snapshot (the mockup's Snapsh
 
 The separate cmapi-capacity service and its remote mode; snapshot history and fleet aggregates over time; node-exporter's
 whole-node use and storage in the snapshot (null, `NOT_QUERIED`); the backtest; the weekly rebalance report; pinning a zone.
+
+## Review and the coordinator's rulings (2026-11-26)
+
+**Reviewers:**
+- **Reviewer 1:** Codex gpt-6.2-astra xhigh (`review/reviewer-1-codex.md`).
+- **Reviewer 2:** Opus 5.5 high, on PostgreSQL 16.15 (`review/reviewer-2-opus.md`).
+
+| Finding | Ruling |
+|---|---|
+| F1, High: a node-sized cluster with no `simulatedCapacity` answered `unknown` to a direct create beside a placement's hold, so it was sent to a person instead of refused | **Fixed**: one arithmetic (D3), and the node size counts only when the node watch is fresh. No change on CRC or kind, which set `simulatedCapacity` |
+| F2: bind a placement to its caller | **Refuted against the design**: docs/02 says the `placement_id` "must match the path cluster, team and env". Owner question B1 |
+| F3, Medium: a create may not ask for more than its placement holds | **Fixed**, narrowed: 422 `placement-mismatch` |
+| F4, Medium: a counted node with no zone label inflated the zone-failure headroom | **Fixed**: excluded as `partial-data` |
+| F5, F6, F7, F9, Low | **Fixed**, at one to six lines each |
+| F8: a one-statement snapshot read | Low and transient. Backlog |
+| Reviewer 2's M1 to M4: the contract's `basis` text, a cut explanation of #302 and #393, two messages | **Fixed** |
+
+**Checks reviewer 1 could not run**, on PostgreSQL, all passing on head and with the patch:
+- concurrent placements: 1 placed, 7 refused;
+- a placement and a direct create racing under #725's lock: one wins;
+- a failed create's rollback leaves the placement unclaimed;
+- migration 0012: up, down and up;
+- 0 Thanos calls on create.
+
+**Runs:**
+- final tree: 349 service tests passed; `tests/core`: 856 passed;
+- the patch on a fresh copy of head: 97 service tests passed; portal 199 ok;
+- the new tests on head: 8 fail.
+
+The Backlog, B1 to B7, is batched in one issue.

@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from cmapi.capacity.snapshots import SnapshotRepo
 from cmapi.core.capacity import RESOURCES
-from cmapi.core.capacity_backend import held, read_snapshot_quotas
+from cmapi.core.capacity_backend import cluster_size, held, read_snapshot_quotas
 from cmapi.core.capacity_ledger import binding_hard
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import CapacityReservationRow
@@ -48,7 +48,10 @@ def ask_of(c: AppContext, body: dict[str, Any]) -> Ask:
     env = body["environment"]
     hard = binding_hard(c.cfg.tiers.quota_for(env, body.get("tier") or "small", body.get("quota")))
     cons = body.get("constraints") or {}
-    return Ask(env, body.get("team"), qty(hard.get("requests.cpu", "0")), qty(hard.get("requests.memory", "0")),
+    # Rounded up to the hold's columns (millicores, bytes) here, so the ranking checks the very amounts the hold stores.
+    cpu = qty(hard.get("requests.cpu", "0")).quantize(Decimal("0.001"), rounding=ROUND_CEILING)
+    memory = qty(hard.get("requests.memory", "0")).to_integral_value(rounding=ROUND_CEILING)
+    return Ask(env, body.get("team"), cpu, memory,
                int(qty(hard.get("pods", "0"))), cons.get("region"), tuple(cons.get("zones") or ()),
                dict(((cons.get("clusterSelector") or {}).get("matchLabels")) or {}))
 
@@ -61,18 +64,6 @@ def _team_namespaces(st: ClusterState, team: str | None) -> int:
                if ((ns.get("metadata") or {}).get("labels") or {}).get("cmapi.net/team") == team)
 
 
-def _size(st: ClusterState) -> tuple[dict[str, Decimal] | None, str | None]:
-    """The Capacity tab's size (plugins/capacity/router.py, cluster_view): simulatedCapacity, else the counted nodes."""
-    p = st.policy
-    if p and p.simulated_capacity:
-        return {r: qty(p.simulated_capacity[r]) for r in RESOURCES}, "simulated"
-    nodes = st.nodes
-    snap = nodes.snapshot() if nodes is not None and st.status == "connected" else None
-    if snap is not None and snap.known and snap.counted and snap.cpu and snap.memory:
-        return {"cpu": snap.cpu, "memory": snap.memory}, "allocatable"
-    return None, None
-
-
 def candidate(c: AppContext, st: ClusterState, session: Session, ask: Ask, latest: Any,
               p95: dict[str, float] | None) -> Candidate:
     """What the three sources say of one cluster now. The holds are read in `session`, so under the cluster's lock when the
@@ -80,7 +71,7 @@ def candidate(c: AppContext, st: ClusterState, session: Session, ask: Ask, lates
     p = st.policy
     block = dict(p.placement) if p else {}
     es = c.capacity.for_cluster(ask.environment, block)
-    size, basis = _size(st)
+    size, basis = cluster_size(st)
     rows = ReservationRepo(session).active(st.cluster_id)
     committed, detail, namespaces = None, None, None
     reserved = {r: sum((Decimal(getattr(h, r)) for h in rows), Decimal(0)) for r in RESOURCES}
@@ -92,13 +83,17 @@ def candidate(c: AppContext, st: ClusterState, session: Session, ask: Ask, lates
             reserved = held(rows, live)
         else:
             detail = read.detail
-    zones = {scope.removeprefix("zone:"): {r: Decimal(str((getattr(row, r) or {}).get("allocatable") or 0)) for r in RESOURCES}
-             for scope, row in latest.rows.items() if scope.startswith("zone:")}
+    zone_rows = {scope.removeprefix("zone:"): row for scope, row in latest.rows.items() if scope.startswith("zone:")}
+    zones = {zone: {r: Decimal(str(getattr(row, r)["allocatable"])) for r in RESOURCES}
+             for zone, row in zone_rows.items() if row.nodes["schedulable"]}
+    cluster_row = latest.rows.get("cluster")
+    zoned_nodes = sum(row.nodes["schedulable"] for row in zone_rows.values())
+    zones_complete = cluster_row is not None and zoned_nodes == cluster_row.nodes["schedulable"]
     not_connected = None if st.status == "connected" else st.not_connected()[1]
     return Candidate(st.cluster_id, (p.labels or {}).get("region") if p else None, dict(p.labels) if p else {},
                      bool(p and p.writes), not_connected, bool(block.get("enabled", True)), block.get("maxNamespaces"),
                      float(block.get("weight", 1.0)), size, basis, es.overcommit, committed, detail, namespaces, reserved,
-                     latest.complete_at, latest.detail, zones, p95, _team_namespaces(st, ask.team))
+                     latest.complete_at, latest.detail, zones, p95, _team_namespaces(st, ask.team), zones_complete)
 
 
 def candidates(c: AppContext, session: Session, ask: Ask, now: datetime) -> list[Candidate]:
@@ -125,6 +120,7 @@ def place(c: AppContext, ask: Ask, settings: PlacementSettings, *, reserve: bool
         PLACEMENTS.labels("dry-run").inc()
         return ranked, excluded, None, now
     by_id = {x.cluster_id: x for x in found}
+    lost: set[str] = set()                   # ranked, then filled before its lock was taken
     for r in ranked:
         with c.db.session() as s:
             repo = ReservationRepo(s)
@@ -140,20 +136,22 @@ def place(c: AppContext, ask: Ask, settings: PlacementSettings, *, reserve: bool
             st = c.registry.get(r.cluster_id)
             latest = SnapshotRepo(s).latest([r.cluster_id])[r.cluster_id]
             fresh = candidate(c, st, s, ask, latest, by_id[r.cluster_id].usage_p95)
-            again, _ = rank(ask, [fresh], settings, now=now, stale_after=stale_after)
+            # Freshness as of now, under the lock: the wait for it may have aged the snapshot.
+            again, reasons = rank(ask, [fresh], settings, now=utcnow(), stale_after=stale_after)
             if not again:
+                lost.add(r.cluster_id)
+                excluded.extend(reasons)
+                EXCLUDED.labels(reasons[0].reason).inc()
                 continue                     # filled since the ranking: the next one
             when = utcnow()
             row = repo.hold(CapacityReservationRow(
                 placement_id=f"pl-{when:%Y%m%d}-{secrets.token_hex(4)}", cluster_id=r.cluster_id, env=ask.environment,
-                # Rounded up to the columns' scale, as a request's hold (capacity_backend.reserve): never less than was checked.
-                team=ask.team, placed_by=placed_by[:100], cpu=ask.cpu.quantize(Decimal("0.001"), rounding=ROUND_CEILING),
-                memory=int(ask.memory.to_integral_value(rounding=ROUND_CEILING)), pods=ask.pods,
+                team=ask.team, placed_by=placed_by[:100], cpu=ask.cpu, memory=int(ask.memory), pods=ask.pods,
                 created_at=when, expires_at=when + timedelta(seconds=settings.reservation_seconds)))
             s.expunge(row)
         r.reserved = True
         PLACEMENTS.labels("placed").inc()
-        return ranked, excluded, row, now
+        return [item for item in ranked if item.cluster_id not in lost], excluded, row, now
     PLACEMENTS.labels("no-placement").inc()
     raise Problem.unprocessable(
         "no-placement", f"No {ask.environment} cluster can take {ask.cpu.normalize():f} cores and "

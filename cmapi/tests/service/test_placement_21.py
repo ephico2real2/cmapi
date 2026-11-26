@@ -421,6 +421,7 @@ def test_a_placement_used_or_lapsed_between_the_plan_and_the_submit_records_noth
 @pytest.mark.parametrize("change, code", [
     ({"labels": {"cmapi.net/team": "billing", "cmapi.net/cost-center": "cc-4410"}}, "placement-mismatch"),
     ({"placementId": "pl-20260101-00000000"}, "placement-not-found"),
+    ({"tier": "medium"}, "placement-mismatch"),        # 16 cores on a placement of 8: never checked after a zone loss
 ])
 def test_a_create_with_a_placement_of_another_target_is_refused(world, change, code):
     client, ctx, git, kube, validator, keys = world

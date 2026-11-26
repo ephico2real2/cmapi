@@ -20,7 +20,8 @@ zones or clusterSelector, stale or partial data, no size, maxNamespaces reached,
 and, in the environments of `zoneFailureEnvironments` (prod by default), no zone-failure headroom: "quota headroom computed
 with the largest zone removed, so a placed namespace still fits after losing a zone". The zone sizes are the newest complete
 snapshot's zone rows; the largest zone's share of the allocatable is taken off the size. A cluster with fewer than two zones
-loses everything with its zone, so it has no zone-failure headroom.
+loses everything with its zone, so it has no zone-failure headroom. A counted node with no zone label may sit in the largest
+zone, so that share is not known: such a cluster is excluded as partial-data where zone failure is checked.
 
 Score, 0 to 100 (docs/02; weights in placement.yaml): quota headroom after placement 40, usage headroom from the 14-day p95
 25, balance 15, team affinity 10, zone spread 10; multiplied by the cluster's `placement.weight` (0 to 2) and capped at 100;
@@ -134,6 +135,7 @@ class Candidate:
     zones: Mapping[str, Mapping[str, Decimal]]  # the newest complete snapshot's zones: zone -> resource -> allocatable
     usage_p95: Mapping[str, float] | None       # resource -> 14-day p95 of use over allocatable
     team_namespaces: int                        # the team's namespaces on the cluster
+    zones_complete: bool = True                 # all counted nodes had a zone label
 
 
 @dataclass
@@ -173,7 +175,7 @@ def zone_failure_limit(c: Candidate, resource: str) -> Decimal:
     total = sum(shares, Decimal(0))
     if len(shares) < 2 or total <= 0:
         return Decimal(0)
-    return c.size[resource] * (1 - max(shares) / total) * c.overcommit[resource]
+    return c.size[resource] * c.overcommit[resource] * (total - max(shares)) / total
 
 
 def _filter(c: Candidate, ask: Ask, now: datetime, stale_after: int, zone_failure: bool) -> Excluded | None:
@@ -203,7 +205,7 @@ def _filter(c: Candidate, ask: Ask, now: datetime, stale_after: int, zone_failur
     if c.committed is None:
         return out("partial-data", f"committed quota not known: {c.committed_detail or 'no quota read'}")
     if c.size is None or any(c.size[r] <= 0 for r in RESOURCES):
-        return out("no-size", "no simulatedCapacity in clusters.yaml, and the nodes' allocatable is not known")
+        return out("no-size", "no simulatedCapacity in clusters.yaml, and the nodes' allocatable is not known or not fresh")
     if c.max_namespaces is not None and (c.namespaces or 0) >= c.max_namespaces:
         return out("max-namespaces", f"{c.namespaces} of placement.maxNamespaces {c.max_namespaces}")
     for r in RESOURCES:
@@ -212,6 +214,8 @@ def _filter(c: Candidate, ask: Ask, now: datetime, stale_after: int, zone_failur
             return out(f"no-{r}-headroom", f"needs {_fmt(r, ask.amount(r))}, {_fmt(r, max(headroom, Decimal(0)))} left "
                                            "after committed quota and active reservations")
     if zone_failure:
+        if not c.zones_complete:
+            return out("partial-data", "zone-failure headroom needs a zone for every counted node")
         for r in RESOURCES:
             left = zone_failure_limit(c, r) - c.committed[r] - c.reserved[r]
             if ask.amount(r) > left:
