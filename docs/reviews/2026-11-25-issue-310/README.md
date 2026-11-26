@@ -99,3 +99,18 @@ why, and the sources each choice rests on.
 - took main's side of the docs/14 citation conflicts, relocated 14 citations, and read each target.
 
 **Run:** service (usage, expiry, job claim order, contract, standard, quota seam, models against migrations, citations) **247 passed**; `tests/core` **842 passed, 113 skipped**. The portal is gated by CI's `portal-ui` job; reviewer 2's portal run gave 198 ok.
+
+## CI on the reviewed head, and #712 (2026-11-26)
+
+CI failed on `ce361a0`, in two jobs.
+
+- **`reference-code`:** `tests/core` pulled in structlog through `capacity/thanos.py` → `core/clients/kube.py`. The coordinator had run `tests/core` in the service venv, which hides this.
+  - The two timeouts move to `usage.py`.
+  - `test_usage_review_707.py` moves to `tests/service`.
+  - `test_config_import_693.py` now also guards `capacity.usage`, `capacity.verdicts` and `core.listquery`.
+  - Reference venv: **818 passed, 113 skipped, 0 errors**.
+- **`service`:** migration tests expected the head revision to be `0009`. They now target `0009` explicitly. This also found **#712 (Medium):** `REQUIRED_REVISION` was still `"0009"`, so a database at 0009 would report ready and then fail on 0010's tables. It is now `"0010"`, and `test_a_database_at_0009_is_behind_this_code` proves it.
+  - **Review:** a one-line constant that must match the migration this PR adds. Both reviewers already reviewed that migration. The coordinator read the change and its test.
+  - **PostgreSQL:** 175 + 9 + 48 passed.
+
+Fixed in `c79a48e` by an Opus 5.5 high implementer.
