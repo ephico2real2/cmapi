@@ -6,7 +6,7 @@ This is the runbook for the first deployment of cmapi on CRC (OpenShift Local), 
 
 **Status of this document.** It has not been run on CRC yet. Everything marked *measured* was measured elsewhere, on community Keycloak 26.6.4, PostgreSQL 16.15, an OpenLDAP stand-in and a kind cluster. See [Not proven before the run](#not-proven-before-the-run). The decisions and their reasons are in [`docs/reviews/2026-11-06-wave1-design/README.md`](reviews/2026-11-06-wave1-design/README.md).
 
-**Supported OpenShift versions: OpenShift 4.18 and later**, for the hub and for every cluster it onboards (#727). The evidence is documentation and source: each OpenShift API, label, role and Route that cmapi uses is the same on `release-4.18` and on the newest branch ([`docs/reviews/2026-11-26-issue-727/README.md`](reviews/2026-11-26-issue-727/README.md)). Every run so far was on CRC 4.22.14, and none on 4.18. Two operators that the site installs have their own ranges. The certified CloudNativePG 1.30.x bundle that CRC runs is listed for OpenShift 4.18 to 4.22. An OpenShift newer than 4.22 needs CloudNativePG 1.31 or later, whose bundle starts at 4.20, and which cmapi has not run. An existing PostgreSQL ([`docs/12`](12-existing-postgresql.md)) has no such limit. The supported Kyverno, v1.20, covers Kubernetes 1.34 to 1.37, not 4.18's Kubernetes 1.31 ([`docs/18`](18-configuration.md#supported-openshift-versions)).
+cmapi targets **OpenShift 4.18 and later** on the hub and onboarded OpenShift clusters. The [compatibility audit](reviews/2026-11-26-issue-727/README.md) compares 4.18 source with the 4.23 development branch and documentation through 4.22. The only live OpenShift evidence is CRC 4.22.14. Intermediate releases and future releases have no independent deployment qualification here. Certified bundle metadata lists CloudNativePG 1.30.1 and 1.30.2 for 4.18–4.22. CRC ran 1.30.1. The 4.20–5.0 listing belongs to 1.31.0-rc1, which cmapi has never run. A production CNPG combination for 4.23 remains unverified. Alternatively, disable `database.cnpg.enabled` and configure an [existing PostgreSQL](12-existing-postgresql.md). Community Kyverno v1.20 covers Kubernetes 1.34–1.37. For 4.18 (Kubernetes 1.31), use `instance.policy.engine: none` to run without the Kyverno bundle and reports, or establish support separately for the chosen operator.
 
 ## What this adds to CRC
 
@@ -489,7 +489,7 @@ The sync runs before the workloads, so the API never serves a realm that is not 
 
 ### Step 21: the workloads, the policies first
 
-The two policies go first by themselves: `-R` applies files in name order, `20-api` ahead of `40-networkpolicy`, and "started under the policy" must be true from the first moment. `cmapi-metrics` lets only the front door reach the API's port, and `cmapi-front-door` lets only the router reach the front door.
+The two policies go first by themselves: `-R` applies files in name order, `20-api` ahead of `40-networkpolicy`, and "started under the policy" must be true from the first moment. `cmapi-metrics` lets only the front door reach the API's port, and `cmapi-front-door` admits the ingress policy group on the portal port. With CRC's default HostNetwork router, this group includes node addresses.
 
 ```bash
 ( set -euo pipefail

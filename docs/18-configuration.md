@@ -12,20 +12,20 @@ An instance of cmapi has three kinds of setting:
 
 ## Supported OpenShift versions
 
-**OpenShift 4.18 and later**, for the hub and for every cluster in `clusters.yaml` (#727). Each OpenShift dependency was compared on `release-4.18` and on the newest branch, from the source and the documentation. Nothing has run on 4.18; every run so far was on CRC 4.22.14. The table, the quotes and the commits are in [`docs/reviews/2026-11-26-issue-727/README.md`](reviews/2026-11-26-issue-727/README.md).
+cmapi targets **OpenShift 4.18 and later** on the hub and onboarded OpenShift clusters. The [compatibility audit](reviews/2026-11-26-issue-727/README.md) compares 4.18 source with the 4.23 development branch and documentation through 4.22. The only live OpenShift evidence is CRC 4.22.14. Intermediate releases and future releases have no independent deployment qualification here.
 
 | Depends on | On OpenShift 4.18 and later |
 |---|---|
-| Routes (`exposure: Route`), the router's `set-forwarded-headers` and `timeout` annotations, `policy-group.network.openshift.io/ingress` | The same. The front door's NetworkPolicy also admits a router on the host network, from any node |
+| Routes (`exposure: Route`), the router's `set-forwarded-headers` and `timeout` annotations, `policy-group.network.openshift.io/ingress` | The same. The front door's NetworkPolicy admits node addresses when the default IngressController uses HostNetwork on OVN-Kubernetes. See audit row 2 for sharded ingress |
 | User workload monitoring (`monitoring.serviceMonitor`, `monitoring.prometheusRule`, `networkPolicy.monitoringNamespace`) | The same. It needs `enableUserWorkload: true` in `cluster-monitoring-config` |
-| `usage.source: thanos` (`capacity.yaml`): Route `thanos-querier` in `openshift-monitoring`, and the reader's `cluster-monitoring-view` or `cluster-monitoring-metrics-api` on each cluster | The same Route, proxy check and roles |
+| `usage.source: thanos` (`capacity.yaml`): Route `thanos-querier` in `openshift-monitoring`, and the reader's `cluster-monitoring-view` or `cluster-monitoring-metrics-api` on each cluster | Bind the monitoring role for the query. For host discovery also grant the reader `get` on `routes.route.openshift.io` named `thanos-querier` in `openshift-monitoring`, or supply the cluster's `thanosUrl` |
 | `trustedCA.injected` (`config.openshift.io/inject-trusted-cabundle`) | The same |
-| The reader's identity check | `users/~` where OpenShift's OAuth runs. With direct (external OIDC) authentication, on by default in the newest source (`release-4.23`), a SelfSubjectReview. Both work |
+| The reader's identity check | `users/~` where OpenShift's OAuth runs. With direct OIDC configured, a SelfSubjectReview. The newer release enables the feature gate by default. The default authentication type remains IntegratedOAuth |
 | SCC `restricted-v2` (`securityContext`) | The same. `restricted-v3`, on newer releases, needs user namespaces, which the pods do not ask for |
 | The deliverer's ValidatingAdmissionPolicy (`delivery.mode: apply`) | `admissionregistration.k8s.io/v1`, GA in 4.18's Kubernetes 1.31 |
-| `database.cnpg.enabled` (CloudNativePG, installed by the site) | The certified 1.30.x bundle is listed for 4.18 to 4.22. 1.31 is listed from 4.20, and cmapi has not run it. `database.existingSecret` with an existing PostgreSQL ([`docs/12`](12-existing-postgresql.md)) has no OpenShift version limit of its own |
-| `instance.policy.engine: kyverno` (Kyverno, installed by the site) | The supported Kyverno, v1.20, covers Kubernetes 1.34 to 1.37. 4.18 runs Kubernetes 1.31, outside that range. `engine: none` needs no Kyverno |
-| `delivery.mode: argocd` (OpenShift GitOps) | GitOps 1.22 is supported on 4.18 to 4.22 |
+| `database.cnpg.enabled` (CloudNativePG, installed by the site) | Certified bundle metadata lists CloudNativePG 1.30.1 and 1.30.2 for 4.18–4.22. CRC ran 1.30.1. The 4.20–5.0 listing belongs to 1.31.0-rc1, which cmapi has never run. A production CNPG combination for 4.23 remains unverified. Alternatively, disable `database.cnpg.enabled` and configure an [existing PostgreSQL](12-existing-postgresql.md). |
+| `instance.policy.engine: kyverno` (Kyverno, installed by the site) | Community Kyverno v1.20 covers Kubernetes 1.34–1.37. For 4.18 (Kubernetes 1.31), use `instance.policy.engine: none` to run without the Kyverno bundle and reports, or establish support separately for the chosen operator. |
+| `delivery.mode: argocd` (OpenShift GitOps) | GitOps 1.22.0 lists 4.18–4.22. Compatibility with 4.23 is unverified. |
 
 ## How cmapi reads its configuration
 

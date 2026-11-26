@@ -132,8 +132,7 @@ def test_the_selfsubjectreview_fallback_without_a_username_is_bad_response():
 
 def test_an_openshift_cluster_with_direct_authentication_is_identified_by_selfsubjectreview():
     """#727: OpenShift with direct (external OIDC) authentication does not serve `*.user.openshift.io` (openshift-docs
-    enterprise-4.22, external-auth-disabled-resources.adoc), and its ExternalOIDC gate is on by default from release-4.23 of
-    openshift/api (TechPreview only on release-4.18). So users/~ is 404 there, and the reader's identity must come from the
+    enterprise-4.22, external-auth-disabled-resources.adoc). With this authentication type configured, users/~ returns 404, and the reader's identity must come from the
     SelfSubjectReview, which authentication.k8s.io/v1 serves on both releases. The reader connects; nothing else is asked."""
     asked: list[str] = []
 
