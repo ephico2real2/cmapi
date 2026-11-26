@@ -462,7 +462,7 @@ class Pipeline:
         # Network exposure: the new quota has more load balancers or NodePorts than Git holds (for a new namespace: than the
         # tier gives). It does not depend on the beyond-tier keys: a change to a tier with a higher value raises it too.
         exposure_base = hard if quotas_held else resolved.quota if action == "create" else old_hard
-        raised = [k for k in sorted(EXPOSURE_KEYS) if qty(hard.get(k, "0")) > qty(exposure_base.get(k, "0"))]
+        raised = exposure_raised(exposure_base, hard)
         facts.update({"beyondTier": bool(beyond), "beyondTierKeys": sorted(beyond), "networkExposure": bool(raised)})
         requirement = self._decide(facts)
         beyond_view = self.beyond_view(facts, beyond)
@@ -680,15 +680,32 @@ class Pipeline:
         approved = ({**(_hard(old_rq) or {}), **flatten_limits(tiers.limits_of(old_lrs))} if custom_before
                     else tiers.rendered_overrides(old_rq, old_lrs))
         beyond = {k: v for k, v in beyond.items() if k not in approved or qty(approved[k]) != qty(v["requested"])}
-        facts = {**tiers.compare(env, old_tier, old_hard, tier, hard).facts(),
+        existing = namespace_doc(current) is not None
+        exposure_base = old_hard if existing or tier not in offered else offered[tier].quota
+        # A create has no quota change: a planned one carries no tierChange or quotaIncreasePct, and neither does its restore.
+        facts = {**(tiers.compare(env, old_tier, old_hard, tier, hard).facts() if existing else {}),
                  "capacity": cap.status, "capacityFresh": cap.fresh, "beyondTier": bool(beyond), "beyondTierKeys": sorted(beyond),
-                 "networkExposure": any(qty(hard.get(k, "0")) > qty(old_hard.get(k, "0")) for k in EXPOSURE_KEYS),
+                 # A folder that Git no longer holds is written again as a create: exposure over what the tier gives, and the
+                 # metadata of a new namespace (the first cmapi.net/team is no change of it).
+                 "networkExposure": bool(exposure_raised(exposure_base, hard)),
                  **self.cfg.metadata.change_facts(before["label"], after["label"], before["annotation"], after["annotation"],
-                                                  existing=True)}
+                                                  existing=existing)}
         usage_view = None
         if old_hard and (old_hard.keys() != hard.keys() or any(qty(old_hard[k]) != qty(hard[k]) for k in hard)):
             usage_view, usage_facts = plan_usage(self.usage.namespace(cluster_id, ns), old_hard, hard)
             facts.update(usage_facts)
+        held_expiry = before["annotation"].get("cmapi.net/expires-at")
+        restored_expiry = after["annotation"].get("cmapi.net/expires-at")
+        if restored_expiry != held_expiry:
+            # The date that the restore writes, judged as the request that writes it: a create's expiry, a :set, an :extend or
+            # a :makePermanent. Its lifetime counts from the day the namespace was created on its cluster, as a change's does:
+            # one that is not there counts from today, as a create does.
+            created = created_day(self.registry.cache(cluster_id).namespace(ns)) or utc_today()
+            expiry = self.cfg.expiration.plan_restore(
+                env, created, date.fromisoformat(restored_expiry) if restored_expiry else None,
+                held=date.fromisoformat(held_expiry) if held_expiry else None, existing=existing)
+            if expiry:
+                facts.update(expiry.facts())
         return cap, facts, usage_view, beyond
 
     def _live_committed(self, cluster_id: str, ns: str, current: Mapping[str, str | None]) -> dict[str, Decimal]:
@@ -799,6 +816,14 @@ def _date(v: Any) -> date:
 def created_day(obj: Mapping[str, Any] | None) -> date | None:
     """The UTC day a namespace was created on its cluster (metadata.creationTimestamp), or None when it is not known."""
     return utc_day(((obj or {}).get("metadata") or {}).get("creationTimestamp"))
+
+
+def exposure_raised(old: Mapping[str, str], new: Mapping[str, str]) -> list[str]:
+    """The exposure keys that a quota raises over another: a higher count, or no bound where the other had one. A quota that
+    does not name services.nodeports sets no limit on them (Kubernetes, Resource Quotas), so removing the last bound opens
+    them all. A key that neither names stays 0, as it always counted."""
+    return [k for k in sorted(EXPOSURE_KEYS)
+            if (k in old and k not in new) or qty(new.get(k, "0")) > qty(old.get(k, "0"))]
 
 
 def _hard(doc: Mapping[str, Any] | None) -> dict[str, str] | None:

@@ -59,7 +59,7 @@ def _open_pr(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow
 def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
     """A :revert on a sync_failed request: a new request that restores the folder as it was before the plan."""
     from cmapi.core.identity.claims import Identity
-    from cmapi.core.pipeline import Plan, CapacityResult
+    from cmapi.core.pipeline import Plan, CapacityResult, created_day, metadata_of, namespace_doc, utc_today
 
     repo, jobs = RequestRepo(s), JobRepo(s)
     row = repo.get(job.request_id)
@@ -91,18 +91,46 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
     # Reverting a create removes the folder, so it is a delete: an update would drop the quota and leave the
     # namespace on the cluster with no folder and no way to prune it.
     action = "update" if prev else "delete"
+    if prev and namespace_doc(now_files) is None:
+        # The revert of a delete writes the Namespace back into a folder that Git no longer holds: a create, as the rules
+        # count it (approval-rules.yaml, environments.<env>.create), never a change of nothing.
+        action = "create"
+    # The namespace that the revert leaves in Git is the one the rules judge, as a plan's facts are its target's: its team and
+    # tier (the restored Namespace, or for a delete the one Git holds), and the cluster's labels.
+    labels = metadata_of(namespace_doc(prev if prev else now_files))["label"]
+    # The cluster as a plan reads it (Pipeline._plan_namespace): writable, offering namespaces, and still in the environment
+    # that :revert was authorized for (requests:retry on row.env). A cluster moved to another environment since is judged
+    # by that environment's rules, which no role was checked against: refused, and the request stays sync_failed.
+    policy = ctx.pipeline.registry.writable(row.cluster_id).policy
+    if policy.environment != row.env:
+        raise Problem.conflict("invalid-transition", f"{row.cluster_id} is in {policy.environment} now, not {row.env} as when "
+                                                     f"{row.request_id} was planned: plan the change again")
+    ctx.pipeline.check_plugin_offered("namespaces", row.env)
     facts = {"plugin": "namespaces", "action": action, "environment": row.env, "namespace": row.namespace,
-             "clusterId": row.cluster_id, "team": row.team, "automated": True, "reason": "revert",
+             "clusterId": row.cluster_id, "team": labels.get("cmapi.net/team") or row.team,
+             "clusterLabels": dict(policy.labels), "automated": True, "reason": "revert",
              "capacity": "fits", "capacityFresh": True, "warnings": []}
     cap, usage, beyond = CapacityResult("fits", True, None, {"source": "revert"}), None, {}
-    if action == "update":
+    findings = []
+    if action != "delete":
         # What it writes back is a change of what Git holds now, sized and reviewed as any (#710). capacity-exceeded fails the
         # job as a Git outage does: the transaction is rolled back and the request stays sync_failed.
         cap, restore_facts, usage, beyond = ctx.pipeline.restore_facts(row.cluster_id, row.env, row.namespace, now_files, prev)
-        facts.update(restore_facts)
+        facts.update(restore_facts, tier=labels.get("cmapi.net/tier"))
+        # Its findings go to the approvers, as a plan's do ("when the plan has warnings", docs/01), since the PR check passes
+        # an audit finding as one the approvers saw (pr_checks). An outage of the validator fails the job as a Git outage does.
+        findings = ctx.pipeline.validator.validate(prev, row.cluster_id, row.env, previous=now_files)
+        facts["warnings"] = [f.message for f in findings]
     else:
+        # The delete of what a create wrote, judged as Pipeline._plan_delete judges one: Git's protection labels (a protected
+        # namespace is refused), the namespace's age on the cluster and its workloads.
+        try:
+            created = created_day(ctx.pipeline.registry.cache(row.cluster_id).namespace(row.namespace))
+        except Problem:
+            created = None
         pods, pvcs = ctx.pipeline.workload_counts(row.cluster_id, row.namespace)
-        facts.update(pods=pods, pvcs=pvcs, namespaceAgeDays=0, protected=False)
+        facts.update(pods=pods, pvcs=pvcs, namespaceAgeDays=(utc_today() - created).days if created else 0,
+                     protected=ctx.cfg.approvals.is_protected(labels))
     # In this job's transaction, which holds the request's row lock (repo.move): a second pooled session would need a spare
     # connection while it holds that lock (#696).
     requirement = ctx.pipeline._decide(facts, session=s)
@@ -111,7 +139,7 @@ def open_revert(ctx: AppContext, s: Session, job: JobRow) -> None:
                                                     client_id="cmapi-worker", employee_id="revert",
                                                     roles=frozenset({"cmapi-onboarding"})), None)
     plan = Plan(row.cluster_id, row.namespace, row.env, action, "namespaces", None, files, now_files, changes, requirement,
-                cap, facts, requester, [], base_sha, reason="revert", usage=usage,
+                cap, facts, requester, findings, base_sha, reason="revert", usage=usage, warnings=facts["warnings"],
                 beyond_tier=ctx.pipeline.beyond_view(facts, beyond))
     new = ctx.pipeline.submit(who, plan, repo, jobs, idempotency_key=None, body_fingerprint="revert:" + row.request_id,
                               justification=f"Revert of {row.request_id}")

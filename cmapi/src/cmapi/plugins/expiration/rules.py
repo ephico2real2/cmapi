@@ -176,6 +176,22 @@ class ExpirationRules:
         extra = self._lifetime(r, today, expires_at, reasons)
         return ExpiryPlan("create", expires_at, extra, tuple(reasons))
 
+    def plan_restore(self, env: str, created: date, expires_at: date | None, *, held: date | None = None,
+                     existing: bool = False) -> ExpiryPlan | None:
+        """A revert that writes a Namespace back with the date that Git held before (`expires_at`, None for permanent) over
+        the date that Git holds now (`held`): to the approval rules, a create's expiry (`existing` false), a :set, an :extend
+        (a later date) or a :makePermanent, its lifetime counted from `created`. The checks that refuse a date in a request
+        are not repeated: the date is not the request's, and a past one (the revert of an expiry's delete) is what
+        expire_check acts on. A namespace made permanent adds approver-platform where expiration is off too, as
+        plan_make_permanent does; otherwise None where the environment takes no expiry: nothing counts a lifetime there."""
+        if expires_at is None:
+            return ExpiryPlan("makePermanent", None, ("approver-platform",), ("make permanent",)) if held else None
+        if not self.allows(env):
+            return None
+        action = "create" if not existing else "set" if held is None or expires_at < held else "extend"
+        reasons: list[str] = []
+        return ExpiryPlan(action, expires_at, self._lifetime(self.envs[env], created, expires_at, reasons), tuple(reasons))
+
     def plan_extend(self, ns: ExpiryInfo, today: date, *, days: int | None = None,
                     until: date | None = None) -> ExpiryPlan:
         r = self.rules(ns.environment)
