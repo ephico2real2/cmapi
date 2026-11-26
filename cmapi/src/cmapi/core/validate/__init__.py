@@ -22,17 +22,28 @@ The bundle (#212): the policies that core/policygen.py renders from this instanc
 the previous version of the object (Git) already holds is dropped, as the policy itself does at admission with
 oldObject and as tiers.py does for the bounds. The guard against a vacuous pass: each policy that matches a kind among
 the files gives a result for each file of that kind; a policy with no result is a finding.
+
+The slots (#708): each plan runs the CLIs as child processes in the memory cgroup of the API's container, and on cgroup v2
+the kubelet has the whole container killed when any process in it passes the limit (`memory.oom.group`, set unless
+`singleProcessOOMKill`). One `kyverno apply` peaked at 151 to 158 MiB RSS (measured; docs/reviews/2026-11-26-issue-708),
+so twelve plans at once killed a 512 MiB API on CRC. ValidatorSlots lets `concurrency` plans run their CLIs at once in this
+process and `queue` more wait, each for at most `wait_seconds`; any other is refused with ValidatorBusy, a 503 with
+Retry-After.
 """
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 import yaml
 
@@ -54,8 +65,69 @@ class ValidatorUnavailable(RuntimeError):
     """The check could not run (a schema download failed). Not a verdict on the files: retry, never refuse."""
 
 
+class ValidatorBusy(ValidatorUnavailable):
+    """Every slot of this process is taken and its queue is full, or no slot came free in time (#708). Not a verdict on the
+    files: retry after `retry_after` seconds. A ValidatorUnavailable, so a caller that retries those retries this too."""
+
+    # The answer's detail (RFC 9457, section 5: the details "must also be scrutinized"): the slot counts and the wait of
+    # this pod stay in the exception's message, for the worker's job error, and out of the HTTP answer.
+    public_detail = "The policy check is temporarily busy. Try again after the delay in Retry-After."
+
+    def __init__(self, message: str, *, reason: str, retry_after: int):
+        super().__init__(message)
+        self.reason, self.retry_after = reason, retry_after
+
+
 class PolicyEngineMissing(RuntimeError):
     """The instance's policy runs Kyverno in an environment, and the image has no kyverno binary: cmapi does not start."""
+
+
+class ValidatorSlots:
+    """At most `concurrency` holders at once in this process, and at most `queue` more waiting, each for at most
+    `wait_seconds` (#708).
+
+    Two bounded semaphores (Python's threading docs: "In any situation where the size of the resource is fixed, you should
+    use a bounded semaphore"). `_admitted` counts the holders and the waiters and is taken without blocking, so a burst past
+    them is refused without waiting, and its thread goes back to the server's pool with the 503: the sync routes, /readyz
+    among them, share AnyIO's 40 worker threads. `_running` is the slots, taken with the timeout. `on_wait` gets the
+    seconds that each holder waited for its slot: the metric is wired in core/context.py, since the reference code imports
+    this module with no metrics library."""
+
+    def __init__(self, concurrency: int = 1, queue: int = 4, wait_seconds: float = 15.0,
+                 on_wait: Callable[[float], None] | None = None):
+        # Whole numbers only: threading.Semaphore stops a holder only at a value of exactly 0, so a concurrency of 1.5 never
+        # stops one. type() is not isinstance(), so a bool is refused too.
+        if (type(concurrency) is not int or concurrency < 1 or type(queue) is not int or queue < 0
+                or not math.isfinite(wait_seconds) or wait_seconds < 0):
+            raise ValueError("validator slots need a whole concurrency of at least 1, a whole queue of at least 0 and a "
+                             f"finite wait of at least 0 seconds, not {concurrency!r}, {queue!r} and {wait_seconds!r}")
+        self.concurrency, self.queue, self.wait_seconds = concurrency, queue, wait_seconds
+        # Retry-After is delay-seconds, a whole number (RFC 9110, section 10.2.3): the wait rounded up, at least 1.
+        self.retry_after = max(1, math.ceil(wait_seconds))
+        self._running = threading.BoundedSemaphore(concurrency)
+        self._admitted = threading.BoundedSemaphore(concurrency + queue)
+        self._on_wait = on_wait
+
+    @contextmanager
+    def hold(self) -> Iterator[None]:
+        """One slot for the block, or ValidatorBusy: at once when the queue is full, after `wait_seconds` when no slot
+        came free."""
+        if not self._admitted.acquire(blocking=False):
+            raise ValidatorBusy(f"The policy check is busy: {self.concurrency} running and {self.queue} waiting in this "
+                                f"pod; try again in {self.retry_after} s", reason="queue-full", retry_after=self.retry_after)
+        try:
+            start = time.monotonic()
+            if not self._running.acquire(timeout=self.wait_seconds):
+                raise ValidatorBusy(f"No policy check slot of this pod came free in {self.wait_seconds:g} s; try again in "
+                                    f"{self.retry_after} s", reason="wait-timeout", retry_after=self.retry_after)
+            try:
+                if self._on_wait is not None:
+                    self._on_wait(time.monotonic() - start)
+                yield
+            finally:
+                self._running.release()
+        finally:
+            self._admitted.release()
 
 
 def kyverno_version(out: str) -> str | None:
@@ -74,7 +146,9 @@ class CliValidator:
     def __init__(self, policies_dir: str | Path, *, kubeconform: str = "kubeconform", kyverno: str = "kyverno",
                  schema_location: str | None = None, kubernetes_version: str | None = None, timeout: float = 60.0,
                  policy: PolicySettings | None = None, environments: set[str] | None = None,
-                 bundle: Mapping[str, str] | None = None):
+                 bundle: Mapping[str, str] | None = None, slots: ValidatorSlots | None = None):
+        # One ValidatorSlots for each process (core/context.py builds the one validator), so the bound holds per pod (#708).
+        self.slots = slots or ValidatorSlots()
         # Relative path -> text: the hand-written policies first, then the rendered bundle (#212), which wins on a clash.
         self.bundle: dict[str, str] = bundle_files(policies_dir, bundle)
         self.index = index_of(self.bundle)
@@ -105,7 +179,8 @@ class CliValidator:
         if not live:
             return []
         out: list[Finding] = []
-        with tempfile.TemporaryDirectory(prefix="cmapi-validate-") as d:
+        # The slot covers every child process of this plan (kubeconform, then kyverno), so one wait at most (#708).
+        with self.slots.hold(), tempfile.TemporaryDirectory(prefix="cmapi-validate-") as d:
             paths: dict[str, str] = {}
             for p, t in live.items():
                 f = Path(d) / p.replace("/", "__")

@@ -1,0 +1,6 @@
+{"tool": "kyverno", "n": 1, "wall_s": 6.02, "rc": [1], "cpu_s_each": [5.39], "env": {}, "peak_rss_mib_each": [158.2], "max_mib": 158.2, "sum_mib": 158.2, "cgroup_memory_peak_mib": 179.9}
+{"tool": "kyverno", "n": 1, "wall_s": 4.16, "rc": [1], "cpu_s_each": [3.85], "env": {}, "peak_rss_mib_each": [156.0], "max_mib": 156.0, "sum_mib": 156.0, "cgroup_memory_peak_mib": 176.1}
+{"tool": "kyverno", "n": 1, "wall_s": 2.79, "rc": [1], "cpu_s_each": [2.59], "env": {}, "peak_rss_mib_each": [157.9], "max_mib": 157.9, "sum_mib": 157.9, "cgroup_memory_peak_mib": 178.5}
+{"tool": "kyverno", "n": 1, "wall_s": 4.46, "rc": [1], "cpu_s_each": [4.27], "env": {"GOGC": "50"}, "peak_rss_mib_each": [145.7], "max_mib": 145.7, "sum_mib": 145.7, "cgroup_memory_peak_mib": 166.7}
+{"tool": "kyverno", "n": 1, "wall_s": 3.78, "rc": [1], "cpu_s_each": [3.56], "env": {"GOMEMLIMIT": "96MiB"}, "peak_rss_mib_each": [154.2], "max_mib": 154.2, "sum_mib": 154.2, "cgroup_memory_peak_mib": 174.5}
+{"tool": "kyverno", "n": 2, "wall_s": 6.68, "rc": [1, 1], "cpu_s_each": [3.3, 3.35], "env": {}, "peak_rss_mib_each": [153.9, 153.5], "max_mib": 153.9, "sum_mib": 307.4, "cgroup_memory_peak_mib": 260.3}

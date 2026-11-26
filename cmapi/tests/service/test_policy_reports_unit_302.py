@@ -165,4 +165,5 @@ def test_every_metric_that_observability_declares_is_recorded_somewhere():
     src = Path(cmapi.__file__).parent
     names = re.findall(r"^([A-Z_]+) = (?:Counter|Gauge|Histogram)\(", (src / "core/observability.py").read_text(), re.M)
     code = "\n".join(p.read_text() for p in src.rglob("*.py"))
-    assert len(names) > 20 and [n for n in names if not re.search(rf"\b{n}\.(labels|inc|set|observe)\(", code)] == []
+    # Called, or passed as a callback: core/context.py gives VALIDATOR_WAIT.observe to the validator's slots (#708).
+    assert len(names) > 20 and [n for n in names if not re.search(rf"\b{n}\.(labels|inc|set|observe)\b", code)] == []

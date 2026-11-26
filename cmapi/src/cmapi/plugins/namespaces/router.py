@@ -39,7 +39,7 @@ WRITE_PROBLEMS = ["cluster-not-found", "cluster-not-writable", "environment-not-
 # A body with onBehalfOf: create and change (resolve_requester). A metadata refusal, team-dl too, is a policy-violation item.
 ON_BEHALF_PROBLEMS = ["unknown-user", "on-behalf-of-not-allowed"]
 # Rendering and checking the new files: every write but a delete, which renders no namespace (plan_delete).
-RENDER_PROBLEMS = ["policy-violation", "capacity-exceeded", "validator-unavailable", "unknown-serviceaccount"]
+RENDER_PROBLEMS = ["policy-violation", "capacity-exceeded", "validator-unavailable", "validator-busy", "unknown-serviceaccount"]
 # A namespace that exists, changed under If-Match.
 CHANGE_PROBLEMS = ["object-not-found", "precondition-required", "precondition-failed"]
 

@@ -1,0 +1,10 @@
+{"tool": "kyverno", "n": 1, "wall_s": 2.97, "rc": [1], "peak_rss_mib_each": [152.9], "max_mib": 152.9, "sum_mib": 152.9, "cgroup_memory_peak_mib": 173.3}
+{"tool": "kyverno", "n": 1, "wall_s": 4.25, "rc": [1], "peak_rss_mib_each": [153.2], "max_mib": 153.2, "sum_mib": 153.2, "cgroup_memory_peak_mib": 174.9}
+{"tool": "kyverno", "n": 1, "wall_s": 5.48, "rc": [1], "peak_rss_mib_each": [152.6], "max_mib": 152.6, "sum_mib": 152.6, "cgroup_memory_peak_mib": 173.4}
+{"tool": "kyverno", "n": 1, "wall_s": 3.73, "rc": [1], "peak_rss_mib_each": [151.0], "max_mib": 151.0, "sum_mib": 151.0, "cgroup_memory_peak_mib": 172.2}
+{"tool": "kyverno", "n": 1, "wall_s": 4.88, "rc": [1], "peak_rss_mib_each": [157.7], "max_mib": 157.7, "sum_mib": 157.7, "cgroup_memory_peak_mib": 178.0}
+{"tool": "kubeconform", "n": 1, "wall_s": 0.37, "rc": [0], "peak_rss_mib_each": [16.1], "max_mib": 16.1, "sum_mib": 16.1, "cgroup_memory_peak_mib": 23.1}
+{"tool": "kubeconform", "n": 1, "wall_s": 0.26, "rc": [0], "peak_rss_mib_each": [15.6], "max_mib": 15.6, "sum_mib": 15.6, "cgroup_memory_peak_mib": 22.9}
+{"tool": "kyverno", "n": 2, "wall_s": 4.85, "rc": [1, 1], "peak_rss_mib_each": [147.5, 147.0], "max_mib": 147.5, "sum_mib": 294.5, "cgroup_memory_peak_mib": 247.6}
+{"tool": "kyverno", "n": 4, "wall_s": 17.59, "rc": [1, 1, 1, 1], "peak_rss_mib_each": [152.8, 151.7, 153.7, 150.5], "max_mib": 153.7, "sum_mib": 608.8, "cgroup_memory_peak_mib": 412.7}
+{"tool": "kyverno", "n": 12, "wall_s": 121.0, "rc": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "peak_rss_mib_each": [134.8, 128.7, 137.0, 129.8, 135.0, 135.9, 142.4, 132.7, 141.5, 139.6, 156.3, 152.5], "max_mib": 156.3, "sum_mib": 1666.2, "cgroup_memory_peak_mib": 914.4}
