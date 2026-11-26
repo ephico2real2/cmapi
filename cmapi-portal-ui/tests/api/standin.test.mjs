@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { test } from "node:test";
-import { USERS, apiHandler, namespaceRecord } from "./standin.mjs";
+import { KEYS_479, USERS, apiHandler, namespaceRecord } from "./standin.mjs";
 
 function standIn() {
   const { handle, state } = apiHandler({ issuer: { whoHas: (token) => USERS[token] ?? null }, portalOrigin: () => "" });
@@ -140,5 +140,29 @@ test("a first write takes `*` as 428 and an empty If-Match as 412, on each write
       assert.deepEqual([answer.status, answer.body.code], [status, code], `${name}, If-Match ${JSON.stringify(ifMatch)}`);
       assert.equal(api.state.keys.size, 0, "a refused first write holds no key");
     }
+  }
+});
+
+test("an adopted namespace can add exact missing name keys through PATCH", async () => {
+  const api = standIn();
+  api.state.metadataKeys = KEYS_479;
+  const record = namespaceRecord({ name: "abc-ledger-dev", prefix: "abc", team: "ledger" });
+  const mnemonic = "company.net/mnemonic";
+  const env = "company.net/app-environment";
+  for (const key of ["name", mnemonic, env]) delete record.git.labels[key];
+  api.state.namespaces = [record];
+  const path = "/api/v1/clusters/CRC/namespaces/" + record.name;
+  const ifMatch = '"' + (await api.call("GET", path, "operator")).body.etag + '"';
+  const patch = (labels) => api.call("PATCH", path + "?dryRun=true", "operator", { body: { labels }, ifMatch });
+  for (const [key, value] of [["name", "ABC-ledger-dev"], [mnemonic, "ab"], [mnemonic, "ledger"], [env, "rnd"], [env, null]]) {
+    const res = await patch({ [key]: value });
+    assert.equal(res.status, 422);
+    assert.deepEqual(res.body.errors.map((e) => e.key), [key]);
+  }
+  const labels = { name: record.name, [mnemonic]: "abc", [env]: "dev" };
+  const res = await patch(labels);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  for (const [key, value] of Object.entries(labels)) {
+    assert.deepEqual(res.body.metadataDiff.labels[key], { before: null, after: value, source: "request" });
   }
 });

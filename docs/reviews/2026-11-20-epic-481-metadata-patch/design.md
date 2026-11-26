@@ -52,15 +52,19 @@ Decided per (kind, key) from `metadata-keys.yaml`, never from a list in code. Ch
 | 2 | `system` | Fixed, for everyone | "Managed by cmapi." (expiry: "Change it with Extend, Set expiry or Make permanent.") |
 | 3 | `reservedPrefixes`, `adoptionLabels`, or a key no stanza allows | Fixed; kept as it is in Git. A key no stanza allows may be **removed** (`null`), never set or changed (coordinator ruling on #492 M2: otherwise, with Kyverno enforcing, a namespace holding one could never be changed). Since #497 the policy keeps such a key while its value is unchanged, so a change that leaves it passes too | "Reserved for the platform." / "Marks how the namespace was first made." / "Not allowed by this instance's rules." |
 | 4 | `operatorOnly` | Changeable only with `namespaces:protect` in that environment; fixed otherwise | "Needs namespaces:protect in dev." |
-| 5 | `value: {from: …}` (`name`, app-environment) | Automatic: fixed; an exact echo is accepted | "Copied from the namespace name." / "Copied from the cluster's environment." |
-| 6 | `namespacePrefix` (mnemonic), `namespaceSuffix` | Fixed; an exact echo is accepted | "Part of the namespace's fixed name." |
+| 5 | `value: {from: …}` (`name`, app-environment) | Automatic: fixed; an exact echo is accepted; a missing key may be added with the derived value (#732) | "Copied from the namespace name." / "Copied from the cluster's environment." |
+| 6 | `namespacePrefix` (mnemonic), `namespaceSuffix` | Fixed; an exact echo is accepted; a missing namespacePrefix key may be added with a start of the name (#732) | "Part of the namespace's fixed name." |
 | 7 | `requiredLabels`, `requiredAnnotations` (the rest) | Change to a valid value; never remove | "Required on every namespace." |
 | 8 | `extraLabels.keys`, `extraAnnotations.keys` | Add, change, remove | — |
 | 9 | `allowOther` | Add, change, remove, within the prefixes and limits | — |
 | + | `sensitiveKeys` (on top of 7–9) | Any effective change adds **one** approver-platform approval per request | "Changing this key needs one more approval." |
 
 A missing required key on an old namespace (adoption, #234) is shown as a finding and can be added. A missing fixed key
-(e.g. no mnemonic on an adopted namespace) is not repaired here; that is adoption's job (story #26).
+(e.g. no mnemonic on an adopted namespace) can be added by a change too, with exactly the value it would have had at create:
+the derived value of an automatic key, or a start of the namespace name for the key that starts it; any other value is
+refused. (Amended 2026-11-26 by #732: this section first said "that is adoption's job", but adoption keeps the live keys as
+they are and never adds one, and the owner's decision 2 on #26 says the key "stays a finding until someone chooses to add
+it". The coordinator ruled the fix on #732.)
 
 ---
 
