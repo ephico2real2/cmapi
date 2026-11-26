@@ -8,5 +8,7 @@ cd "$(dirname "$0")/.."
 CLUSTER_ID="${1:-CRC}"
 IMPORTS="${2:-cmapi-imports}"
 oc apply --server-side -f examples/baseline/cmapi-reader-rbac.yaml
+# Plain apply keeps objects omitted from a later baseline. Retire the previous cmapi-owned binding.
+oc delete clusterrolebinding cmapi-reader-monitoring --ignore-not-found
 CMAPI_OC=oc deploy/crc-reader-import.sh "$CLUSTER_ID" "$IMPORTS"
 echo "baseline done: reader, token issuer, import Secret for ${CLUSTER_ID} in ${IMPORTS}"

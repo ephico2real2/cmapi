@@ -1,7 +1,11 @@
 """The MetricsSource of each cluster's Thanos Querier (core/ports.py; docs/02, "Capacity plugin", #310).
 
     "cmapi-capacity reaches each cluster's Thanos Querier at the thanos-querier Route in openshift-monitoring, or at the
-    optional thanosUrl override in clusters.yaml, with the cmapi-reader token bound to cluster-monitoring-view."
+    optional thanosUrl override in clusters.yaml, with the cmapi-reader token and the reader's own grants in
+    openshift-monitoring from the cluster baseline (the platform's Role cluster-monitoring-metrics-api and get on the Route,
+    #724)."
+
+A cluster whose import check found the reader without those grants (core/registry.py, `usage_findings`) is not queried.
 
 One instant query per call, GET /api/v1/query of the Prometheus HTTP API (https://prometheus.io/docs/prometheus/latest/
 querying/api/, read 2026-11-25: "GET /api/v1/query", `query`, `time` "Evaluation timestamp"), with Thanos's
@@ -49,15 +53,27 @@ class ThanosQuerier:
         self._routes[client] = f"https://{host}"
         return self._routes[client]
 
+    def check_grants(self, cluster_id: str) -> None:
+        """MetricsUnavailable while the cluster's import check names a usage finding (#724). PromUsage asks it before it
+        serves a cached answer, so a finding hides the answer cached before it: docs/02, "while any of them stands the
+        cluster's usage is unavailable"."""
+        try:
+            st = self.registry.snapshot(cluster_id)
+        except Problem:
+            return                          # no such cluster: there is no finding to apply
+        _refuse_findings(cluster_id, st.usage_findings)
+
     def query(self, cluster_id: str, promql: str, at: datetime | None = None) -> list[dict[str, Any]]:
         """The `result` of an instant vector query. MetricsUnavailable on anything that is not a clean answer."""
         try:
-            st = self.registry.get(cluster_id)
+            # A copy under the registry's lock: the client and the findings of its own import check (#724).
+            st = self.registry.snapshot(cluster_id)
         except Problem as exc:
             raise MetricsUnavailable(f"{cluster_id}: {exc.detail}") from exc
         client = st.client                  # once: the registry clears it when the cluster drops (#402)
         if client is None:
             raise MetricsUnavailable(f"{cluster_id} is {st.status}: no client for its Thanos Querier")
+        _refuse_findings(cluster_id, st.usage_findings)
         base = self._base_url(cluster_id, st.policy.thanos_url if st.policy else None, client)
         # `timeout`: the Querier stops evaluating when the caller has stopped waiting (Prometheus HTTP API, "Evaluation timeout").
         params: dict[str, Any] = {"query": promql, "partial_response": "false", "dedup": "true",
@@ -73,6 +89,13 @@ class ThanosQuerier:
         except (ValueError, RecursionError) as exc:     # JSONDecodeError, UnicodeDecodeError; a body nested past the limit
             raise MetricsUnavailable(f"{cluster_id}: the Thanos Querier answered {r.status_code} with no JSON") from exc
         return parse_answer(cluster_id, r.status_code, body, client.redact)
+
+
+def _refuse_findings(cluster_id: str, findings: list[str]) -> None:
+    """The import check found the reader without its own grants (#724): an answer allowed only by another grant, such as one
+    to every user, is not used."""
+    if findings:
+        raise MetricsUnavailable(f"{cluster_id}: {'; '.join(findings)}"[:300])
 
 
 def parse_answer(cluster_id: str, status: int, body: Any, redact: Callable[[str], str] = lambda text: text) -> list[dict[str, Any]]:

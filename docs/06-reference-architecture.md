@@ -61,9 +61,9 @@ The API never holds write access to cluster desired state; each cluster's ArgoCD
 | Person to API | OIDC JWT from the corporate IdP | Role from IdP groups: platform admin, team member, read-only |
 | Automation to API | Named bearer token, SHA-256 hashed | Explicit permissions and expiry per token; none by default |
 | API to Git | One bot credential | Can push branches and open PRs only; branch protection blocks direct pushes to main |
-| API to spoke | Scoped ServiceAccount per cluster | get/list on roles, rolebindings, clusterroles, clusterrolebindings, securitycontextconstraints, users, groups, namespaces; create on serviceaccounts/token; nothing else |
+| API to spoke | Scoped ServiceAccount per cluster | get/list on roles, rolebindings, clusterroles, clusterrolebindings, securitycontextconstraints, users, groups, namespaces; create on serviceaccounts/token; in openshift-monitoring alone, the Role cluster-monitoring-metrics-api, get on the thanos-querier Route and create on localsubjectaccessreviews (#724); nothing else |
 | ArgoCD to its own cluster | In-cluster ServiceAccount plus a read-only Git credential | The most privileged identity on each cluster; needs bind on the allowlisted ClusterRoles and SCC roles; its namespace limited to platform admins |
-| CI to spoke | Dry-run SA plus cluster-monitoring-view token | Dry-run and metrics read only; stored as CI secrets |
+| CI to spoke | Dry-run SA plus a metrics token bound to the Role cluster-monitoring-metrics-api in openshift-monitoring | Dry-run and metrics read only, never cluster-monitoring-view cluster-wide (#724); stored as CI secrets |
 | Collector to store | Per-cluster write credential | Write to its own prefix only; dashboard and API read-only |
 
 - **Network paths.** Hub egress to each spoke API (6443) and Thanos route; spoke egress to the Fleet store. Disconnected spokes still work because collectors push.

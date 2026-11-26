@@ -1474,7 +1474,7 @@ function importScenario() {
   var steps = [];
   steps.push({
     lane: "caller", title: "Baseline creates cmapi-reader and the import",
-    body: "The cluster-baseline process, not cmapi, lays down the read-only <b>cmapi-reader</b> ServiceAccount, its ClusterRole and the cluster-monitoring-view binding on the new cluster. It issues a 7-day TokenRequest token and writes one labelled Secret into the hub namespace <b>cmapi-imports</b>, the only place it may write. cmapi holds get, list and watch there, nothing more.",
+    body: "The cluster-baseline process, not cmapi, lays down the read-only <b>cmapi-reader</b> ServiceAccount, its ClusterRole and its own Thanos grants in openshift-monitoring (#724) on the new cluster. It issues a 7-day TokenRequest token and writes one labelled Secret into the hub namespace <b>cmapi-imports</b>, the only place it may write. cmapi holds get, list and watch there, nothing more.",
     code: { label: "Secret cmapi-imports/cmapi-cluster-ocp-gf9", text: "apiVersion: v1\nkind: Secret\nmetadata:\n  name: cmapi-cluster-ocp-gf9\n  namespace: cmapi-imports\n  labels:\n    cmapi.net/secret-type: cluster\n    cmapi.net/cluster-id: " + c + "\n  annotations:\n    cmapi.net/managed-by: cluster-baseline\n    cmapi.net/token-expires-at: \"2026-11-10T17:05:00Z\"\ntype: Opaque\nstringData:\n  apiUrl: https://api.ocp-gf9.ephico2real.com:6443\n  token: <TokenRequest token for cmapi-system/cmapi-reader>\n  insecure: \"false\"            # no caData: the hub's trusted bundle is used" },
     apply: function (s) { s.node.caller = "Secret written"; ev(s, 0, "import_secret_written", "cluster-baseline", "cmapi-imports/cmapi-cluster-ocp-gf9"); }
   });
