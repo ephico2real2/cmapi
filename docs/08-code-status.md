@@ -159,7 +159,8 @@ directory provider; Argo CD mode proven against a real Argo CD (none has run).
 
 **Endpoints not yet wired:** `GET .../namespaces/{ns}/expiration`; `/tiers/{tier}`,
 `/tiers/{tier}/namespaces`; quota writes other than the namespace PATCH; metadata; service accounts,
-grants, SCC grants, SA tokens; cluster import endpoint; the placement operation `POST /api/v1/capacity:place` (`GET /api/v1/capacity` is built: `cmapi/src/cmapi/plugins/capacity/router.py:177`); adoption,
+grants, SCC grants, SA tokens; cluster import endpoint; the placement operation `POST /api/v1/capacity:place` (`GET /api/v1/capacity` is built: `cmapi/src/cmapi/plugins/capacity/router.py:177`); the adoption scan and
+the unmanaged-namespaces report (the adoption of one namespace is built: `cmapi/src/cmapi/plugins/adoption/router.py`, story #26);
 reports, operations; admin reload.
 
 **Worker jobs:** `reservation_expiry`, `policy_report_sweep`, `import_clusters` (the

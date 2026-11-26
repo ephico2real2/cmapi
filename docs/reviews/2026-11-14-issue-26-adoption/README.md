@@ -2,9 +2,25 @@
 
 OB1 run 6 (Opus 5.5 at high) wrote this design on 2026-11-14, from the owner's decisions on #26. Fable 5.2 reviewed it
 (`fable-review.md`, findings A1 to A10), and this version applies all ten and the owner's three later decisions (§1,
-items 6 to 8). It is a design: no adoption code exists yet (`cmapi/src/cmapi/plugins/` has no adoption plugin), and
-building it stays in Wave 8 (D14). Each decision says why, and where a fact comes from. docs/02, "Adoption plugin", holds
+items 6 to 8). It was a design; section 0 says what is built since, and what is not. Each decision says why, and where a fact comes from. docs/02, "Adoption plugin", holds
 the short form of this design.
+
+## 0. What is built (2026-11-26, the pull request of story #26, criterion 1)
+
+| Item | State | Where |
+|---|---|---|
+| B1: D1 to D5, D8, D10, D13 (candidates, skipped, `:adopt`), D16 | Built | `cmapi/src/cmapi/core/adoption.py`, `plugins/adoption/router.py`, `Pipeline.plan_adoption`, the reads in `jobs/push_branch.py`, `jobs/open_pr.py`, `jobs/pr_checks.py` and, in apply mode, `jobs/apply.py` |
+| B2: the keys cmapi does not own stay through an update | Proven through the API | `test_an_update_after_the_adoption_keeps_what_cmapi_does_not_own_and_holds_a_missing_key` |
+| B5: `adoption.yaml`, the skip prefixes and D3a's rule on managers | Built | `AdoptionSettings`, `skipped_keys` |
+| B7 (#248): the snapshot as the policies' base, at plan time and in the PR check | Built; the real Kyverno run is in CI | `CliValidator.validate(held=...)`, `jobs/delivery.py` `adoption_base` |
+| B8: no revert of an adoption | Built | `routers/requests.py` `revert`, `jobs/open_pr.py` `open_revert` |
+| B9: a held key through the API | Built | the same service test as B2 |
+| D17's findings (`uninterpreted-key`, `scoped-only`, `duplicate-default`, `no-resourcequota`, `no-limitrange`, `beyond-custom-bounds`) | Built, in the plan | `object_findings` |
+| An adopted quota named `<ns>-quota` is kept by a change of labels | Built (it was rewritten under the tier's name before) | `rendered_quota` in `core/render/manifests.py` |
+| The namespace admin's SubjectAccessReview (D10) | Not built | |
+| B3 (D9's in-place change of a named object), B4 (the check after the sync), B6, B10's kind proof, B11's quota view, B12 and D18 | Not built | |
+| `POST .../adoption:scan`, `GET /api/v1/reports/unmanaged-namespaces` | Not built: #252's admin operations | |
+| The portal's Adopt view | Built: the Namespaces tab's Adopt view, from `mockup-adopt.html` in this folder | `cmapi-portal-ui/src/portal/AdoptView.tsx` |
 
 ## 1. The owner's decisions (#26, 2026-11-14)
 

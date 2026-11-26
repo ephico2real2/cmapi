@@ -168,6 +168,7 @@ Reads return the live object now; writes return a ChangeRequest at once (202) an
 | method-not-allowed | 405 | The path does not take the method. `Allow` lists every method of the path, also on a HEAD, which has no content (#634, #644) |
 | change-pending | 409 | An open request already targets this object |
 | folder-not-yaml | 409 | A manifest of the namespace's folder does not parse as YAML (#680); `paths` names each one and `detail` says where the parser stopped. Nothing is planned |
+| namespace-not-adoptable | 409 | `POST .../namespaces/{ns}:adopt`: the namespace is not a candidate for adoption (story #26, the adoption design's D1); `rule` says why: `not-labelled`, `managed`, `tracked-elsewhere` (with `application`), `excluded` or `terminating`. Nothing is planned |
 | several-resource-quotas | 409 | The namespace's folder holds several ResourceQuotas, and the change sends `quota` or moves the tier (or, when none of them is cmapi's `<ns>-quota`, sends `limitRange`) without naming the object it changes (the adoption design's D9, #250); `resourceQuotas` names them. A change of labels, annotations or the expiry keeps them |
 | precondition-required / failed | 428 / 412 | Missing If-Match, or `If-Match: *` (428); no strong tag it lists is the current ETag (412). A conditional read answers 412 too, in the order of RFC 9110, section 13.2.2: an If-Match that is not `*` and lists no strong tag equal to the answer's ETag, and, on a file under `/static/swagger` or `/static/redoc`, an If-Unmodified-Since earlier than its Last-Modified (`not_modified`, `cmapi/src/cmapi/core/etag.py`; #590, #604, #619) |
 | cluster-unreachable | 503 | Cluster API down; Retry-After set |
@@ -1708,7 +1709,7 @@ The total is multiplied by the cluster's placement.weight and capped at 100. Tie
 
 ## Adoption plugin
 
-Not built yet (Wave 8). The design, with each decision, its reason and its sources, is docs/reviews/2026-11-14-issue-26-adoption/README.md; this section is its short form. The owner decided on #26: opt-in with `cmapi.net/adopt: "true"`, which stays on the namespace and is ignored once it is managed; cmapi reads only the live namespace state from the cluster and stays read-only there; the Namespace, ResourceQuota and LimitRange go to `cmapi-cluster-configs` as raw YAML, as they are, under tier `custom`; values that break a rule, and a missing required key, are adopted and reported, never changed or forced.
+Built for one namespace at a time (story #26, criterion 1): `cmapi/src/cmapi/plugins/adoption/router.py` and `cmapi/src/cmapi/core/adoption.py`, with the candidates, the skipped list, `:adopt` and its dry run, the reads of D16 in the delivery jobs, the snapshot as the policies' base (#248), no revert of an adoption, and the Adopt view of the portal's Namespaces tab. Not built yet: `POST .../adoption:scan` and the unmanaged-namespaces report (with #252's admin operations), the namespace admin's SubjectAccessReview path, the worker's comparison after the sync (B4), the in-place change of a named adopted object (B3) and the label removal of D18. The design, with each decision, its reason and its sources, is docs/reviews/2026-11-14-issue-26-adoption/README.md; this section is its short form. The owner decided on #26: opt-in with `cmapi.net/adopt: "true"`, which stays on the namespace and is ignored once it is managed; cmapi reads only the live namespace state from the cluster and stays read-only there; the Namespace, ResourceQuota and LimitRange go to `cmapi-cluster-configs` as raw YAML, as they are, under tier `custom`; values that break a rule, and a missing required key, are adopted and reported, never changed or forced.
 
 <picture>
   <source srcset="diagrams/adoption/adoption.light.png">
@@ -1795,8 +1796,10 @@ Server-set fields (uid, resourceVersion, generation, creationTimestamp, managedF
 - **GET /adoption/candidates.** Labelled, not excluded, not managed, not tracked elsewhere; marked "recognised" when an adoption label matches.
 - **GET /adoption/skipped.** Labelled but skipped, with the rule that matched.
 - **POST /namespaces/{ns}:adopt.** Adopt one namespace; supports ?dryRun=true.
-- **POST /adoption:scan.** Plan every candidate on the cluster; dryRun=true by default, so a scan never opens PRs unless asked.
-- **GET /api/v1/reports/unmanaged-namespaces.** Per cluster: managed, candidates, recognised, unlabelled unmanaged, excluded. Unlabelled namespaces are reported, never adopted.
+- **POST /adoption:scan.** Plan every candidate on the cluster; dryRun=true by default, so a scan never opens PRs unless asked. Not built (#252).
+- **GET /api/v1/reports/unmanaged-namespaces.** Per cluster: managed, candidates, recognised, unlabelled unmanaged, excluded. Unlabelled namespaces are reported, never adopted. Not built (#252).
+
+The three built routes need `adoption:write` (cmapi-operator). `:adopt` answers 409 `namespace-not-adoptable` for a namespace that is not a candidate, with `rule` (`not-labelled`, `managed`, `tracked-elsewhere`, `excluded`, `terminating`). Its plan carries `adoption`: the objects read with their uid and resourceVersion, the keys under a skip prefix with their field managers, the counts of what stays unmanaged, and the snapshot's hash. The findings are warnings with the codes of the design (D6, D17), and `policy-ratcheted` for each Kyverno failure that the snapshot holds. The request is plugin `adoption`, action `adopt`; the approval floor of `core/approvals.py` gives it one approver of `defaults.group` when no rule gives one, and no auto-approval policy covers it unless its `match.plugin` is `adoption`.
 
 **RBAC.** The adoption plugin adds create on subjectaccessreviews (authorization.k8s.io) to each cluster's read ClusterRole, for the namespace-admin check.
 
