@@ -1986,6 +1986,7 @@ try {
       const ADDED = ["Environment", "Region", "Any region", "From clusters.yaml metadata.", "This is the Non-production portal: it serves rnd, dev only.",
         // The Placement preview (#303): the mockup's isNew card in Main.dc.html, from the API's ranking.
         "Placement preview", "Enter the team to rank this environment's clusters for it.", "Ranking the clusters…", ", placed",
+        "Ranked clusters", "Excluded clusters",          // the two lists' accessible names
         "No cluster is ranked for this request yet. The Placement preview says why.",
         /^Ranked from this instance's stored snapshots, committed quota and active reservations; no Thanos call\. Submitting reserves [A-Z][A-Z0-9_]+ for 15 minutes\.$/,
         /^snapshot \d\d:\d\d · \d+ min old$/, /^cpu [\d.]+ → [\d.]+ cores · memory [\d.]+ → [\d.]+ Gi · p95 (not measured|[\d.]+)$/, /^\d+$/,
