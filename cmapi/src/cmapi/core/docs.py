@@ -51,6 +51,13 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "already-approved": (409, "This person already approved the request"),
     "self-approval": (409, "Requesters cannot approve their own request here"),
     "nothing-to-prune": (409, "No delete of payments-dev is awaiting a prune"),
+    # The two below are returned by no operation: the daily expire_check holds the expiry delete with them, and the log line
+    # expiry_delete_held names them (jobs/expire_check.py, core/pipeline.py check_prune_confirm; #263). Registered so that
+    # /problems/<code> documents each code that cmapi raises.
+    "prune-confirmation-missing": (409, "The live namespace payments-dev is not a cmapi namespace whose "
+                                        "argocd.argoproj.io/sync-options holds Prune=confirm, so Argo CD would prune it "
+                                        "without an operator: the expiry delete is held"),
+    "expiry-delete-already-opened": (409, "A delete request was opened for the expiry 2026-11-01 of payments-dev"),
     "folder-holds-submodule": (409, "The folder of payments-dev holds the submodule clusters/CRC/namespaces/payments-dev/vendor"),
     "folder-not-utf8": (409, "The folder of payments-dev holds clusters/CRC/namespaces/payments-dev/caf\\xe9.yaml, whose name is not "
                              "UTF-8: cmapi carries a folder's names and manifests as UTF-8 text. Rename it in Git, then send the "

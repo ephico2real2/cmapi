@@ -31,6 +31,18 @@ ACTIONS: dict[str, str] = {
     "already-approved": "Do nothing. Your approval is recorded, and another person must give the next one.",
     "self-approval": "Ask another person of the approving group. A requester cannot approve their own request in this environment.",
     "nothing-to-prune": "Do nothing. No delete of this namespace waits for a prune.",
+    "prune-confirmation-missing": "No operation of the API returns it: the daily expire_check holds the expiry delete of the "
+                                  "namespace with it, and its log line `expiry_delete_held` names it. Argo CD reads "
+                                  "`Prune=confirm` from the live namespace when it prunes, so without it a merged delete would "
+                                  "remove the namespace with no operator. Check that the namespace's `namespace.yaml` in Git "
+                                  "carries the label `cmapi.net/managed: \"true\"` and `Prune=confirm` in the annotation "
+                                  "`argocd.argoproj.io/sync-options`, as cmapi renders them, and that Argo CD synced it to the "
+                                  "cluster. Or extend the expiry. The next run tries again.",
+    "expiry-delete-already-opened": "No operation of the API returns it: the daily expire_check holds the expiry delete with it, "
+                                    "and its log line `expiry_delete_held` names it. One delete request is opened for each "
+                                    "expiry date, and one was opened for this date: one that people rejected or cancelled, or "
+                                    "that failed, is not opened again. The namespace stays on the Expiration tab: extend its "
+                                    "expiry, or delete it with a request.",
     "folder-holds-submodule": "Remove each submodule that `paths` lists from the namespace's folder in Git, then send the delete again. "
                               "A delete removes every file of the folder, and a submodule's removal also changes `.gitmodules`, "
                               "outside the folder.",
