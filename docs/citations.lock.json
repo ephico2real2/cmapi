@@ -500,24 +500,24 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1332-1332": [
   "            raise Problem.forbidden(f\"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|175-177": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|177-179": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|263-263": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|265-265": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|269-269": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|271-271": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|277-277": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|279-279": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|513-513": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|515-515": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|564-564": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|593-593": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|77-77": [
@@ -578,7 +578,7 @@
   "    def docs_redirect() -> Response:",
   "        return get_swagger_ui_oauth2_redirect_html()"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|117-117": [
+ "docs/14-authorization.md|cmapi/src/cmapi/plugins/expiration/router.py|115-115": [
   "        if env is None or not c.cfg.roles.allowed(who, \"objects:read\", env):"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/plugins/namespaces/router.py|194-194": [
