@@ -32,7 +32,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCS = ("docs/14-authorization.md", "docs/15-keycloak-integration.md", "docs/16-data-model.md")
+DOCS = ("docs/14-authorization.md", "docs/15-keycloak-integration.md", "docs/16-data-model.md",
+        "docs/21-usage-from-thanos.md")
 LOCK = "docs/citations.lock.json"
 PENDING = "docs/.citations-relocation.json"      # the journal of a relocation that has not finished
 # `path:12`, `path:12-18` or the continuation `:12`, each in backticks. A path ends in a file extension that starts with a letter,
