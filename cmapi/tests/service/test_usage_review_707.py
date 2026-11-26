@@ -130,8 +130,9 @@ def _querier(answer):
     """A ThanosQuerier over one real KubeClient whose monitoring answers `answer`, with a thanosUrl (no Route read)."""
     client = kube.KubeClient("c", "https://api.example.test", TOKEN)
     client._monitoring = httpx.Client(transport=httpx.MockTransport(answer))
-    st = SimpleNamespace(client=client, status="connected", policy=SimpleNamespace(thanos_url="https://thanos.example.test"))
-    return thanos.ThanosQuerier(SimpleNamespace(get=lambda cid: st)), client
+    st = SimpleNamespace(client=client, status="connected", policy=SimpleNamespace(thanos_url="https://thanos.example.test"),
+                         usage_findings=[])
+    return thanos.ThanosQuerier(SimpleNamespace(snapshot=lambda cid: st)), client
 
 
 def test_the_querier_error_is_kept_and_the_token_taken_out():
@@ -307,7 +308,7 @@ def test_the_stored_plan_holds_the_facts_and_no_usage_figures():
     stored". The facts (usage, requestToPeakRatio) stay: the approval was decided from them."""
     plan = SimpleNamespace(files={}, prev={}, changes={}, facts={"usage": "ok", "requestToPeakRatio": 3.7},
                            capacity=SimpleNamespace(status="fits", fresh=True, detail={}), spec=None, findings=[],
-                           beyond_tier=None, usage={"cpu": {"now": 123}})
+                           beyond_tier=None, usage={"cpu": {"now": 123}}, adoption=None)
     stored = Plan.stored(plan)
     assert "usage" not in stored and stored["facts"] == {"usage": "ok", "requestToPeakRatio": 3.7}
 

@@ -68,8 +68,9 @@ def request(client, keys, rid):
     return client.get(f"/api/v1/requests/{rid}", headers=auth(keys, "opal", **OPAL)).json()
 
 
-def approve_both(client, keys, rid):
-    for user, role in (("amy", AMY), ("ann", ANN)):
+def approve_all(client, keys, rid):
+    """The three approvers of approver-platform that the owner's sample needs (adoption, findings, beyond the custom bound)."""
+    for user, role in (("amy", AMY), ("ann", ANN), ("alan", ANN)):
         r = client.post(f"/api/v1/requests/{rid}:approve", json={"comment": "ok"}, headers=auth(keys, user, **role))
         assert r.status_code == 200, r.text
 
@@ -113,13 +114,14 @@ def test_the_dry_run_plans_the_owner_sample_as_it_is_and_writes_nothing(world):
         assert lr["spec"] == kube.objects[("LimitRange", NS, f"abc-rnd-limits-{res}")]["spec"]
     codes = {f["rule"] for f in plan["findings"]}
     # The reference metadata-keys.yaml of the test instance: cmapi.net/team and team-dl are required, company.net/* undeclared
-    assert {"missing-required-key", "unknown-key", "skipped-key", "scoped-only"} <= codes, codes
+    assert {"missing-required-key", "unknown-key", "skipped-key", "scoped-only", "beyond-custom-bounds"} <= codes, codes
     assert {o["kind"] for o in plan["adoption"]["objects"]} == {"Namespace", "ResourceQuota", "LimitRange"}
     assert {(k["key"], k["kept"]) for k in plan["adoption"]["keys"]} == {
         ("kubernetes.io/metadata.name", False), ("pod-security.kubernetes.io/audit", False)}
-    # D10: never automatic, one approver of approver-platform and one more for the findings
+    # D10: never automatic, one approver of approver-platform and one more for the findings; the scoped quota's value beyond
+    # the custom bound (D5) adds the shipped beyondTier reviewer
     assert plan["approval"]["auto"] is None
-    assert plan["approval"]["slots"] == [{"group": "approver-platform", "count": 2, "reason": plan["approval"]["slots"][0]["reason"]}]
+    assert plan["approval"]["slots"] == [{"group": "approver-platform", "count": 3, "reason": plan["approval"]["slots"][0]["reason"]}]
     # Nothing written: no request, no PR, the cluster unchanged
     assert client.get("/api/v1/requests", headers=auth(keys, "opal", **OPAL)).json()["page"]["total"] == 0
     assert git.prs == {} and kube.objects == before and kube.applied == []
@@ -162,6 +164,16 @@ def test_a_namespace_with_a_folder_in_git_is_managed_and_not_adopted(world):
     git.branches["main"][BASE + "namespace.yaml"] = "apiVersion: v1\nkind: Namespace\nmetadata: {name: abc-rnd}\n"
     r = adopt(client, keys, dry_run=True)
     assert r.status_code == 409 and r.json()["rule"] == "managed"
+
+
+def test_a_repeated_dry_run_is_refused_and_plans_nothing(world):
+    """docs/02: a repeated `dryRun` is 422 validation-failed (refuse_repeated_dry_run, #606), on :adopt as on every write."""
+    client, ctx, git, kube, validator, keys = world
+    owner_sample(kube)
+    r = client.post(f"/api/v1/clusters/CRC/namespaces/{NS}:adopt?dryRun=true&dryRun=true", json={},
+                    headers=auth(keys, "opal", **OPAL))
+    assert r.status_code == 422 and r.json()["code"] == "validation-failed", r.text
+    assert validator.calls == 0 and git.prs == {}
 
 
 def test_only_adoption_write_may_adopt(world):
@@ -207,7 +219,7 @@ def test_an_adoption_waits_for_people_then_takes_over_only_through_its_pull_requ
     # the files of the request carry its own ID
     row_files = _stored(ctx, rid)["files"]
     assert f"cmapi.net/request-id: {rid}" in row_files[BASE + "namespace.yaml"]
-    approve_both(client, keys, rid)
+    approve_all(client, keys, rid)
     run_jobs(ctx, limit=40)
     done = request(client, keys, rid)
     assert done["status"] == "synced", done["events"][-4:]
@@ -226,7 +238,7 @@ def test_a_change_after_the_plan_fails_the_request_and_writes_nothing(world):
     rid = adopt(client, keys).json()["requestId"]
     kube.objects[("ResourceQuota", NS, "abc-rnd-quota")]["metadata"]["resourceVersion"] = "999"
     kube.objects[("ResourceQuota", NS, "abc-rnd-quota")]["spec"]["hard"]["requests.cpu"] = "48"
-    approve_both(client, keys, rid)
+    approve_all(client, keys, rid)
     run_jobs(ctx, limit=40)
     done = request(client, keys, rid)
     assert done["status"] == "failed"
@@ -240,7 +252,7 @@ def test_the_opt_in_label_removed_before_the_merge_cancels_the_request(world):
     client, ctx, git, kube, validator, keys = world
     owner_sample(kube)
     rid = adopt(client, keys).json()["requestId"]
-    approve_both(client, keys, rid)
+    approve_all(client, keys, rid)
     for _ in range(10):                                    # up to the open PR, its checks not run yet
         ran = run_jobs(ctx, limit=1)
         if ran == ["open_pr"]:
@@ -268,7 +280,7 @@ def test_the_policy_base_is_the_approved_snapshot_at_plan_time_and_in_the_pr_che
     assert snapshot and "name: aao-rnd" in snapshot[BASE + "namespace.yaml"]
     assert "cmapi.net/managed" not in snapshot[BASE + "namespace.yaml"]          # the live object, not the adopted file
     rid = adopt(client, keys).json()["requestId"]
-    approve_both(client, keys, rid)
+    approve_all(client, keys, rid)
     run_jobs(ctx, limit=40)
     assert request(client, keys, rid)["status"] == "synced"
     pr_check_base = validator.previous[-1]
@@ -284,7 +296,7 @@ def test_a_tampered_snapshot_is_not_believed_by_the_pr_check(world):
         s.execute(text("update change_requests set plan = jsonb_set(plan, '{adoption,snapshot}', "
                        "(plan->'adoption'->'snapshot') || jsonb_build_object(CAST(:k AS text), 'x: 1'::text)) where request_id = :r"),
                   {"k": BASE + "extra.yaml", "r": rid})
-    approve_both(client, keys, rid)
+    approve_all(client, keys, rid)
     run_jobs(ctx, limit=40)
     done = request(client, keys, rid)
     assert done["status"] == "failed" and kube.applied == []
@@ -310,7 +322,7 @@ def test_an_update_after_the_adoption_keeps_what_cmapi_does_not_own_and_holds_a_
     client, ctx, git, kube, validator, keys = world
     owner_sample(kube)
     rid = adopt(client, keys).json()["requestId"]
-    approve_both(client, keys, rid)
+    approve_all(client, keys, rid)
     run_jobs(ctx, limit=40)
     assert request(client, keys, rid)["status"] == "synced"
     h = auth(keys, "opal", **OPAL)

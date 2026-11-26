@@ -200,9 +200,12 @@ class PromUsage:
     configured = True
 
     def __init__(self, metrics: MetricsSource, clock: Callable[[], float] = time.time, cache_seconds: float = CACHE_SECONDS,
-                 sweep_metrics: MetricsSource | None = None):
-        """`sweep_metrics`: the source the sweep reads with, when its timeout differs from a plan's (thanos.py)."""
+                 sweep_metrics: MetricsSource | None = None, check_cached: Callable[[str], None] | None = None):
+        """`sweep_metrics`: the source the sweep reads with, when its timeout differs from a plan's (thanos.py).
+        `check_cached`: raises MetricsUnavailable when a cluster's cached answers must not be served
+        (ThanosQuerier.check_grants, #724)."""
         self.metrics, self.clock, self.cache_seconds = metrics, clock, cache_seconds
+        self.check_cached = check_cached
         self.sweep_metrics = sweep_metrics or metrics
         self._cache: dict[tuple[str, str], tuple[float, NamespaceUsage]] = {}
         self._lock = threading.Lock()
@@ -232,10 +235,12 @@ class PromUsage:
         started = time.monotonic()
         with self._lock:
             hit = self._cache.get((cluster_id, namespace))
-        if hit and started - hit[0] < self.cache_seconds:
-            return hit[1]
         at = datetime.fromtimestamp(self.clock(), timezone.utc)
         try:
+            if hit and started - hit[0] < self.cache_seconds:
+                if self.check_cached is not None:
+                    self.check_cached(cluster_id)
+                return hit[1]
             answers = self._run(self.metrics, cluster_id, usage_queries(selector(namespace)), at, LIVE_TIMEOUT_SECONDS)
         except MetricsUnavailable as exc:
             # Not cached: the next plan asks again. docs/02: "the plan carries usage: unavailable".
@@ -299,21 +304,27 @@ def _assemble(answers: Mapping[str, list[dict[str, Any]]], at: datetime) -> dict
 SOURCES = ("none", "thanos")
 
 
-def usage_source(raw: Mapping[str, Any] | None, registry: Any) -> UsageSource:
-    """capacity.yaml `usage.source`: `thanos` reads each cluster's Thanos Querier (thanos.py), `none` (the default) reads
-    nothing and says so. None is the default so that an instance whose reader has no cluster-monitoring-view grant, or a
-    cluster with monitoring off (CRC, #489), shows insufficient data instead of a failure on every plan. A value of another
-    kind stops the start."""
+def usage_source_name(raw: Mapping[str, Any] | None) -> str:
+    """capacity.yaml `usage.source`, one of SOURCES, `none` when unset. A value of another kind stops the start."""
     block = (raw or {}).get("usage") or {}
     if not isinstance(block, Mapping) or set(block) - {"source"}:
         raise ValueError("capacity.yaml: usage takes the one key source")
     source = block.get("source", "none")
     if source not in SOURCES:
         raise ValueError(f"capacity.yaml: usage.source is one of {list(SOURCES)}, not {source!r}")
-    if source == "none":
+    return source
+
+
+def usage_source(raw: Mapping[str, Any] | None, registry: Any) -> UsageSource:
+    """capacity.yaml `usage.source`: `thanos` reads each cluster's Thanos Querier (thanos.py), `none` (the default) reads
+    nothing and says so. None is the default so that an instance whose readers lack the monitoring grants of the baseline
+    (examples/baseline, #724), or a cluster with monitoring off (CRC, #489), shows insufficient data instead of a failure on
+    every plan. With `thanos`, the registry's import check names each missing grant (core/registry.py, #724)."""
+    if usage_source_name(raw) == "none":
         return NoUsage()
     from cmapi.capacity.thanos import ThanosQuerier       # the adapter, imported only when an instance names it
-    return PromUsage(ThanosQuerier(registry), sweep_metrics=ThanosQuerier(registry, SWEEP_TIMEOUT_SECONDS))
+    live = ThanosQuerier(registry)
+    return PromUsage(live, sweep_metrics=ThanosQuerier(registry, SWEEP_TIMEOUT_SECONDS), check_cached=live.check_grants)
 
 
 UNITS = {"cpu": "millicores", "memory": "bytes"}

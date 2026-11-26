@@ -74,7 +74,7 @@ def test_a_revert_that_the_cluster_has_no_room_for_is_not_opened(world, monkeypa
     client, ctx, git, kube, validator, keys = world
     low = lowered_then_sync_failed(world)
     monkeypatch.setattr(ctx.pipeline.capacity, "check",
-                        lambda *a: CapacityResult("exceeded", True, "cpu", {"cpu": {"requested": 24}}))
+                        lambda *a, **kw: CapacityResult("exceeded", True, "cpu", {"cpu": {"requested": 24}}))
     assert client.post(f"/api/v1/requests/{low}:revert", headers=auth(keys, "opal", **OPAL)).status_code == 200
     assert Worker(ctx, "w").run_one()          # the worker, which records a job's failure and retries it later
     after = view(world, low)

@@ -133,7 +133,8 @@ class AdoptionSettings:
             problems.append("argocd.resourceTrackingMethod: annotation, label or annotation+label (Argo CD, Resource Tracking)")
         if problems:
             raise ValueError("; ".join(problems))
-        return cls(label, value, exclude, envs, clusters, tuple(prefixes), manager, tracking != "annotation")
+        # With annotation+label the label is informational only: Argo CD tracks by the annotation (Resource Tracking).
+        return cls(label, value, exclude, envs, clusters, tuple(prefixes), manager, tracking == "label")
 
     @staticmethod
     def _exclusions(block: Any, where: str, problems: list[str]) -> Exclusions:
@@ -456,11 +457,12 @@ def object_findings(snap: Snapshot, *, cluster_id: str, environment: str, tiers:
                 out.append(AdoptionFinding("uninterpreted-key", path, f"{name} holds {key}: kept as it is, shown raw, and left "
                                                                       "out of cmapi's capacity and quota figures", key))
                 continue
+            # D5: each value is checked against the custom bounds, a scoped quota's too; D17 keeps it out of the figures.
+            _bound(out, beyond, bounds, meaning, str(value), path, name)
             if scoped:
                 held_scoped.setdefault(meaning, []).append(name)
                 continue
             held_unscoped.add(meaning)
-            _bound(out, beyond, bounds, meaning, str(value), path, name)
     for meaning in sorted(set(held_scoped) - held_unscoped):
         out.append(AdoptionFinding("scoped-only", base, f"Only the scoped quotas {', '.join(sorted(held_scoped[meaning]))} hold "
                                                         f"{meaning}: its figure for the namespace is not known", meaning))
@@ -534,12 +536,3 @@ def stale(stored: Mapping[str, Any], live_ns: Mapping[str, Any] | None, live_quo
             return Staleness("stale", f"{key[0]} {key[1]} changed after the plan (resourceVersion {a['resourceVersion']} "
                                       f"to {b['resourceVersion']})")
     return None
-
-
-def takeover_allowed(stored: Mapping[str, Any] | None, live_ns: Mapping[str, Any] | None) -> bool:
-    """The delivery's guard against taking over an unmanaged namespace (jobs/apply.py, jobs/watch_sync.py) lets an approved
-    adoption through only for the very namespace its plan read: the same uid."""
-    if not stored or live_ns is None:
-        return False
-    uid = next((i["uid"] for i in stored.get("identity") or [] if i["kind"] == "Namespace"), None)
-    return bool(uid) and uid == str((live_ns.get("metadata") or {}).get("uid", ""))

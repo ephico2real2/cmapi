@@ -9,14 +9,14 @@ the short form of this design.
 
 | Item | State | Where |
 |---|---|---|
-| B1: D1 to D5, D8, D10, D13 (candidates, skipped, `:adopt`), D16 | Built | `cmapi/src/cmapi/core/adoption.py`, `plugins/adoption/router.py`, `Pipeline.plan_adoption`, the reads in `jobs/push_branch.py`, `jobs/open_pr.py`, `jobs/pr_checks.py` and, in apply mode, `jobs/apply.py` |
+| B1: D1 to D5, D8, D10, D13 (candidates, skipped, `:adopt`), D16 | Built | `cmapi/src/cmapi/core/adoption.py`, `plugins/adoption/router.py`, `Pipeline.plan_adoption`, the reads in `jobs/push_branch.py`, `jobs/open_pr.py`, `jobs/pr_checks.py` and, in apply mode, `jobs/apply.py` and `jobs/watch_sync.py`. In apply mode each object is written with the `uid` and `resourceVersion` that the plan read, so the API server refuses one that changed after cmapi's last read (`jobs/delivery.py` `adoption_writes`) |
 | B2: the keys cmapi does not own stay through an update | Proven through the API | `test_an_update_after_the_adoption_keeps_what_cmapi_does_not_own_and_holds_a_missing_key` |
 | B5: `adoption.yaml`, the skip prefixes and D3a's rule on managers | Built | `AdoptionSettings`, `skipped_keys` |
 | B7 (#248): the snapshot as the policies' base, at plan time and in the PR check | Built; the real Kyverno run is in CI | `CliValidator.validate(held=...)`, `jobs/delivery.py` `adoption_base` |
 | B8: no revert of an adoption | Built | `routers/requests.py` `revert`, `jobs/open_pr.py` `open_revert` |
 | B9: a held key through the API | Built | the same service test as B2 |
 | D17's findings (`uninterpreted-key`, `scoped-only`, `duplicate-default`, `no-resourcequota`, `no-limitrange`, `beyond-custom-bounds`) | Built, in the plan | `object_findings` |
-| An adopted quota named `<ns>-quota` is kept by a change of labels | Built (it was rewritten under the tier's name before) | `rendered_quota` in `core/render/manifests.py` |
+| An adopted quota named `<ns>-quota` is kept by a change of labels, also one that carried a tier hash before the adoption; an adopted namespace with no quota gets none from such a change | Built (it was rewritten under the tier's name before) | `rendered_quota` in `core/render/manifests.py` |
 | The namespace admin's SubjectAccessReview (D10) | Not built | |
 | B3 (D9's in-place change of a named object), B4 (the check after the sync), B6, B10's kind proof, B11's quota view, B12 and D18 | Not built | |
 | `POST .../adoption:scan`, `GET /api/v1/reports/unmanaged-namespaces` | Not built: #252's admin operations | |
@@ -649,3 +649,37 @@ The choices that most need a second reader:
 - D18: removing an adopted label from the cluster under server-side apply.
 - D19: cmapi's own LimitRanges, one object for CPU and one for memory, and one for storage behind a switch that is off by
   default.
+
+## PR #733 review and the coordinator's rulings (2026-11-26)
+
+**Reviewers:**
+- **Reviewer 1:** Codex gpt-6.2-astra xhigh, with 2 High and 6 Medium findings (`review-733/reviewer-1-codex.md`).
+- **Reviewer 2:** Opus 5.5 high, on PostgreSQL (`review-733/reviewer-2-opus.md`).
+
+**The coordinator's correction:** the brief to reviewer 1 said "Auto-approval never applies". That overstated D10, and the coordinator retracts it. **D10 governs:** "Auto-approval never covers an adoption unless a rule names it." Every part of reviewer 1's patch that rested only on the stricter wording was cut: the hard-coded approver floor, disabling auto-approval for adoptions, and the user-token rule at `:approve`.
+
+| Finding | Ruling |
+|---|---|
+| High 1: the adoption's write at delivery carried no uid or resourceVersion, so a replacement namespace could be written | **Confirmed, fixed.** Each pending object's approved uid and resourceVersion go into the write. A replacement labelled `cmapi.net/managed` is also caught; reviewer 1 tested only the missing namespace |
+| High 2: required people could be missing | **Refuted under D10.** Head gives one approver-platform approver, two with findings, and auto-approval only where a policy names `adoption` |
+| Medium 1: candidates | **Fixed for the `annotation+label` tracking method.** The planner's top-level Git read goes to the Backlog (B-1) |
+| Medium 2: environment check before replay | Predates the PR, on every write route. Backlog (B-2) |
+| Medium 3: approved hash omits the snapshot | No exploit without database write access. The design text goes to the Backlog (B-3) |
+| Medium 4: skip decisions | Refuted for the Namespace. The child-object part extends the design. Backlog (B-4) |
+| Medium 5: scoped quotas lose approval facts | **Confirmed, fixed** |
+| Medium 6: a metadata-only update rerenders adopted quotas | **Confirmed, fixed** |
+| Reviewer 2: `pr_checks` reads `row.plugin`, so a delivery test fails on head (CI) | **Fixed** |
+
+**Questions, ruled by the coordinator:**
+- **Q1, should an adoption's approval require a person's token?** No. It is in neither the design nor docs/14, and it would break docs/14's `cmapi-approval-relay`.
+- **Q2, the D6a wording on the plan hash and the snapshot:** recorded as not built here; the D6a text is corrected in the Backlog batch (B-3).
+- **Q3, head's fallback approver is stricter than D10:** kept. Stricter is safe. Recorded as B-8.
+- **Q4, a kind run first:** yes. One kind run of an apply-mode adoption comes before the CRC walk, to measure what no test proves yet: a live 409 for a stale resourceVersion under server-side apply, and a retry that finds the objects as written.
+
+**Runs** (reviewer 2; final patch on a fresh copy of head, PostgreSQL `cmapi_r2_733`):
+- 7 service files: 90 passed;
+- `tests/core`: 877 passed, 115 skipped;
+- 13 new tests: 10 fail on head and pass with the patch; 3 confirm head's D10 behaviour and pass on both;
+- 7 mutants: all caught.
+
+The Backlog, B-1 to B-8, is batched into one issue.

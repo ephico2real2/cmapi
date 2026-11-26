@@ -293,8 +293,10 @@ def test_crc_reader_may_query_thanos_through_the_namespaced_monitoring_role_alon
     reader = list(crc_docs("reader/*.yaml"))
     subject = [{"kind": "ServiceAccount", "name": "cmapi-reader", "namespace": "cmapi-system"}]
     in_monitoring = [d for d in reader if d["metadata"].get("namespace") == "openshift-monitoring"]
+    # And the import check's review of the two (#724, test_reader_thanos_grants_724.py).
     assert sorted((d["kind"], d["metadata"]["name"]) for d in in_monitoring) == [
-        ("Role", "cmapi-reader-thanos-route"), ("RoleBinding", "cmapi-reader-metrics-api"), ("RoleBinding", "cmapi-reader-thanos-route")]
+        ("Role", "cmapi-reader-grant-check"), ("Role", "cmapi-reader-thanos-route"), ("RoleBinding", "cmapi-reader-grant-check"),
+        ("RoleBinding", "cmapi-reader-metrics-api"), ("RoleBinding", "cmapi-reader-thanos-route")]
     route_role = crc("Role", "cmapi-reader-thanos-route")
     _, _, group, _, _, namespace, plural, name = ROUTE_PATH.split("/")
     assert route_role["metadata"]["namespace"] == namespace

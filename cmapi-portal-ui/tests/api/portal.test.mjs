@@ -5248,7 +5248,10 @@ try {
     await page.getByLabel("Justification (required)").fill("Bring abc-rnd under cmapi");
     await adoptCheck(page).click();
     await panel(page).locator("#adopt-status").getByText("The check passed (dry run, 200). Nothing is written yet.").waitFor();
-    assert.match(await adoptStatus(page), /2 approvals in cmapi from approver-platform/);
+    // The approval is the recorded plan's (the stand-in answers from samples.json): its count, in the page's words.
+    const need = SAMPLES.operations["adoption_adopt:dryRun"].response.body.approval.slots.reduce((n, s) => n + s.count, 0);
+    assert.ok(need >= 1, "an adoption always needs an approver");
+    assert.match(await adoptStatus(page), new RegExp(`${need} approvals? in cmapi from approver-platform`));
     const objects = panel(page).locator("table[aria-label='Objects read from the cluster'] tbody tr");
     assert.deepEqual(await objects.evaluateAll((trs) => trs.map((tr) => tr.innerText.replace(/\s+/g, " ").trim())),
       ["Namespace abc-rnd 100", "ResourceQuota abc-rnd-quota 101", "LimitRange abc-rnd-limits-cpu 102", "LimitRange abc-rnd-limits-memory 102"]);

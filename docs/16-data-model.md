@@ -10,18 +10,19 @@ The database is PostgreSQL through CloudNativePG, or an existing PostgreSQL serv
 |---|---|---|---|
 | `change_requests` | One write to a namespace: its plan, its approval rule, its requester, its pull request and its state | The API when a write is submitted (`RequestRepo.insert`, `core/db/repo.py:164`), then the API and the worker on each state change (`RequestRepo.move`, `repo.py:197`) | The request routes, the worker jobs, the KPI report |
 | `request_events` | One state change or note of a request, in order | `RequestRepo.event` and `RequestRepo.move` (`repo.py:192-197`) | `GET /api/v1/requests/{request_id}/events` |
-| `approvals` | One approval of one request by one person | `RequestRepo.record_approval` (`repo.py:240`) | The approval ledger (`repo.py:226`) |
-| `jobs` | One unit of work for the worker, with its lease | `JobRepo.enqueue` (`repo.py:256`) | The worker: `JobRepo.claim` (`repo.py:269`) |
-| `audit_events` | One recorded action: who, what and on which target | `AuditRepo.record` (`repo.py:328`) | No route reads it yet. `AuditRepo.recent` exists (`repo.py:332`) |
-| `jwks_keys` | The last good signing keys of one issuer | `DbKeyStore.save` (`repo.py:369`) | `DbKeyStore.load` (`repo.py:364`), when a pod starts while Keycloak does not answer |
-| `admin_switches` | One switch of the instance, for example `auto-approval`, with who set it | `SwitchRepo.set` (`repo.py:350`) | `SwitchRepo.get` (`repo.py:340`), for the admin view. Each approval decision reads the value with `SwitchRepo.value` (`repo.py:344`), in the caller's transaction when it has one |
+| `approvals` | One approval of one request by one person | `RequestRepo.record_approval` (`repo.py:255`) | The approval ledger (`repo.py:241`) |
+| `jobs` | One unit of work for the worker, with its lease | `JobRepo.enqueue` (`repo.py:271`) | The worker: `JobRepo.claim` (`repo.py:284`) |
+| `audit_events` | One recorded action: who, what and on which target | `AuditRepo.record` (`repo.py:343`) | No route reads it yet. `AuditRepo.recent` exists (`repo.py:347`) |
+| `jwks_keys` | The last good signing keys of one issuer | `DbKeyStore.save` (`repo.py:384`) | `DbKeyStore.load` (`repo.py:379`), when a pod starts while Keycloak does not answer |
+| `admin_switches` | One switch of the instance, for example `auto-approval`, with who set it | `SwitchRepo.set` (`repo.py:365`) | `SwitchRepo.get` (`repo.py:355`), for the admin view. Each approval decision reads the value with `SwitchRepo.value` (`repo.py:359`), in the caller's transaction when it has one |
 | `approval_notifications` | One notice that a channel recorded for a request | The worker job `channel_notify` (`jobs/channel_notify.py:30`) | The same job, to send a notice only once |
 | `expiration_notices` | One expiry notice for a namespace | No code writes it yet. The job `expire_check` is not built | No code reads it yet |
 | `policy_rejections` | One refusal of cmapi before Git on one UTC day, or Kyverno's warnings on a plan that became a request (#302) | `RejectionRepo.record` (`core/rejections.py`), from the namespace routes, `_submit` and the job `pr_checks`; pruned by the job `rejections_prune` | `GET /api/v1/policies/rejections` |
+| `capacity_reservations` | The CPU and memory that one open request holds on its cluster until its quota is live (#62; docs/02, Placement, "Reservations") | `Pipeline.submit` through `SimulatedCapacity.reserve` (`core/capacity_backend.py`), under the cluster's advisory lock; `RequestRepo.move` releases a hold as the request leaves a holding state, takes it again on a `:retry` into one, and moves its expiry on at each step between | The capacity check of every plan, dry run, submit, last approval and `:retry` (`SimulatedCapacity.check`) |
 
 ## Relations
 
-`change_requests` is the centre. Five tables refer to it with a foreign key on `request_id`: `request_events`, `approvals`, `jobs` (optional), `approval_notifications` and `policy_rejections` (optional). The other four tables have no foreign key.
+`change_requests` is the centre. Six tables refer to it with a foreign key on `request_id`: `request_events`, `approvals`, `jobs` (optional), `approval_notifications`, `policy_rejections` (optional) and `capacity_reservations` (optional). The other tables have no foreign key.
 
 ```text
 change_requests (request_id)
@@ -30,6 +31,7 @@ change_requests (request_id)
   |-- jobs.request_id                    many jobs for one request; a job can have no request
   |-- approval_notifications.request_id  many notices for one request
   |-- policy_rejections.request_id       many stored findings for one request; a refusal before a request has none
+  |-- capacity_reservations.request_id   the holds of one request, one active at a time; a placement hold has none (not built)
 
 audit_events, jwks_keys, admin_switches, expiration_notices: no foreign key
 ```
@@ -41,7 +43,7 @@ audit_events, jwks_keys, admin_switches, expiration_notices: no foreign key
 </picture>
 <!-- markdownlint-enable MD033 -->
 
-*One request has many events, many approvals, many jobs and many notices. The picture has nine of the ten tables: `policy_rejections` (0006) is only in the text block above. No built code writes `expiration_notices` yet, so its box is dashed. The text block above is the twin of this figure.*
+*One request has many events, many approvals, many jobs and many notices. The picture has nine of the ten tables: `policy_rejections` (0006) and `capacity_reservations` (0011) are only in the text block above. No built code writes `expiration_notices` yet, so its box is dashed. The text block above is the twin of this figure.*
 
 ## The rules that the schema holds
 
@@ -53,11 +55,13 @@ These indexes and constraints carry correctness. The code relies on each of them
 | One request for each idempotency key of a caller | The partial unique index `uq_cr_idempotency_caller` on `(idempotency_sub, idempotency_key)`, the caller's (#592), and the check `ck_cr_idempotency_caller`: a row with a key names its caller, so no keyed row escapes the index, whose NULLs are distinct. Migration `0009` (#603) dropped the requester's index `uq_cr_idempotency`, which release 1 kept for 0007 pods. So a person may use a key that a service holds for them, and gets a request of their own (docs/12) | Migrations `0008` and `0009` |
 | One approval for each person on a request | The unique index `uq_approvals_person` on `(request_id, approver_sub)` | Migration `0002` |
 | An approval says which approving group it counted for | `approvals.counted_for`. Each new approval writes the column again for each approval of the request, because the ledger can move an earlier approval to another slot. It is null for an approval from before the column | Migration `0004` |
-| One pending job for each kind, request and payload kind. A job with no request counts the request as empty. A second `enqueue` with the same three values does nothing (`JobRepo.enqueue`, `repo.py:256`) | The partial unique index `uq_jobs_pending` on `(kind, coalesce(request_id, ''), coalesce(payload->>'kind', ''))`, for rows with no `done_at` | Migration `0001`, line 108 |
-| A worker that lost its lease cannot commit | `jobs.lease_generation` increases at each claim, and the commit checks it | Migration `0003`, `JobRepo.assert_lease` (`repo.py:282`) |
+| One pending job for each kind, request and payload kind. A job with no request counts the request as empty. A second `enqueue` with the same three values does nothing (`JobRepo.enqueue`, `repo.py:271`) | The partial unique index `uq_jobs_pending` on `(kind, coalesce(request_id, ''), coalesce(payload->>'kind', ''))`, for rows with no `done_at` | Migration `0001`, line 108 |
+| A worker that lost its lease cannot commit | `jobs.lease_generation` increases at each claim, and the commit checks it | Migration `0003`, `JobRepo.assert_lease` (`repo.py:297`) |
 | A requester is a person or a service | The check `ck_cr_requester_kind` | Migration `0001`, line 54 |
+| A hold is released with its reason, or not at all | The check `ck_resv_released`: `released_at` and `released_why` are both set or both null. `released_why` is the state the request moved to (`synced`, `rejected`, `cancelled`, `timeout`, `failed`, `superseded`, `sync_failed`) or `expired`. No code writes `observed` (docs/02's list): each reader stops counting a hold from its own watch, and the row stays active until the lifecycle releases it | Migration `0011` |
+| Two requests cannot both take a cluster's last headroom | Not an index: the advisory lock of the cluster (`ReservationRepo.lock_cluster`, `repo.py`), taken in the transaction that checks a hold and writes it. The partial index `idx_resv_active` keeps the sum of a cluster's active holds cheap | Migration `0011`, #62 |
 
-The states of a request are in `cmapi/src/cmapi/core/lifecycle.py`. The eight open states are `pending_approval`, `approved`, `pr_open`, `applied`, `merge_failed`, `merged`, `awaiting_prune` and `sync_failed` (`core/db/models.py:18`). `applied` and `merge_failed` came with #286: the cluster holds the change and `main` does not yet, so the lock must hold.
+The states of a request are in `cmapi/src/cmapi/core/lifecycle.py`. The eight open states are `pending_approval`, `approved`, `pr_open`, `applied`, `merge_failed`, `merged`, `awaiting_prune` and `sync_failed` (`core/db/models.py:20`). `applied` and `merge_failed` came with #286: the cluster holds the change and `main` does not yet, so the lock must hold.
 
 ## The models and the migrations agree
 
@@ -78,7 +82,7 @@ A changed server default is not compared. To add a column: change the model, wri
 - The names and the employee ID of a requester are in `change_requests.requester` only. They are never written to Git (`cmapi/src/cmapi/core/identity/claims.py:55-60`).
 - No token, password or client secret is in any table. `jwks_keys` holds public keys.
 - The live state of a namespace is not stored. It comes from the watch cache of each cluster, in the memory of the process.
-- The capacity ledger (the committed CPU and memory of each cluster) has no table. The watch cache builds it in memory as it admits each quota (`cmapi/src/cmapi/core/capacity_ledger.py`, #302).
+- The capacity ledger (the committed CPU and memory of each cluster) has no table. The watch cache builds it in memory as it admits each quota (`cmapi/src/cmapi/core/capacity_ledger.py`, #302). Only the holds of open requests are stored (`capacity_reservations`, #62), since they must outlive a process and be seen by every API pod.
 
 ## What each column holds
 
@@ -199,6 +203,12 @@ No code writes this table. The design is in `docs/01`, "Namespace expiration". `
 
 Migration 0006 (#302). One row is one refusal on one UTC day: `stage` `plan` with `outcome` `refused` (a 422 that never became a request: `request_id` is NULL and `problem` holds its code), `plan` with `warned` (Kyverno's findings on a plan in audit mode, with its `request_id`), or `ci` with `refused` (the worker's checks failed the pull request). Two CHECK constraints hold that pairing. The same refusal again that day (`fingerprint`, a SHA-256 of who, where, what and the findings, unique with `day`) adds to `count` and moves `last_at`; the list is in the order of `first_at`, which never moves. `findings` is at most 20 items, each with `source`, `policy`, `rule`, `kyvernoRule`, `path`, `severity` and a `message` of at most 300 characters. Who asked is `username` and `automated` only: never the email, the employee ID or the justification (the owner, 2026-11-17). The daily job `rejections_prune` deletes the rows last seen more than `policy.rejections.retentionDays` ago (90 by default).
 
+### `capacity_reservations`
+
+Migration 0011 (#62). One row is the capacity that one request holds on its cluster: `cpu` (cores, to the millicore) and `memory` (bytes) are the increase its plan was checked for, rounded up, and `pods` its increase of the `pods` quota, kept for the record. A request that raises neither CPU nor memory (a decrease, a label change, a delete) holds nothing. `namespace`, `target_cpu` and `target_memory` are not in docs/02's table: they are the namespace and its binding quota after the change, rounded down so that the exact live quota reaches them, and the capacity check stops counting a hold once the cluster's quota ledger shows that quota there, so a quota is never counted both as committed and as held (docs/02: "Committed quota counts it from then on, so it is never counted twice"). The plan and the submit of a change to a namespace do not count a hold on that same namespace: only the namespace's one open request can hold there (the Reservation states lie within the lock's), and its hold and the change are both sized from the quota that Git holds, so they are alternatives, never both; the change is refused 409 `change-pending` until that request ends (#725). `zone` is for placement (not built) and is always null.
+
+A hold is active while `released_at` is null and `expires_at` is ahead. `expires_at` is one term after the request's last step: its approval rule's `timeoutHours`, plus one hour for the hourly `approval_timeout` job (`hold_term`, `core/db/repo.py`). The term starts at submit and starts again at each step that keeps the hold (`RequestRepo.move`), so a request that stops moving lets its hold go one term later. The next hold taken on the cluster marks such a row `expired`. A hold that the ledger shows is not marked: each API pod and the worker reads the holds and its own ledger at one instant (`CapacityLedger.snapshot`) and stops counting it from its own watch, so a reader whose watch is behind still counts it. The last `:approve` takes a hold that lapsed again before it checks capacity. Migration `0011` gives the requests already in flight their holds: the increase of each stored plan in a holding state, and a released one for a failed request's `:retry`.
+
 ## Planned adoption quota view (#26, #251; not built)
 
 This section describes the proposed model in docs/reviews/2026-11-14-issue-26-adoption/README.md, D8 and D17–D19.
@@ -254,10 +264,10 @@ The figure is `docs/diagrams/data-model/source.html`, drawn to diagram-kit's `/v
 
 ## The tables
 
-Written by `scripts/db-schema-doc.py` from the test database of the service suite (PostgreSQL 16 on `127.0.0.1:55432`, macOS, 2026-11-13; written again on 2026-11-23 for migrations `0008` (#592) and `0009` (#603)). The test `tests/service/test_data_model_doc.py` fails when this part differs from the database. To write it again: `CMAPI_DATABASE_URL=... python scripts/db-schema-doc.py`, and replace the text between the two marker lines.
+Written by `scripts/db-schema-doc.py` from the test database of the service suite (PostgreSQL 16 on `127.0.0.1:55432`, macOS, 2026-11-13; written again on 2026-11-23 for migrations `0008` (#592) and `0009` (#603), and on 2026-11-26 for `0011` (#62)). The test `tests/service/test_data_model_doc.py` fails when this part differs from the database. To write it again: `CMAPI_DATABASE_URL=... python scripts/db-schema-doc.py`, and replace the text between the two marker lines.
 
 <!-- schema:begin -->
-Migration head: `0010`. Tables: 12.
+Migration head: `0011`. Tables: 13.
 
 ### `admin_switches`
 
@@ -347,6 +357,34 @@ Migration head: `0010`. Tables: 12.
 |---|---|---|
 | `audit_events_pkey` | Primary key | `PRIMARY KEY (id)` |
 | `idx_audit_at` | Index | `btree (at)` |
+
+### `capacity_reservations`
+
+| Column | Type | Null | Default |
+|---|---|---|---|
+| `reservation_id` | uuid | no |  |
+| `request_id` | varchar(40) | yes |  |
+| `cluster_id` | varchar(63) | no |  |
+| `namespace` | varchar(63) | yes |  |
+| `zone` | varchar(63) | yes |  |
+| `cpu` | numeric | no |  |
+| `memory` | bigint | no |  |
+| `pods` | integer | no |  |
+| `target_cpu` | numeric | yes |  |
+| `target_memory` | bigint | yes |  |
+| `created_at` | timestamptz | no | `now()` |
+| `expires_at` | timestamptz | no |  |
+| `released_at` | timestamptz | yes |  |
+| `released_why` | varchar(20) | yes |  |
+
+| Constraint or index | Kind | Definition |
+|---|---|---|
+| `ck_resv_amounts` | Check | `CHECK (((cpu >= (0)::numeric) AND (memory >= 0) AND (pods >= 0)))` |
+| `ck_resv_released` | Check | `CHECK (((released_at IS NULL) = (released_why IS NULL)))` |
+| `capacity_reservations_request_id_fkey` | Foreign key | `FOREIGN KEY (request_id) REFERENCES change_requests(request_id)` |
+| `capacity_reservations_pkey` | Primary key | `PRIMARY KEY (reservation_id)` |
+| `idx_resv_active` | Index | `btree (cluster_id) WHERE (released_at IS NULL)` |
+| `idx_resv_request` | Index | `btree (request_id)` |
 
 ### `change_requests`
 

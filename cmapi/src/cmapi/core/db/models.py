@@ -8,10 +8,12 @@ key per caller (#592, #603), one approval per person, and one pending job of a k
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
+from uuid import UUID, uuid4
 
-from sqlalchemy import (BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, func,
-                        text)
+from sqlalchemy import (BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text,
+                        Uuid, func, text)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -201,6 +203,32 @@ class PolicyRejectionRow(Base):
     fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
+class CapacityReservationRow(Base):
+    """Capacity that one request holds on its cluster until its quota is live (#62, migration 0011; docs/02, Placement,
+    "Reservations"). The columns are docs/02's, with three added: the namespace, and the namespace's binding quota after the
+    change (`target_cpu`, `target_memory`). The capacity check stops counting a hold once the cluster's quota ledger shows
+    that quota ("observed"), so it is never counted twice. `cpu` and `memory` are the increase the plan was checked for."""
+    __tablename__ = "capacity_reservations"
+    __table_args__ = (
+        CheckConstraint("cpu >= 0 AND memory >= 0 AND pods >= 0", name="ck_resv_amounts"),
+        CheckConstraint("(released_at IS NULL) = (released_why IS NULL)", name="ck_resv_released"),
+    )
+    reservation_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    request_id: Mapped[str | None] = mapped_column(String(40), ForeignKey("change_requests.request_id"))
+    cluster_id: Mapped[str] = mapped_column(String(63), nullable=False)
+    namespace: Mapped[str | None] = mapped_column(String(63))
+    zone: Mapped[str | None] = mapped_column(String(63))
+    cpu: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    memory: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    pods: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_cpu: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    target_memory: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    released_why: Mapped[str | None] = mapped_column(String(20))
+
+
 # Each index of the migrations, in the same words, so that autogenerate has nothing to add and nothing to drop.
 Index("uq_cr_open_namespace", ChangeRequestRow.cluster_id, ChangeRequestRow.namespace, unique=True,
       postgresql_where=text("status IN ('" + "', '".join(OPEN_STATES) + "')"))
@@ -221,6 +249,8 @@ Index("idx_expiration_notices_ns", ExpirationNoticeRow.cluster_id, ExpirationNot
 Index("uq_rej_fingerprint_day", PolicyRejectionRow.fingerprint, PolicyRejectionRow.day, unique=True)
 Index("idx_rej_env_first", PolicyRejectionRow.env, PolicyRejectionRow.first_at, PolicyRejectionRow.id)
 Index("idx_rej_last", PolicyRejectionRow.last_at)
+Index("idx_resv_active", CapacityReservationRow.cluster_id, postgresql_where=text("released_at IS NULL"))
+Index("idx_resv_request", CapacityReservationRow.request_id)
 
 
 class AnalysisSweepRow(Base):

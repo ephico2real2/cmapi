@@ -618,10 +618,6 @@ rules:
   - apiGroups: [argoproj.io]
     resources: [applications]
     verbs: [get, list, watch]
-  - apiGroups: [route.openshift.io]
-    resources: [routes]
-    resourceNames: [thanos-querier]
-    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -629,11 +625,44 @@ metadata: {name: cmapi-reader}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cmapi-reader}
 subjects: [{kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}]
 ---
+# Thanos Querier for the capacity plugin, in openshift-monitoring alone: the Route, the query, and the import check of both
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata: {name: cmapi-reader-monitoring}     # Thanos Querier for the capacity plugin
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-monitoring-view}
-subjects: [{kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}]
+kind: Role
+metadata: {name: cmapi-reader-thanos-route, namespace: openshift-monitoring}
+rules:
+  - apiGroups: [route.openshift.io]
+    resources: [routes]
+    resourceNames: [thanos-querier]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: cmapi-reader-thanos-route, namespace: openshift-monitoring}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-reader-thanos-route}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: cmapi-reader-metrics-api, namespace: openshift-monitoring}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cluster-monitoring-metrics-api}   # the platform's Role
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: cmapi-reader-grant-check, namespace: openshift-monitoring}
+rules:
+  - apiGroups: [authorization.k8s.io]
+    resources: [localsubjectaccessreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: cmapi-reader-grant-check, namespace: openshift-monitoring}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cmapi-reader-grant-check}
+subjects:
+  - {kind: ServiceAccount, name: cmapi-reader, namespace: cmapi-system}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -653,6 +682,8 @@ subjects:
 ```
 
 The reader can request its own token through a Role in cmapi-system scoped to `resourceNames: [cmapi-reader]`. The baseline keeps the reserved `cmapi-token-issuer` ClusterRole empty, including on reapply to older installations. Existing bindings in managed workload namespaces therefore grant the reader no token issuance there. A future sa-tokens implementation needs a separate issuer identity.
+
+**The reader's grants for Thanos (#724).** The baseline gives the reader its own least grant on every OpenShift cluster, 4.18 and later, in `openshift-monitoring` alone: `get` on the Route `thanos-querier` (Role and RoleBinding `cmapi-reader-thanos-route`), whose host cmapi reads when clusters.yaml has no `thanosUrl`, and a RoleBinding `cmapi-reader-metrics-api` of the platform's Role `cluster-monitoring-metrics-api`. That Role grants `get`, `create` and `update` on `prometheuses/api` named `k8s`, which is exactly what the Thanos Querier's kube-rbac-proxy checks, and OpenShift names it for this: "Users with this role have the ability to access Thanos Querier API endpoints" (openshift-docs `enterprise-4.18` and `enterprise-4.22`, `modules/monitoring-granting-users-permissions-for-core-platform-monitoring.adoc`). The baseline does not bind the ClusterRole `cluster-monitoring-view` cluster-wide, and cmapi never depends on a grant to every user that another project made. The third Role, `cmapi-reader-grant-check`, lets the import check ask the API server whether the reader holds the first two (see "Discovery"). The sources and measurements: `docs/reviews/2026-11-26-reader-thanos-baseline/README.md`.
 
 **Prerequisite: a network path from the hub to each cluster.** The site's network team opens HTTPS from the hub's cmapi pods (API and worker) to each cluster's API server, usually port 6443, before the cluster is imported. cmapi uses that path. It creates and manages no firewall rule, proxy or route. Without the path, the cluster shows `unreachable` in `GET /api/v1/clusters` and the import goes no further (`ClusterRegistry._check`, `cmapi/src/cmapi/core/registry.py`). On the lab Mac, the path from CRC to the kind cluster stands in for it (docs/13, "A second cluster: kind").
 
@@ -787,7 +818,7 @@ Refused, as `invalid-secret` before any client is built, so the token is never s
 
 `checkedAt` records the last import check. `lastProbeAt` dates the most recent remote credential probe, including a failed connection or a subsequent cache setup failure. It starts null and keeps its previous value across local parse failures and Secret removal. `statusSince` records when this registry first observed the current import status (#403). Repeated checks and changes to findings alone preserve `statusSince`. Both times are null for a cluster that has never been imported. When an import Secret disappears, `statusSince` records the relist that detected its removal and `checkedAt` retains the last check. Capacity and Policies use `statusSince` as the disconnected cluster's `asOf` for their "unreachable since" text. Capacity rounds it down to the minute.
 
-`POST /api/v1/clusters/{id}:probe` requires `operations:run` in the cluster's environment. An import without a configured environment requires an unrestricted grant. The probe tests only this cluster's credential from the last successful discovery. It reads `GET /version`, then `GET /apis/user.openshift.io/v1/users/~` (with the relist's non-persistent SelfSubjectReview fallback), then lists namespaces to check the reader's grant. It writes no hub or cluster resources. It shares the relist lock and publishes the same diagnostics, transition events and cache decisions. A healthy cache with the same fingerprint stays in use. Failure drops the cache, and recovery or a changed fingerprint installs a fresh one. The response is the cluster view, including for a known cluster without an import. An unknown ID or one outside the caller’s grant returns 404 `cluster-not-found`. Built (#456): a check of an import Secret logs `cluster_import` once when its status or redacted findings change (`ClusterRegistry._set`, `cmapi/src/cmapi/core/registry.py:462-495`). A new or different problem is a warning; recovery to `connected` is info, with empty findings. The first healthy import emits no recovery event. Each event has `cluster_id`, `status`, `previous` (the previous status) and `findings`. Relists with the same status and redacted findings emit no further event. Findings are redacted before comparison, storage and logging (#420); the status metric is still updated on every check. A cluster that loses its Secret becomes `not-imported` and logs one warning with the previous status and the finding `no import Secret`; repeated relists without the Secret stay silent (`ClusterRegistry._refresh`). Concurrent refresh passes are serialized, including their events and retirement. The fields phase, outcome and action are not built.
+`POST /api/v1/clusters/{id}:probe` requires `operations:run` in the cluster's environment. An import without a configured environment requires an unrestricted grant. The probe tests only this cluster's credential from the last successful discovery. It reads `GET /version`, then `GET /apis/user.openshift.io/v1/users/~` (with the relist's non-persistent SelfSubjectReview fallback), then lists namespaces to check the reader's grant, and, when the instance reads usage, reviews the reader's grants for Thanos as the relist does. It writes no hub or cluster resources. It shares the relist lock and publishes the same diagnostics, transition events and cache decisions. A healthy cache with the same fingerprint stays in use. Failure drops the cache, and recovery or a changed fingerprint installs a fresh one. The response is the cluster view, including for a known cluster without an import. An unknown ID or one outside the caller’s grant returns 404 `cluster-not-found`. Built (#456): a check of an import Secret logs `cluster_import` once when its status or redacted findings change (`ClusterRegistry._set`, `cmapi/src/cmapi/core/registry.py`). A new or different problem is a warning; recovery to `connected` is info, with empty findings. The first healthy import emits no recovery event. Each event has `cluster_id`, `status`, `previous` (the previous status) and `findings`. Relists with the same status and redacted findings emit no further event. Findings are redacted before comparison, storage and logging (#420); the status metric is still updated on every check. A cluster that loses its Secret becomes `not-imported` and logs one warning with the previous status and the finding `no import Secret`; repeated relists without the Secret stay silent (`ClusterRegistry._refresh`). Concurrent refresh passes are serialized, including their events and retirement. The fields phase, outcome and action are not built.
 
 **Onboarding becomes shorter.** The bootstrap and store-credential steps leave cluster-onboard; the baseline does that work. What remains, as designed (**not built**: `examples/config/operations/cluster-onboard.yaml` is an example and no code runs it; today steps 1 and 3 are manual):
 
@@ -800,6 +831,8 @@ Refused, as `invalid-secret` before any client is built, so the token is never s
 ![Cluster import path · six checks, each with its refusal](diagrams/v2-cluster-import.png)
 
 Each refusal is a finding on that cluster only; the other clusters keep being read.
+
+**The usage grants in the capability check.** Built (#724): when the instance reads usage (`capacity.yaml` `usage.source: thanos`), the capability check also asks whether the reader holds its own grants for the cluster's Thanos Querier (`ClusterRegistry._usage_grants`, `core/registry.py`). First, discovery of `monitoring.coreos.com/v1`: a cluster that does not serve it has no OpenShift monitoring, and one finding says so. Then one LocalSubjectAccessReview in `openshift-monitoring` per grant, for `system:serviceaccount:cmapi-system:cmapi-reader` with the groups `system:serviceaccounts` and `system:serviceaccounts:cmapi-system` and without `system:authenticated`: `get` on Route `thanos-querier` (skipped when clusters.yaml has a `thanosUrl`), and `get` on `prometheuses/api` `k8s`. The API server judges a review's user and groups as written (kubernetes `pkg/registry/authorization/util/helpers.go`, `AuthorizationAttributesFrom`), so a grant to every authenticated user does not count; a live query could not tell, because the Querier's kube-rbac-proxy reviews the token's own user with all its groups. Each grant missing is a finding `usage: missing grant in openshift-monitoring: <the grant and the baseline's objects that give it>`. A review the reader may not create is the finding `usage: the reader's grants could not be checked: missing grant in openshift-monitoring: create localsubjectaccessreviews (Role and RoleBinding cmapi-reader-grant-check)`: a grant that cannot be checked is not taken as held. These findings do not refuse the import. The cluster stays `connected` and read, its `findingDetails` give the fix "Apply the reader's openshift-monitoring grants of examples/baseline/cmapi-reader-rbac.yaml on the cluster". Two findings have another fix, because no grant fixes them: a cluster with no OpenShift monitoring, and a review that came back with an `evaluationError` and no allow, which is inconclusive and asked again at the next check or `:probe`. While any of them stands, the cluster's usage is `unavailable` with the findings as the reason, without a query (`ThanosQuerier.query`, `capacity/thanos.py`). A warm usage cache is not served while a finding stands (`ThanosQuerier.check_grants`). The registry publishes a cluster's new client and the findings of its own check together, so no query uses a client whose grants were not yet checked. The `cluster_import` event of a connected cluster with such a finding is a warning, also at its first import; its clearing is info.
 
 **Lessons from group-sync-dashboard.** Reviewed at commit d6827c5 ([repository](https://github.com/ephico2real2/group-sync-dashboard)): its cluster-connection design docs, its credential and session docs, and gsd/kube.py, config.py, fleetlogin.py, fleetlookup.py, leader.py and api.py. The dashboard proved most of the rules above on a live lab. Its biggest cost came from logging in to remote clusters with a shared LDAP account, which cmapi avoids entirely.
 
@@ -1381,7 +1414,7 @@ Writes keep their shape: POST .../namespaces takes tier and, for custom only, qu
 
 ## Capacity plugin (API side)
 
-The capacity plugin is the API-side gateway to cmapi-capacity and makes no Thanos call itself. It forwards scoped capacity and usage reads to the service, runs the capacity check inside every plan from stored snapshots plus the live watch cache and reservations, and owns placement. Its endpoints are listed under Capacity service and Cluster and fleet capacity below. cmapi-capacity reaches each cluster's Thanos Querier at the thanos-querier Route in openshift-monitoring, or at the optional thanosUrl override in clusters.yaml, with the cmapi-reader token bound to cluster-monitoring-view.
+The capacity plugin is the API-side gateway to cmapi-capacity and makes no Thanos call itself. It forwards scoped capacity and usage reads to the service, runs the capacity check inside every plan from stored snapshots plus the live watch cache and reservations, and owns placement. Its endpoints are listed under Capacity service and Cluster and fleet capacity below. cmapi-capacity reaches each cluster's Thanos Querier at the thanos-querier Route in openshift-monitoring, or at the optional thanosUrl override in clusters.yaml, with the cmapi-reader token and the reader's own grants in openshift-monitoring from the cluster baseline (the platform's Role cluster-monitoring-metrics-api and get on the Route, #724).
 
 **Retention limit.** Platform Prometheus keeps 15 days by default, and the in-cluster Thanos Querier has no long-term store behind it, so any window over 14 days silently returns less data. The design therefore uses 7- and 14-day windows from Thanos, and builds anything longer from the stored cluster capacity snapshots. Namespace history is not stored: a quota change reads that namespace's last 14 days live from Thanos. Two alternatives, if needed later:
 
@@ -2628,7 +2661,7 @@ Superseded by the resequenced plan in Design and Architecture; kept here for ref
 
 1. **Core and reads.** App factory, plugin discovery, cluster import (cmapi-imports Secrets plus clusters.yaml policy), Keycloak auth (realm as code, LDAP federation, token verification, roles mapped to permissions), problem errors, metrics and logs; read plugins: namespaces (read), rbac-read, identity-read, sync. Exit: every read endpoint live on two clusters, Service health dashboard populated.
 2. **First write path.** Pipeline, idempotency and lock, the Kyverno policy bundle (API plan, CI and admission on every cluster), raw manifest renderer with config/tiers.yaml, Git provider in rest mode, status worker, webhook receivers (Git; Argo CD Notifications where a cluster opts in, polling elsewhere), approvals engine; namespaces and metadata writes. Exit: an rnd namespace goes from POST to synced with no manual step.
-3. **Quota and capacity.** cmapi-capacity in remote mode, with the cluster-monitoring-view binding from the cluster baseline and snapshots every capacity.snapshotInterval, and the capacity plugin as its gateway; quotas and limitranges planners with capacity checks, quota analyses, cluster metadata and selectors in clusters.yaml, placement with reservations (POST /capacity:place), Change flow dashboard. Exit: an oversized quota request is flagged and routed to platform approval.
+3. **Quota and capacity.** cmapi-capacity in remote mode, with the reader's monitoring grants from the cluster baseline and snapshots every capacity.snapshotInterval, and the capacity plugin as its gateway; quotas and limitranges planners with capacity checks, quota analyses, cluster metadata and selectors in clusters.yaml, placement with reservations (POST /capacity:place), Change flow dashboard. Exit: an oversized quota request is flagged and routed to platform approval.
 4. **Access.** serviceaccounts, sa-grants and scc-grants with allowlists, sa-tokens. Exit: a team SA with a namespace edit grant and the anyuid SCC created through the API, audited end to end.
 5. **Lifecycle and launch.** adoption of labelled namespaces with the exclusion ConfigMap and the unmanaged-namespaces report, expiration, delete with extra approvals and Prune=confirm, reports, notifier, operations engine (built-in by default; Argo Workflows and Tekton adapters optional) with cluster-onboard and rebuild-verify, portal integration, generated CLI, runbooks, alerts. Exit: KPIs reported for one month; v1 contract frozen.
 

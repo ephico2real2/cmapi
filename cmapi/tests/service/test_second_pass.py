@@ -491,6 +491,10 @@ def test_the_baseline_an_owner_needs_is_a_command(tmp_path, args):
     assert data == {"apiUrl": "https://kubernetes.default.svc", "token": token, "caData": CA, "insecure": "false"}
     calls = (tmp_path / "log").read_text()
     assert "oc apply --server-side -f examples/baseline/cmapi-reader-rbac.yaml" in calls
+    # #724: the binding the earlier baseline shipped goes after its replacement is applied, and nothing else is deleted.
+    deletes = [line for line in calls.splitlines() if line.startswith("oc delete")]
+    assert deletes == ["oc delete clusterrolebinding cmapi-reader-monitoring --ignore-not-found"]
+    assert calls.index("oc apply --server-side") < calls.index(deletes[0])
     assert "get secret cmapi-reader-token" not in calls
     assert token not in calls + r.stdout + r.stderr
 

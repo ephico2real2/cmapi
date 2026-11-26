@@ -16,7 +16,8 @@ from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from typing import Any, Iterator
 
-from cmapi.core.adoption import ADOPT_LABEL, AdoptionSettings, Staleness, snapshot_hash, stale
+from cmapi.core import kube_yaml
+from cmapi.core.adoption import ADOPT_LABEL, AdoptionSettings, Staleness, cleaned, snapshot_hash, stale
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo
@@ -143,6 +144,46 @@ def adoption_staleness(ctx: AppContext, row: Any) -> Staleness | None:
     live, quotas, limits = ctx.pipeline.live_objects(row.cluster_id, row.namespace)
     consent = AdoptionSettings(label=stored.get("label") or ADOPT_LABEL, value=stored.get("value") or "true")
     return stale(stored, live, quotas, limits, consent)
+
+
+def adoption_writes(ctx: AppContext, row: Any, files: dict[str, str], *, resuming: bool
+                    ) -> tuple[Staleness | None, dict[str, str]]:
+    """D16 at the write itself (apply mode). The live objects are read again, and each manifest carries the uid and
+    resourceVersion that the plan read, so the API server refuses the write of an object that was replaced or changed after
+    this read: a uid on an object that is gone is 409, another uid is 422 (immutable), another resourceVersion is 409.
+
+    A resumed delivery (a retry after apply_started, or watch_sync after the merge) skips each object that already holds
+    this request's manifest, which cmapi wrote; its live resourceVersion then stands for the plan's in the comparison. An
+    object changed by anyone else fails the comparison, so cmapi never writes the old values over the new ones.
+    Returns the staleness, or None and the files to write. A cluster that does not answer raises (Problem 503)."""
+    stored = adoption_stored(row) or {}
+    ns, quotas, limits = ctx.pipeline.live_objects(row.cluster_id, row.namespace)
+    live = {("ResourceQuota", o["metadata"]["name"]): o for o in quotas}
+    live.update({("LimitRange", o["metadata"]["name"]): o for o in limits})
+    if ns is not None:
+        live["Namespace", row.namespace] = ns
+    approved = {(i["kind"], i["name"]): dict(i) for i in stored.get("identity") or []}
+    skipped = [(d["kind"], d["key"]) for d in stored.get("keys") or [] if not d["kept"]]
+    writes: dict[str, str] = {}
+    for path, text in files.items():
+        doc, = kube_yaml.load_all(text)                    # one object in each file (D8)
+        key = doc["kind"], doc["metadata"]["name"]
+        ident = approved.get(key)
+        if not ident or not ident["uid"] or not ident["resourceVersion"]:
+            return Staleness("stale", f"the plan holds no uid and resourceVersion of {key[0]} {key[1]}"), {}
+        if resuming and key in live:
+            current = cleaned(live[key], key[0])
+            if key[0] == "Namespace":                       # D3a's decisions are the Namespace's keys
+                for kind, name in skipped:
+                    (current["metadata"].get("labels" if kind == "label" else "annotations") or {}).pop(name, None)
+            if current == doc:
+                ident["resourceVersion"] = live[key]["metadata"].get("resourceVersion", "")
+                continue
+        doc["metadata"].update(uid=ident["uid"], resourceVersion=ident["resourceVersion"])
+        writes[path] = kube_yaml.dump(doc, sort_keys=False)
+    consent = AdoptionSettings(label=stored.get("label") or ADOPT_LABEL, value=stored.get("value") or "true")
+    found = stale({"identity": list(approved.values())}, ns, quotas, limits, consent)
+    return found, ({} if found else writes)
 
 
 def adoption_base(row: Any) -> dict[str, str]:

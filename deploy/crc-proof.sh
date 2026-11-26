@@ -217,17 +217,19 @@ say "the reader lists what it needs, and reads no Secret and writes nothing"
 # SubjectAccessReview names the reader's groups without system:authenticated: impersonation (--as) always adds that group, and a
 # cluster may grant monitoring to it (on CRC another project's chart binds cluster-monitoring-view to system:authenticated), which
 # would hide a missing grant here. Check the same named resource outside the granted namespace as a scope control.
-sar() {   # sar <namespace> <group> <resource> <subresource> <name>: "<allowed> <reason>" for the reader alone
-  printf '{"apiVersion":"authorization.k8s.io/v1","kind":"SubjectAccessReview","spec":{"user":"system:serviceaccount:cmapi-system:cmapi-reader","groups":["system:serviceaccounts","system:serviceaccounts:cmapi-system"],"resourceAttributes":{"verb":"get","namespace":"%s","group":"%s","resource":"%s","subresource":"%s","name":"%s"}}}' "$@" \
+sar() {   # sar <verb> <namespace> <group> <resource> <subresource> <name>: "<allowed> <reason>" for the reader alone
+  printf '{"apiVersion":"authorization.k8s.io/v1","kind":"SubjectAccessReview","spec":{"user":"system:serviceaccount:cmapi-system:cmapi-reader","groups":["system:serviceaccounts","system:serviceaccounts:cmapi-system"],"resourceAttributes":{"verb":"%s","namespace":"%s","group":"%s","resource":"%s","subresource":"%s","name":"%s"}}}' "$@" \
     | oc_ create -o 'go-template={{if .status.evaluationError}}inconclusive{{else}}{{.status.allowed}} {{.status.reason}}{{end}}' -f -
 }
 granted() {   # granted <binding> <sar args>: allowed, and by that RoleBinding of openshift-monitoring
   local got; got=$(sar "${@:2}") || fail "a SubjectAccessReview for the reader failed"
-  case "$got" in "true "*"RoleBinding \"$1/openshift-monitoring\""*) ;; *) fail "the reader may not get ${4}/${6} in $2 by RoleBinding $1: $got";; esac
+  case "$got" in "true "*"RoleBinding \"$1/openshift-monitoring\""*) ;; *) fail "the reader may not ${2} ${5}/${7} in $3 by RoleBinding $1: $got";; esac
 }
-granted cmapi-reader-thanos-route openshift-monitoring route.openshift.io routes "" thanos-querier
-granted cmapi-reader-metrics-api openshift-monitoring monitoring.coreos.com prometheuses api k8s
-scope=$(sar openshift-user-workload-monitoring monitoring.coreos.com prometheuses api k8s) || fail "monitoring scope review failed"
+granted cmapi-reader-thanos-route get openshift-monitoring route.openshift.io routes "" thanos-querier
+granted cmapi-reader-metrics-api get openshift-monitoring monitoring.coreos.com prometheuses api k8s
+# The import check's own review of the two (core/registry.py, #724): a LocalSubjectAccessReview in openshift-monitoring.
+granted cmapi-reader-grant-check create openshift-monitoring authorization.k8s.io localsubjectaccessreviews "" ""
+scope=$(sar get openshift-user-workload-monitoring monitoring.coreos.com prometheuses api k8s) || fail "monitoring scope review failed"
 case "$scope" in "false "*) ;; *) fail "expected get on prometheuses/api k8s to be refused outside openshift-monitoring: $scope";; esac
 
 # Use the CA source of crc-reader-import.sh and the query options of ThanosQuerier.
@@ -259,6 +261,12 @@ if not isinstance(count, str) or not count.isascii() or not count.isdecimal() or
     sys.exit("expected a positive quota count")
 print(count)') || fail "the Thanos Querier did not return a clean positive quota count for the reader"
 say "the reader has the two cmapi Thanos grants in openshift-monitoring: count(kube_resourcequota) = $quotas"
+# And cmapi's own import check finds them (#724): CRC is connected, with no finding of the usage grants on GET /api/v1/clusters.
+usage_check=$(printf 'header = "Authorization: Bearer %s"\n' "$tok_viewer" | c --config - "$API/api/v1/clusters" \
+  | python3 -c 'import json,sys; c={i["clusterId"]: i for i in json.load(sys.stdin)["items"]}["CRC"]; print(c["status"], "; ".join(f for f in c["findings"] if f.startswith("usage: ")))') \
+  || fail "GET /api/v1/clusters did not name cluster CRC"
+[ "$usage_check" = "connected " ] || fail "cmapi's import check of CRC is not connected without usage findings: $usage_check"
+say "cmapi's import check finds the reader's own usage grants on CRC: no usage finding"
 # The Policies tab's premise (#302, #387): the API reads Kyverno's reports in wgpolicyk8s.io/v1alpha2 and finds the group by discovery
 # (core/clients/policyreports.py), so without it the tab reads "Kyverno not installed". Read as the reader, as the API reads: the
 # served groups, then the request of the API's own probe. openreports.io, where a later Kyverno writes its reports (#382), is recorded.
