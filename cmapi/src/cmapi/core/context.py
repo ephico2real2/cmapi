@@ -55,9 +55,15 @@ class AppContext:
     deliverer_factory: Callable[[str], Any] | None = None   # tests inject a fake cluster write client
     limiter: RateLimiter = field(default_factory=RateLimiter)   # instance.yaml http.rateLimits, this process's buckets (#689)
 
-    def auto_paused(self) -> bool:
-        with self.db.session() as s:
-            v = SwitchRepo(s).get("auto-approval")
+    def auto_paused(self, session: Any = None) -> bool:
+        """Whether an admin paused auto-approval. With `session`, read in the caller's transaction: pipeline.submit holds a
+        pooled connection and the day's advisory lock, and the submits queued behind that lock each hold one, so a second
+        session from the same pool can find none and time out (the #695 review's pool starvation)."""
+        if session is None:
+            with self.db.session() as s:
+                v = SwitchRepo(s).get("auto-approval")
+        else:
+            v = SwitchRepo(session).get("auto-approval")
         paused = bool(v and v.get("paused"))
         AUTO_PAUSED.set(1 if paused else 0)
         return paused
