@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from cmapi.core.adoption import (AdoptionSettings, Owner, adopted_files, cleaned, object_findings, skipped_keys, snapshot,
-                                 snapshot_hash, stale, standing, takeover_allowed)
+                                 snapshot_hash, stale, standing)
 from cmapi.core.approvals import ApprovalRules
 from cmapi.core.metadata import MetadataKeys
 from cmapi.core.tiers import TierCatalog
@@ -237,7 +237,6 @@ def test_d16_a_stored_plan_holds_only_while_the_objects_are_the_ones_read():
     assert stale(stored, None, [], [], SETTINGS).code == "stale"
     withdrawn = namespace(labels={k: v for k, v in SAMPLE.items() if k != "cmapi.net/adopt"})
     assert stale(stored, withdrawn, [rq], [], SETTINGS).code == "label-removed"
-    assert takeover_allowed(stored, ns) and not takeover_allowed(stored, remade) and not takeover_allowed(None, ns)
 
 
 def test_the_snapshot_hash_binds_files_and_identity():

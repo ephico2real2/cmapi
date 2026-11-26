@@ -863,7 +863,7 @@ decision.
 | `environments.<env>`, `clusters.<id>` | the same three lists | `{}` | More exclusions for one environment (a served one) or one cluster. Exclusions add up, never subtract |
 | `skip.keyPrefixes` | list of text | `openshift.io/sa.scc.`, `kubectl.kubernetes.io/`, `kubernetes.io/metadata.name`, `pod-security.kubernetes.io/` | Keys left out of Git, each only when no client-side apply wrote it (D3a): a key that the field manager below owns stays in Git, with the finding `skipped-key-kept` |
 | `skip.clientSideApplyManager` | text | `kubectl-client-side-apply` | The field manager that Argo CD's client-side apply migration takes over (kubectl's default `--field-manager`) |
-| `argocd.resourceTrackingMethod` | `annotation`, `label` or `annotation+label` | `annotation` | The hub's Argo CD tracking. With `label`, the label `app.kubernetes.io/instance` names the Application that tracks a namespace; with `annotation` it is a finding only |
+| `argocd.resourceTrackingMethod` | `annotation`, `label` or `annotation+label` | `annotation` | The hub's Argo CD tracking. With `label`, the label `app.kubernetes.io/instance` names the Application that tracks a namespace; with `annotation` or `annotation+label` it is a finding only (Argo CD, "Resource Tracking": with `annotation+label` the label is "only for informational purposes") |
 
 A mistake stops the start, as for the other files: an unknown key, an environment that the instance does not serve, a list that
 is not a list of text.

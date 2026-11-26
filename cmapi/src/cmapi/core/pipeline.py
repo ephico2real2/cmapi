@@ -336,7 +336,8 @@ class Pipeline:
             # <ns>-quota, a lone one too. With several, the plan cannot tell which one a request means, and when none is
             # cmapi's own it keeps them all, so a change of the quota, the tier or (then) the limits is refused.
             changes_quota = action == "create" or bool(quota) or moved or bool(limits)
-            quotas_held = quotas_kept(quotas, ns, changes_quota=changes_quota)
+            custom_before = bool(old_tier) and self.cfg.tiers.resolve(env, old_tier).custom
+            quotas_held = quotas_kept(quotas, ns, changes_quota=changes_quota, existing_custom=custom_before)
             if len(quotas) > 1 and (quota or moved or (quotas_held and limits)):
                 raise several_quotas(ns, quotas, kept=quotas_held)
             # A change that sends no expiry keeps the date that Git holds, also where expiration is off now (#479).
@@ -367,7 +368,6 @@ class Pipeline:
                     expires = p.new_date
                 exp_facts = p.facts()
             resolved = self.cfg.tiers.resolve(env, tier)
-            custom_before = bool(old_tier) and self.cfg.tiers.resolve(env, old_tier).custom
             # The custom values that Git holds: the sizable keys, and each key that the objects name as beyond the tier.
             # A change merges the request over them, key by key, so a change of one label keeps the approved sizes (#214).
             approved: dict[str, str] = {}
