@@ -130,7 +130,7 @@ http:
   rateLimits:                         # the defaults; set only what changes
     read:    {perMinute: 120, burst: 60}    # per caller: every call that is not one of the others
     write:   {perMinute: 60,  burst: 30}    # per caller: POST, PUT, PATCH and DELETE, dry runs too
-    place:   {perMinute: 10,  burst: 5}     # per caller: POST /api/v1/capacity:place (not built yet)
+    place:   {perMinute: 10,  burst: 5}     # per caller: POST /api/v1/capacity:place, its dry run too (#21)
     suggest: {perMinute: 240, burst: 40}    # per caller: GET /api/v1/quotas:suggest
     export:  {perMinute: 4,   burst: 2}     # per caller: GET /api/v1/quotas:export
     team:    {perMinute: 600, burst: 200}   # per team: each change request opened for the team
@@ -941,7 +941,7 @@ The loader checks only the block of its own instance. Each of these mistakes sto
 - An unknown key.
 - An override that changes nothing: the plugin is not enabled, or it has no write.
 
-Only `namespaces` has a write today (`WRITERS`). `GET /api/v1/admin/plugins` shows the state.
+Three plugins have writes (`WRITERS`): `namespaces`, `adoption` (#26), and `capacity` (#21: `POST /api/v1/capacity:place` and `POST /api/v1/clusters/{clusterId}/capacity/snapshots:run`). An override stops only these. `GET /api/v1/admin/plugins` shows the state.
 
 ---
 

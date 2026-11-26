@@ -314,13 +314,15 @@ def cluster_capacity(cluster_id: ClusterId, who: Identity = Depends(require("cap
 @router.write("/clusters/{cluster_id}/capacity/snapshots:run", summary="Run a cluster's capacity snapshot now",
               permission="operations:run", response_model=SnapshotRun, status_code=202,
               returns="The run is queued: the worker writes the cluster's snapshot of the current interval again.",
-              problems=["cluster-not-found"])
+              problems=["cluster-not-found", "plugin-disabled"])
 def run_snapshot(cluster_id: ClusterId, who: Identity = Depends(require("operations:run")),
                  c: AppContext = Depends(ctx)) -> dict[str, Any]:
     """Queues a snapshot of the cluster now, outside the schedule (docs/02, "POST .../capacity/snapshots:run ... Run now
     (operations:run)"): the worker writes the rows of the current interval again. Needs operations:run in the cluster's
-    environment; a cluster outside it answers 404 `cluster-not-found`."""
-    _scoped_cluster(c, who, cluster_id, "operations:run")
+    environment; a cluster outside it answers 404 `cluster-not-found`. plugins.yaml can stop it in an environment: 422
+    `plugin-disabled`, after the permission check."""
+    st = _scoped_cluster(c, who, cluster_id, "operations:run")
+    c.pipeline.check_plugin_offered("capacity", st.environment)
     with c.db.session() as s:
         job = JobRepo(s).enqueue("capacity_snapshot", cluster_id=cluster_id,
                                  payload={"kind": f"run:{cluster_id}", "clusterId": cluster_id})
@@ -333,8 +335,8 @@ def run_snapshot(cluster_id: ClusterId, who: Identity = Depends(require("operati
               permission="capacity:read", response_model=PlacementResult, status_code=201, dry_run_model=PlacementResult,
               returns="The placement that holds the first cluster for 15 minutes (created), and the clusters ranked for the "
                       "namespace.",
-              problems=["validation-failed", "environment-not-served", "environment-forbidden", "policy-violation",
-                        "no-placement"])
+              problems=["validation-failed", "environment-not-served", "environment-forbidden", "plugin-disabled",
+                        "policy-violation", "no-placement"])
 def place(body: PlacementRequest, dry_run: DryRun = False, who: Identity = Depends(require("capacity:read")),
           c: AppContext = Depends(ctx)) -> Any:
     """Ranks every cluster of the environment for a namespace of this tier, and holds the first that still fits for 15 minutes
@@ -349,7 +351,8 @@ def place(body: PlacementRequest, dry_run: DryRun = False, who: Identity = Depen
 
     Ranking needs capacity:read in the environment; the hold needs namespaces:create there too. A team holds at most 3 active
     placements in an environment: a fourth is 429 rate-limited until one is claimed or lapses. When no cluster can be held,
-    422 `no-placement` lists every exclusion."""
+    422 `no-placement` lists every exclusion. plugins.yaml can stop placement in an environment: 422 `plugin-disabled`, the dry
+    run too, after the permission check."""
     raw = body.model_dump(by_alias=True, exclude_none=True)
     env = body.environment
     if env not in c.cfg.allowed_environments:
@@ -357,6 +360,7 @@ def place(body: PlacementRequest, dry_run: DryRun = False, who: Identity = Depen
     c.cfg.roles.require(who, "capacity:read", env)
     if not dry_run:
         c.cfg.roles.require(who, "namespaces:create", env)
+    c.pipeline.check_plugin_offered("capacity", env)            # after the permission, as each write (docs/02, plugins.yaml)
     ask = placing.ask_of(c, raw)
     ranked, excluded, row, now = placing.place(c, ask, c.placement, reserve=not dry_run, placed_by=who.username)
     result = PlacementResult.model_validate(placing.view(ask, raw, ranked, excluded, row, now)).model_dump(by_alias=True,

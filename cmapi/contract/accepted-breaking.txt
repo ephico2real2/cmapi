@@ -232,3 +232,9 @@ POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent the 
 POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent `header` request parameter `if-match` list-of-types was narrowed by removing types `null`
 POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set the `header` request parameter `if-match` became required
 POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set `header` request parameter `if-match` list-of-types was narrowed by removing types `null`
+
+# #21 and #303, accepted on 2026-11-26, before the first release: the capacity snapshots are built, so the page's snapshotState
+# says `stored` where it said `not-built`. It stays one value (a const): the worker's recurring capacity_snapshot job runs on
+# every instance (jobs/__init__.py, RECURRING), and each cluster's own freshness is the enum of `clusters/items/snapshot/state`
+# (ok, stale, incomplete, none). The portal does not switch on it; only its generated types carry the value.
+GET /api/v1/capacity the `snapshotState` response property const value changed from `not-built` to `stored` for the status `200`

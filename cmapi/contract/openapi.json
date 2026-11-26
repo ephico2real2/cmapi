@@ -11528,7 +11528,7 @@
     },
     "/api/v1/capacity:place": {
       "post": {
-        "description": "Ranks every cluster of the environment for a namespace of this tier, and holds the first that still fits for 15 minutes\n(placement.yaml `reservation`): 201 with its `placementId`. The create then sends `placementId`, which turns the hold into the request's own\n(docs/02, \"Placement\"). `dryRun=true` ranks and holds nothing: the portal's preview.\n\nEach cluster is either ranked, best first, or excluded with a named reason: not connected, not writable, placement disabled,\noutside the region, zones or clusterSelector, stale or partial snapshot data, no size, maxNamespaces reached, no CPU or\nmemory headroom after committed quota and active reservations, and in prod no headroom after losing its largest zone. CPU\nand memory are checked separately. Nothing calls Thanos: the facts are the stored snapshots, the watch of each cluster and\nthe active holds.\n\nRanking needs capacity:read in the environment; the hold needs namespaces:create there too. A team holds at most 3 active\nplacements in an environment: a fourth is 429 rate-limited until one is claimed or lapses. When no cluster can be held,\n422 `no-placement` lists every exclusion.\n\n**Requires** `capacity:read`.",
+        "description": "Ranks every cluster of the environment for a namespace of this tier, and holds the first that still fits for 15 minutes\n(placement.yaml `reservation`): 201 with its `placementId`. The create then sends `placementId`, which turns the hold into the request's own\n(docs/02, \"Placement\"). `dryRun=true` ranks and holds nothing: the portal's preview.\n\nEach cluster is either ranked, best first, or excluded with a named reason: not connected, not writable, placement disabled,\noutside the region, zones or clusterSelector, stale or partial snapshot data, no size, maxNamespaces reached, no CPU or\nmemory headroom after committed quota and active reservations, and in prod no headroom after losing its largest zone. CPU\nand memory are checked separately. Nothing calls Thanos: the facts are the stored snapshots, the watch of each cluster and\nthe active holds.\n\nRanking needs capacity:read in the environment; the hold needs namespaces:create there too. A team holds at most 3 active\nplacements in an environment: a fourth is 429 rate-limited until one is claimed or lapses. When no cluster can be held,\n422 `no-placement` lists every exclusion. plugins.yaml can stop placement in an environment: 422 `plugin-disabled`, the dry\nrun too, after the permission check.\n\n**Requires** `capacity:read`.",
         "operationId": "capacity_place",
         "parameters": [
           {
@@ -11792,6 +11792,15 @@
                       "type": "https://cmapi.ephico2real.com/problems/no-placement"
                     }
                   },
+                  "plugin-disabled": {
+                    "value": {
+                      "code": "plugin-disabled",
+                      "detail": "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there",
+                      "status": 422,
+                      "title": "plugin disabled",
+                      "type": "https://cmapi.ephico2real.com/problems/plugin-disabled"
+                    }
+                  },
                   "policy-violation": {
                     "value": {
                       "code": "policy-violation",
@@ -11816,7 +11825,7 @@
                 }
               }
             },
-            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`, `environment-not-served`, `policy-violation`, `no-placement`."
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`, `environment-not-served`, `plugin-disabled`, `policy-violation`, `no-placement`."
           },
           "429": {
             "content": {
@@ -12844,7 +12853,7 @@
     },
     "/api/v1/clusters/{cluster_id}/capacity/snapshots:run": {
       "post": {
-        "description": "Queues a snapshot of the cluster now, outside the schedule (docs/02, \"POST .../capacity/snapshots:run ... Run now\n(operations:run)\"): the worker writes the rows of the current interval again. Needs operations:run in the cluster's\nenvironment; a cluster outside it answers 404 `cluster-not-found`.\n\n**Requires** `operations:run`.",
+        "description": "Queues a snapshot of the cluster now, outside the schedule (docs/02, \"POST .../capacity/snapshots:run ... Run now\n(operations:run)\"): the worker writes the rows of the current interval again. Needs operations:run in the cluster's\nenvironment; a cluster outside it answers 404 `cluster-not-found`. plugins.yaml can stop it in an environment: 422\n`plugin-disabled`, after the permission check.\n\n**Requires** `operations:run`.",
         "operationId": "capacity_run_snapshot",
         "parameters": [
           {
@@ -12965,6 +12974,15 @@
             "content": {
               "application/problem+json": {
                 "examples": {
+                  "plugin-disabled": {
+                    "value": {
+                      "code": "plugin-disabled",
+                      "detail": "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there",
+                      "status": 422,
+                      "title": "plugin disabled",
+                      "type": "https://cmapi.ephico2real.com/problems/plugin-disabled"
+                    }
+                  },
                   "validation-failed": {
                     "value": {
                       "code": "validation-failed",
@@ -12980,7 +12998,7 @@
                 }
               }
             },
-            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `plugin-disabled`, `validation-failed`."
           },
           "429": {
             "content": {

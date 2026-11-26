@@ -238,7 +238,8 @@ export interface paths {
          *
          *     Ranking needs capacity:read in the environment; the hold needs namespaces:create there too. A team holds at most 3 active
          *     placements in an environment: a fourth is 429 rate-limited until one is claimed or lapses. When no cluster can be held,
-         *     422 `no-placement` lists every exclusion.
+         *     422 `no-placement` lists every exclusion. plugins.yaml can stop placement in an environment: 422 `plugin-disabled`, the dry
+         *     run too, after the permission check.
          *
          *     **Requires** `capacity:read`.
          */
@@ -361,7 +362,8 @@ export interface paths {
          * Run a cluster's capacity snapshot now
          * @description Queues a snapshot of the cluster now, outside the schedule (docs/02, "POST .../capacity/snapshots:run ... Run now
          *     (operations:run)"): the worker writes the rows of the current interval again. Needs operations:run in the cluster's
-         *     environment; a cluster outside it answers 404 `cluster-not-found`.
+         *     environment; a cluster outside it answers 404 `cluster-not-found`. plugins.yaml can stop it in an environment: 422
+         *     `plugin-disabled`, after the permission check.
          *
          *     **Requires** `operations:run`.
          */
@@ -7157,7 +7159,7 @@ export interface operations {
             /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
-             *     Codes: `validation-failed`, `environment-not-served`, `policy-violation`, `no-placement`.
+             *     Codes: `validation-failed`, `environment-not-served`, `plugin-disabled`, `policy-violation`, `no-placement`.
              */
             422: {
                 headers: {
@@ -7813,7 +7815,7 @@ export interface operations {
             /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
-             *     Codes: `validation-failed`.
+             *     Codes: `plugin-disabled`, `validation-failed`.
              */
             422: {
                 headers: {
