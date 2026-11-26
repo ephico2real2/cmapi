@@ -175,7 +175,7 @@ A role can have a list of environments. The route checks the permission again wh
 
 | Route group | Where the environment comes from | Source |
 |---|---|---|
-| Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:273`, `:570` |
+| Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:273`, `:577` |
 | Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:196`, `:236` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:103`, `:116`, `:130` |
 | Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:154`, `:188`, `:206`, `:233`, `:267` |
@@ -320,7 +320,7 @@ A tool signs in with the client credentials grant. It is a service client, or an
 | The tool sends `onBehalfOf`: a username or an employee ID | cmapi looks the value up in the directory. The person must be enabled, or the answer is 422 `unknown-user`. The person is recorded as the requester and the tool as the caller. The request is recorded as automated | `checks.py:89-95` |
 | A person sends `onBehalfOf` | 422 `on-behalf-of-not-allowed` | `checks.py:74-78`; `problem_docs.py:95` |
 
-Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:664`, `approvals.py:345-346`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:247-249`, `approvals.py:343-344`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
+Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:671`, `approvals.py:345-346`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:247-249`, `approvals.py:343-344`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
 
 With `onBehalfOf`, cmapi trusts the tool to name the person. The directory proves that the person exists and is enabled. It does not prove that the person signed in.
 
