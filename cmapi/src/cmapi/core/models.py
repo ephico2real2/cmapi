@@ -1115,8 +1115,10 @@ class PlacementConstraints(Api):
 
 class PlacementRequest(RequestBody):
     environment: str = Field(description="The environment of the new namespace: one this instance serves", examples=["dev"])
-    team: LabelValue = Field(description="The team the namespace is for: the create's `cmapi.net/team` label must be the same",
-                             examples=["payments"])
+    team: LabelValue | None = Field(default=None, description="The team the namespace is for: the create's `cmapi.net/team` "
+                                                              "label must be the same. Left out on an instance whose metadata "
+                                                              "keys have no team label; the cap of 3 active placements is then "
+                                                              "the caller's own", examples=["payments"])
     tier: str = Field(default="small", description="A tier of GET /tiers, or custom", examples=["small"])
     quota: dict[str, str] | None = Field(default=None, description="Custom tier only: the sizable quota keys, as the create "
                                                                    "sends them", examples=[None])
@@ -1126,7 +1128,7 @@ class PlacementRequest(RequestBody):
 
 class PlacementAsk(Api):
     environment: str = Field(description="As asked", examples=["dev"])
-    team: str = Field(description="As asked", examples=["payments"])
+    team: str | None = Field(description="As asked", examples=["payments"])
     tier: str = Field(description="As asked", examples=["small"])
     cpu: int = Field(description="The tier's `requests.cpu`, in millicores: what is reserved", examples=[8000])
     memory: int = Field(description="The tier's `requests.memory`, in bytes", examples=[17179869184])

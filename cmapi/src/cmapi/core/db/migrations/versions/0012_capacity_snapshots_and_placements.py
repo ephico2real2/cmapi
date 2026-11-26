@@ -12,9 +12,10 @@ months, capacity/snapshots.py; partitioning is #705), and it lives in the cmapi 
 the worker runs the snapshot job (docs/01, "One interface, two modes": embedded).
 
 capacity_reservations gains what a placement hold needs before any request exists (docs/02: "request_id ... null while only
-placed"): `placement_id`, the id that POST /capacity:place returns and the create sends, unique; and `env` and `team`, which
-the create must match ("must match the path cluster, team and env", NamespaceCreate.placement_id) and which count a team's
-active placements (docs/01: "at most 3 active placements per team and environment").
+placed"): `placement_id`, the id that POST /capacity:place returns and the create sends, unique; `env` and `team`, which the
+create must match ("must match the path cluster, team and env", NamespaceCreate.placement_id) and which count a team's active
+placements (docs/01: "at most 3 active placements per team and environment"); and `placed_by`, the caller, who is counted
+instead on an instance whose metadata keys have no team label.
 
 Revision ID: 0012
 Revises: 0011
@@ -56,6 +57,7 @@ def upgrade() -> None:
     op.add_column("capacity_reservations", sa.Column("placement_id", sa.String(40)))
     op.add_column("capacity_reservations", sa.Column("env", sa.String(20)))
     op.add_column("capacity_reservations", sa.Column("team", sa.String(63)))
+    op.add_column("capacity_reservations", sa.Column("placed_by", sa.String(100)))
     op.create_index("uq_resv_placement", "capacity_reservations", ["placement_id"], unique=True,
                     postgresql_where=sa.text("placement_id IS NOT NULL"))
 
@@ -64,6 +66,6 @@ def downgrade() -> None:
     # A placement hold that no request has claimed yet is lost with its id: it would have lapsed within its 15 minutes.
     op.drop_index("uq_resv_placement", "capacity_reservations")
     op.execute("DELETE FROM capacity_reservations WHERE request_id IS NULL")
-    for column in ("team", "env", "placement_id"):
+    for column in ("placed_by", "team", "env", "placement_id"):
         op.drop_column("capacity_reservations", column)
     op.drop_table("capacity_snapshots")

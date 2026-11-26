@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import Depends, Query, Request, Response
+from fastapi.responses import JSONResponse
 
 from cmapi import __version__
 from cmapi.capacity.snapshots import Latest, SnapshotRepo
@@ -310,7 +311,7 @@ def cluster_capacity(cluster_id: ClusterId, who: Identity = Depends(require("cap
             "snapshot": snapshot_state(c, latest, datetime.now(timezone.utc)), "scopes": scopes}
 
 
-@router.write("/clusters/{cluster_id}/capacity/snapshots:run", summary="Take a cluster's capacity snapshot now",
+@router.write("/clusters/{cluster_id}/capacity/snapshots:run", summary="Run a cluster's capacity snapshot now",
               permission="operations:run", response_model=SnapshotRun, status_code=202,
               returns="The run is queued: the worker writes the cluster's snapshot of the current interval again.",
               problems=["cluster-not-found"])
@@ -328,15 +329,16 @@ def run_snapshot(cluster_id: ClusterId, who: Identity = Depends(require("operati
 
 # --------------------------------------------------------------------------- placement (#21, #303)
 
-@router.write("/capacity:place", summary="Rank clusters for a new namespace and hold the first",
-              permission="capacity:read", response_model=PlacementResult, status_code=200, dry_run_model=PlacementResult,
-              returns="The clusters ranked for the namespace, and the placement that holds the first for 15 minutes.",
+@router.write("/capacity:place", summary="Place a new namespace: rank the clusters and hold the first",
+              permission="capacity:read", response_model=PlacementResult, status_code=201, dry_run_model=PlacementResult,
+              returns="The placement that holds the first cluster for 15 minutes (created), and the clusters ranked for the "
+                      "namespace.",
               problems=["validation-failed", "environment-not-served", "environment-forbidden", "policy-violation",
                         "no-placement"])
 def place(body: PlacementRequest, dry_run: DryRun = False, who: Identity = Depends(require("capacity:read")),
-          c: AppContext = Depends(ctx)) -> dict[str, Any]:
+          c: AppContext = Depends(ctx)) -> Any:
     """Ranks every cluster of the environment for a namespace of this tier, and holds the first that still fits for 15 minutes
-    (placement.yaml `reservation`). The create then sends `placementId`, which turns the hold into the request's own
+    (placement.yaml `reservation`): 201 with its `placementId`. The create then sends `placementId`, which turns the hold into the request's own
     (docs/02, "Placement"). `dryRun=true` ranks and holds nothing: the portal's preview.
 
     Each cluster is either ranked, best first, or excluded with a named reason: not connected, not writable, placement disabled,
@@ -356,5 +358,8 @@ def place(body: PlacementRequest, dry_run: DryRun = False, who: Identity = Depen
     if not dry_run:
         c.cfg.roles.require(who, "namespaces:create", env)
     ask = placing.ask_of(c, raw)
-    ranked, excluded, row, now = placing.place(c, ask, c.placement, reserve=not dry_run)
-    return PlacementResult.model_validate(placing.view(ask, raw, ranked, excluded, row, now)).model_dump(by_alias=True)
+    ranked, excluded, row, now = placing.place(c, ask, c.placement, reserve=not dry_run, placed_by=who.username)
+    result = PlacementResult.model_validate(placing.view(ask, raw, ranked, excluded, row, now)).model_dump(by_alias=True,
+                                                                                                         mode="json")
+    # 201: the hold is a reservation made by this call (RFC 9110, 15.3.2); the dry run makes none, so it is a 200.
+    return JSONResponse(result, status_code=200 if dry_run else 201)

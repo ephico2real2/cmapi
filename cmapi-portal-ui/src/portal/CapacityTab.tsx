@@ -1,6 +1,7 @@
 // The Capacity tab on GET /api/v1/capacity (#302). The words and the sections are the mockup's (mockups/portal/Main.dc.html,
 // isCapacity and its CAPACITY data): the group cards, then the Clusters table. MOCKUP-CONTRACT.md lists what differs, and why.
 // Every figure is the API's: the page sums nothing, and a figure the API gives as null shows "—", never 0 and never a bar.
+// Each cluster's stored snapshot (#21), which placement reads, is its Snapshot column; the head says the newest one.
 import {
   Alert, AlertActionLink, DescriptionList, DescriptionListDescription, DescriptionListGroup, DescriptionListTerm, EmptyState, EmptyStateBody,
   Gallery, Skeleton, Stack
@@ -51,6 +52,22 @@ function statusOf(c: CapacityCluster): [string, string] {
       if (c.status === null) return ["—", ""];
       return [c.status === "ok" ? "ok" : `${c.status} · ${c.boundBy ?? "—"}`, TONE[c.status]];
   }
+}
+
+/** The Snapshot cell: the newest complete snapshot's minute, or why placement cannot use it. */
+function snapshotOf(c: CapacityCluster): ReactNode {
+  const s = c.snapshot;
+  if (s.state === "none") return <Pill tone="info">none yet</Pill>;
+  const at = s.takenAt ? clock(s.takenAt) : "—";
+  if (s.state === "ok") return at;
+  return <Pill tone="warn">{s.state === "stale" ? `stale ${at}` : "incomplete"}</Pill>;
+}
+
+/** The head's pill: the newest snapshot of any cluster and the interval, as the mockup's "snapshot 17:00 · every 30 min". */
+function snapshotPill(page: CapacityPage): string {
+  const every = `every ${Math.round(page.snapshotIntervalSeconds / 60)} min`;
+  const times = page.clusters.map((c) => c.snapshot.takenAt).filter((t): t is string => t !== null).sort();
+  return times.length ? `snapshot ${clock(times[times.length - 1])} · ${every}` : `no snapshot yet · ${every}`;
 }
 
 /** Why a cluster is left out of its group's figures, in the meta line's words. */
@@ -135,6 +152,7 @@ function detailsOf(c: CapacityCluster): string[] {
   // A cluster that is not connected has one detail, the same for its nodes and its quotas: said once.
   if (c.nodesDetail && c.state !== "unreachable" && c.state !== "not-imported") out.push(`${c.clusterId} nodes: ${c.nodesDetail}.`);
   if (!c.writes) out.push(`${c.clusterId}: writes are off in clusters.yaml, so it takes no placement and is left out of its group.`);
+  if (c.snapshot.state !== "ok" && c.snapshot.detail) out.push(`${c.clusterId} snapshot: ${c.snapshot.detail}; placement leaves it out.`);
   return out;
 }
 
@@ -143,8 +161,8 @@ export function CapacityTab({ config }: TabProps) {
   const head = (
     <Head
       title="Capacity"
-      lede="Cluster capacity from each cluster's watch of its quotas and nodes, grouped by clusters.yaml metadata. CPU and memory are committed and checked separately; a cluster is as full as its fuller resource. Headroom never crosses cluster boundaries, so the largest single placement is shown beside the total."
-      pill={<Pill tone="info">live from the watch · no snapshots yet</Pill>}
+      lede="Cluster capacity from each cluster's watch of its quotas and nodes and its latest complete snapshot, grouped by clusters.yaml metadata. CPU and memory are committed and checked separately; a cluster is as full as its fuller resource. Headroom never crosses cluster boundaries, so the largest single placement is shown beside the total."
+      pill={result.state === "ok" ? <Pill tone="info">{snapshotPill(result.data)}</Pill> : undefined}
     />
   );
   if (result.state === "loading") {
@@ -196,7 +214,7 @@ export function CapacityTab({ config }: TabProps) {
       <Panel title="Clusters">
         <DataTable
           label="Clusters"
-          cols={["Cluster", "Env", "Zones", "CPU commitment", "Memory commitment", "Quota headroom", "Bound by", "As of", "Status"]}
+          cols={["Cluster", "Env", "Zones", "CPU commitment", "Memory commitment", "Quota headroom", "Bound by", "Snapshot", "Status"]}
           rows={page.clusters}
           cells={(c) => {
             const [word, tone] = statusOf(c);
@@ -204,14 +222,14 @@ export function CapacityTab({ config }: TabProps) {
             return [c.clusterId, c.env, c.zones?.length ? c.zones.join(" · ") : "—",
               <Commitment label={`${c.clusterId} CPU commitment`} f={c.cpu} size={sizeOf("cpu", c.cpu, c.basis)} />,
               <Commitment label={`${c.clusterId} memory commitment`} f={c.memory} size={sizeOf("memory", c.memory, c.basis)} />,
-              room, boundWord(c.boundBy), c.asOf ? clock(c.asOf) : "—", <Pill tone={tone}>{word}</Pill>];
+              room, boundWord(c.boundBy), snapshotOf(c), <Pill tone={tone}>{word}</Pill>];
           }}
         />
         {page.clusters.length === 0 && <Empty>No cluster of your environments is known to this instance.</Empty>}
         <Stack>{page.clusters.flatMap(detailsOf).map((line) => <Small key={line}>{line}</Small>)}</Stack>
         {page.hiddenClusters > 0 && <Small>{`${page.hiddenClusters} ${page.hiddenClusters === 1 ? "cluster" : "clusters"} of environments where your roles do not read capacity ${page.hiddenClusters === 1 ? "is" : "are"} not shown.`}</Small>}
         <Small>{footOf(page)}</Small>
-        <Small>{`Committed is the hard requests of the ResourceQuotas that cmapi manages on the ${config.instance} instance, per namespace its smallest unscoped one, against the size × overcommit. Pods of other namespaces are not subtracted. Not measured until the capacity snapshots: ${page.notMeasured.join(", ")}.`}</Small>
+        <Small>{`Committed is the hard requests of the ResourceQuotas that cmapi manages on the ${config.instance} instance, per namespace its smallest unscoped one, against the size × overcommit, live from each cluster's watch. Pods of other namespaces are not subtracted. The worker stores a snapshot of each cluster every ${Math.round(page.snapshotIntervalSeconds / 60)} minutes; placement leaves out a cluster whose newest complete one is over ${Math.round(page.staleAfterSeconds / 60)} minutes old. Not measured: ${page.notMeasured.join(", ")}.`}</Small>
       </Panel>
     </Stack>
   );

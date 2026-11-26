@@ -99,7 +99,7 @@ class PlacementSettings:
 class Ask:
     """What one namespace needs (cores, bytes, pods) and where it may go."""
     environment: str
-    team: str
+    team: str | None                    # None on an instance whose metadata keys have no team label
     cpu: Decimal
     memory: Decimal
     pods: int

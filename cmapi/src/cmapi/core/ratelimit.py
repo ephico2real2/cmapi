@@ -1,5 +1,6 @@
 """Rate limits (docs/01, Operational safety): token buckets per caller and per team, separate buckets for writes, :place,
-:suggest and :export, and a cap on a team's active placements in an environment. 429 rate-limited with Retry-After.
+:suggest and :export. 429 rate-limited with Retry-After. The cap of 3 active placements per team and environment is counted
+in the database, where the placements are held (core/placement.py, ReservationRepo.active_placements, #21).
 In the memory of each replica, not shared: each API pod enforces the limits on the calls that reach it, so with N pods
 behind the front door a caller can reach up to N times a limit (docs/18, "Rate limits"; #689).
 
@@ -41,14 +42,12 @@ class Limit:
 DEFAULTS: dict[str, Limit] = {
     READ: Limit(120, 60),       # every call that is not one of the others
     WRITE: Limit(60, 30),       # POST, PUT, PATCH and DELETE, a dry run too: it runs the validator
-    PLACE: Limit(10, 5),        # POST /api/v1/capacity:place (not built yet)
+    PLACE: Limit(10, 5),        # POST /api/v1/capacity:place, its dry run too (#21)
     SUGGEST: Limit(240, 40),    # GET /api/v1/quotas:suggest, which the portal sends as a person types
     EXPORT: Limit(4, 2),        # GET /api/v1/quotas:export, every matching row
     TEAM: Limit(600, 200),      # each change request opened for one team, whoever sends it
 }
 
-# The active placements that a team may hold in one environment (docs/01). No route takes them yet: :place is not built.
-MAX_ACTIVE_PLACEMENTS = 3
 # The most buckets that one process keeps. Past it the least recently used bucket is dropped, as nginx's limit_req_zone
 # does when its zone is full ("the least recently used state is removed") and Envoy's local rate limit keeps its dynamic
 # descriptors in an LRU cache. A dropped bucket starts full again when its key returns, so a full table never refuses a
@@ -133,10 +132,8 @@ class RateLimiter:
     route's worker thread."""
     limits: dict[str, Limit] = field(default_factory=lambda: dict(DEFAULTS))
     clock: Callable[[], float] = time.monotonic
-    max_active_placements: int = MAX_ACTIVE_PLACEMENTS
     # Least recently used first: take moves a bucket to the end, and a new key past max_buckets drops the first.
     _buckets: OrderedDict[tuple[str, str], _Bucket] = field(default_factory=OrderedDict)
-    _placements: dict[tuple[str, str], set[str]] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
     max_buckets: int = MAX_BUCKETS
 
@@ -178,19 +175,3 @@ class RateLimiter:
             bucket = self._buckets.get((kind, key))
             if bucket is not None:
                 bucket.tokens = min(float(limit.burst), bucket.tokens + 1)
-
-    def start_placement(self, team: str, environment: str, placement_id: str) -> None:
-        with self._lock:
-            active = self._placements.setdefault((team, environment), set())
-            if placement_id not in active and len(active) >= self.max_active_placements:
-                raise Problem.too_many(f"{team} already holds {len(active)} active placements in {environment}",
-                                       retry_after=60)
-            active.add(placement_id)
-
-    def end_placement(self, team: str, environment: str, placement_id: str) -> None:
-        with self._lock:
-            active = self._placements.get((team, environment))
-            if active is not None:
-                active.discard(placement_id)
-                if not active:                    # the last one: keep no empty set for the team and environment
-                    del self._placements[(team, environment)]

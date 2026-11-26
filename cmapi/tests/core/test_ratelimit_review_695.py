@@ -1,4 +1,4 @@
-"""#695 review: the bound on the buckets, the token given back, a rate near 0 and the placements, with a clock the test
+"""#695 review: the bound on the buckets, the token given back, a rate near 0, with a clock the test
 moves. The routes' use of them is tests/service/test_rate_limits_review_695.py."""
 from __future__ import annotations
 
@@ -66,11 +66,3 @@ def test_a_rate_near_zero_waits_the_largest_setting_instead_of_raising():
     rl = RateLimiter(limits=limits, clock=lambda: 0.0)
     assert rl.take("export", "ola") is None
     assert rl.take("export", "ola").retry_after == LARGEST
-
-
-def test_finishing_the_last_placement_keeps_no_empty_set():
-    rl = RateLimiter()
-    rl.start_placement("payments", "dev", "p0")
-    rl.end_placement("payments", "dev", "p0")
-    rl.end_placement("billing", "dev", "p9")                    # never started: nothing to end, and nothing is made
-    assert rl._placements == {}

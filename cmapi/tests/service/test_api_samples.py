@@ -414,7 +414,7 @@ def test_each_operation_has_a_sample_from_a_run(world):
     dry = rec.call("capacity_place:dryRun", "POST", "/api/v1/capacity:place?dryRun=true", ola, json_body=ask)
     assert dry.status_code == 200 and dry.json()["ranked"], dry.text
     placed = rec.call("capacity_place", "POST", "/api/v1/capacity:place", ola, json_body={**ask, "team": "billing"})
-    assert placed.status_code == 200, placed.text
+    assert placed.status_code == 201, placed.text
     rec.call("capacity_place", "POST", "/api/v1/capacity:place", ola,
              json_body={**ask, "constraints": {"region": "eu-west"}})                                             # 422 no-placement
     other = {**NS, "namespace": "payments-placed", "placementId": placed.json()["placementId"]}

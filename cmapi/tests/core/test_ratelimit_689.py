@@ -87,16 +87,3 @@ def test_a_limit_that_is_not_valid_is_named(raw, message):
     limits, problems = parse_rate_limits(raw)
     assert any(message in p for p in problems), problems
     assert limits["read"] == DEFAULTS["read"]          # a bad value never becomes a limit
-
-
-def test_a_team_holds_at_most_three_placements_in_one_environment():
-    rl = RateLimiter()
-    for i in range(3):
-        rl.start_placement("payments", "dev", f"p{i}")
-    rl.start_placement("payments", "dev", "p0")         # the same placement again is not another
-    with pytest.raises(Problem) as e:
-        rl.start_placement("payments", "dev", "p3")
-    assert e.value.status == 429
-    rl.start_placement("payments", "rnd", "p3")          # another environment
-    rl.end_placement("payments", "dev", "p0")
-    rl.start_placement("payments", "dev", "p3")

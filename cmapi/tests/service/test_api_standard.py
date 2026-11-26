@@ -44,7 +44,7 @@ MEDIA_TYPES = ("application/json", "text/csv")
 SCALARS = ("string", "integer", "number", "boolean")
 # S1: a summary starts with what the caller does. A new kind of operation adds its verb here.
 VERBS = {"Approve", "Cancel", "Change", "Confirm", "Create", "Delete", "Export", "Extend", "Get", "Give", "List", "Pause",
-         "Probe", "Reject", "Remove", "Resume", "Retry", "Revert", "Search"}
+         "Place", "Probe", "Reject", "Remove", "Resume", "Retry", "Revert", "Run", "Search"}         # Place, Run: #21
 # S3: the operations that need a token and no permission (GET /me is how a caller finds out what it may do).
 TOKEN_ONLY = {("get", "/api/v1/me")}
 # S7: the reads that answer 304 to a matching If-None-Match (routers/me.py, plugins/capacity/router.py).
@@ -450,6 +450,7 @@ def test_the_namespace_fields_carry_the_rules_of_metadata_keys(cfg, spec):
 # folder-not-yaml (#680): the same read refuses a manifest of the folder that does not parse as YAML.
 # rate-limited (#689): docs/01's rate limits, on each operation that takes a token: the caller's write bucket, and the
 # team's bucket when the create opens a request.
+# placement-not-found, placement-mismatch (#21): the create's placementId (NamespaceCreate.placement_id).
 CREATE_ANSWERS = {
     "200": [], "202": [],
     "400": ["idempotency-key-required"],
@@ -463,7 +464,7 @@ CREATE_ANSWERS = {
     "422": ["cluster-not-writable", "environment-not-served", "plugin-disabled", "validation-failed", "policy-violation",
             "capacity-exceeded", "identity-incomplete", "unknown-user", "unknown-serviceaccount", "reserved-namespace",
             "invalid-namespace-name", "expiration-not-allowed", "expiration-in-past", "on-behalf-of-not-allowed",
-            "on-behalf-of-required"],
+            "on-behalf-of-required", "placement-not-found", "placement-mismatch"],
     "502": ["git-unavailable"],
     "503": ["cluster-unreachable", "validator-unavailable", "validator-busy", "idp-unavailable"],     # validator-busy: #708
 }

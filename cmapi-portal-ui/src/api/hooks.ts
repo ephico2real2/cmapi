@@ -51,6 +51,10 @@ export type CapacityPage = components["schemas"]["CapacityPage"];
 export type CapacityCluster = components["schemas"]["CapacityCluster"];
 export type CapacityGroup = components["schemas"]["CapacityGroup"];
 export type CapacityResource = components["schemas"]["CapacityResource"];
+export type PlacementRequest = components["schemas"]["PlacementRequest"];
+export type PlacementResult = components["schemas"]["PlacementResult"];
+export type PlacementRanked = components["schemas"]["PlacementRanked"];
+export type PlacementExcluded = components["schemas"]["PlacementExcluded"];
 
 /** What a section shows for one read. A 401 is not here: the client signs in again and the section never sees it. */
 export type Result<T> =
@@ -566,6 +570,8 @@ export function usePolicyRejections(params: RejectionsQuery): Result<RejectionPa
 
 /** How often the Capacity tab reads GET /api/v1/capacity again while it is open (the arbitration of #302: on focus, and 60 s). */
 export const CAPACITY_REFRESH_MS = 60_000;
+/** How long a Placement preview answer is reused for the same ask before it is ranked again. */
+export const PLACEMENT_FRESH_MS = 60_000;
 
 /**
  * GET /api/v1/capacity: each cluster's commitment and the groups (#302). The answer carries a strong ETag and
@@ -587,6 +593,49 @@ export function useCapacity(): Result<CapacityPage> & { reload: () => void } {
     refetchInterval: CAPACITY_REFRESH_MS
   });
   return { ...resultOf(query), reload: () => void query.refetch() };
+}
+
+/**
+ * POST /api/v1/capacity:place?dryRun=true: the New namespace tab's Placement preview (#303). It ranks the clusters and holds
+ * nothing. Each ask (environment, team, tier, region) is asked once a minute at most: the API's :place bucket allows 10 a
+ * minute per caller (core/ratelimit.py), so moving between tiers reuses each answer instead of spending it.
+ */
+export function usePlacementPreview(ask: PlacementRequest | null): (Result<PlacementResult> | { state: "idle" }) & { rank: (now: PlacementRequest) => Promise<PlacementResult> } {
+  const api = useApi();
+  const client = useQueryClient();
+  const options = (a: PlacementRequest | null) => ({
+    queryKey: ["placement", a],
+    staleTime: PLACEMENT_FRESH_MS,
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
+      const { data, error, response } = await api.POST("/api/v1/capacity:place", { params: { query: { dryRun: true } }, body: a!, signal });
+      if (!data) throw problemOf(response, error);
+      return data;
+    }
+  });
+  // The last ranking stays while a changed ask is ranked, so the planned cluster does not blink away.
+  const query = useQuery({ ...options(ask), enabled: ask !== null, placeholderData: keepPreviousData });
+  // The ranking of an ask now, from the cache when it is fresh: Check asks it, so a Check right after typing the team waits for
+  // its ranking instead of finding none.
+  const rank = (now: PlacementRequest) => client.fetchQuery(options(now));
+  return { ...(ask === null ? { state: "idle" as const } : resultOf(query)), rank };
+}
+
+/**
+ * POST /api/v1/capacity:place: holds the first cluster that still fits for 15 minutes and returns its `placementId`, which
+ * the create sends (docs/02, "Placement"). The preview is not ranked again at once: the hold is this form's own, and a ranking
+ * that counted it could move the first cluster away from the plan that Submit is sending.
+ */
+export function usePlace(): Outcome<PlacementResult> & { place: (ask: PlacementRequest) => Promise<PlacementResult> } {
+  const api = useApi();
+  const mutation = useMutation({
+    mutationFn: async (ask: PlacementRequest) => {
+      const { data, error, response } = await api.POST("/api/v1/capacity:place", { body: ask });
+      if (!data) throw problemOf(response, error);
+      return data;
+    }
+  });
+  const send = useOneAtATime(mutation.mutateAsync);
+  return { ...outcomeOf(mutation), place: (ask) => send(ask) };
 }
 
 /** GET /api/v1/expirations: one query for each page, with its filters and its cursor as the key. */

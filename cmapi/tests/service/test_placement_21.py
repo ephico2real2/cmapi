@@ -23,12 +23,12 @@ from sqlalchemy import text
 
 from cmapi.capacity.usage import PromUsage
 from cmapi.core.capacity import CapacitySettings
-from cmapi.core.db.repo import JobRepo, utcnow
+from cmapi.core.db.repo import JobRepo, RequestRepo, utcnow
 from cmapi.core.errors import Problem
 from cmapi.core.placement import PlacementSettings
 from cmapi.plugins.capacity import placement as placing
 from test_capacity_ledger_302 import node
-from test_capacity_reservations_62 import body, committed, holds
+from test_capacity_reservations_62 import body, committed, holds, who
 from test_flow import OLA, auth, run_jobs
 
 GiB = 2**30
@@ -44,8 +44,8 @@ def headers(keys, who=OLA, user="ola"):
 
 def place(world, tier="small", team="payments", *, dry=False, who=OLA, user="ola", **extra):
     client, ctx, git, kube, validator, keys = world
-    return client.post(PLACE + ("?dryRun=true" if dry else ""), json={"environment": "dev", "team": team, "tier": tier, **extra},
-                       headers=headers(keys, who, user))
+    ask = {"environment": "dev", "tier": tier, **({"team": team} if team is not None else {}), **extra}
+    return client.post(PLACE + ("?dryRun=true" if dry else ""), json=ask, headers=headers(keys, who, user))
 
 
 def snapshot(world) -> list[str]:
@@ -230,7 +230,7 @@ def test_placement_ranks_from_a_fresh_snapshot_and_holds_the_winner_for_15_minut
                           "zoneFailureHeadroomAfter": None, "usageP95": None}
     assert top["basis"] == "simulated" and 0 < top["score"] <= 100 and top["factors"]["usageHeadroom"] == 0.0
     r = place(world)
-    assert r.status_code == 200, r.text
+    assert r.status_code == 201, r.text
     res = r.json()
     assert res["placementId"].startswith("pl-") and res["clusterId"] == "CRC" and res["ranked"][0]["reserved"] is True
     [h] = holds(ctx)
@@ -278,7 +278,7 @@ def test_placement_counts_the_holds_of_requests_and_of_other_placements(world):
     nodes(kube)
     snapshot(world)
     committed(ctx, 104)
-    assert place(world, "medium").status_code == 200
+    assert place(world, "medium").status_code == 201
     second = place(world, "medium", dry=True).json()
     assert second["excluded"][0]["reason"] == "no-cpu-headroom" and "8 cores left" in second["excluded"][0]["detail"]
     r = client.post("/api/v1/clusters/CRC/namespaces", json=body("payments-c", "medium"), headers=headers(keys))
@@ -305,10 +305,23 @@ def test_a_team_holds_at_most_three_placements_in_an_environment(world):
     client, ctx, git, kube, validator, keys = world
     nodes(kube)
     snapshot(world)
-    assert [place(world).status_code for _ in range(3)] == [200, 200, 200]
+    assert [place(world).status_code for _ in range(3)] == [201, 201, 201]
     r = place(world)
     assert (r.status_code, r.json()["code"]) == (429, "rate-limited") and r.json()["retryAfter"] == 60, r.text
-    assert place(world, team="billing").status_code == 200, "another team is not limited by this one's"
+    assert place(world, team="billing").status_code == 201, "another team is not limited by this one's"
+
+
+def test_with_no_team_the_cap_of_three_placements_is_the_caller_s(world):
+    """An instance whose metadata keys have no team label places with no team (PlacementRequest.team left out): the hold has
+    none, and its caller's own placements count toward the 3."""
+    client, ctx, git, kube, validator, keys = world
+    nodes(kube)
+    snapshot(world)
+    assert [place(world, team=None).status_code for _ in range(3)] == [201, 201, 201]
+    assert {(h.team, h.placed_by) for h in holds(ctx)} == {(None, "ola")}
+    r = place(world, team=None)
+    assert (r.status_code, r.json()["code"]) == (429, "rate-limited") and "ola already holds 3" in r.json()["detail"], r.text
+    assert place(world, team=None, who=OPAL, user="opal").status_code == 201, "another caller's are not counted"
 
 
 def test_ranking_needs_capacity_read_and_the_hold_needs_namespaces_create(world):
@@ -355,10 +368,10 @@ def test_an_expired_placement_is_reclaimed_and_holds_nothing(world):
     nodes(kube)
     snapshot(world)
     committed(ctx, 104)
-    assert place(world, "medium").status_code == 200
+    assert place(world, "medium").status_code == 201
     with ctx.db.session() as s:
         s.execute(text("UPDATE capacity_reservations SET expires_at = now() - interval '1 second'"))
-    assert place(world, "medium").status_code == 200, "the lapsed hold no longer counts"
+    assert place(world, "medium").status_code == 201, "the lapsed hold no longer counts"
     released = [h for h in holds(ctx, active=False) if h.released_why == "expired"]
     assert len(released) == 1, "reclaimed under the cluster's lock"
 
@@ -382,6 +395,27 @@ def test_a_create_with_its_placement_turns_the_hold_into_the_request_s_own(world
     again = client.post("/api/v1/clusters/CRC/namespaces", json={**body("payments-b"), "placementId": pid},
                         headers=headers(keys))
     assert (again.status_code, again.json()["code"]) == (422, "placement-not-found"), "a placement serves one create"
+
+
+def test_a_placement_used_or_lapsed_between_the_plan_and_the_submit_records_nothing(world):
+    """The plan finds the placement; it lapses before the submit (the window of a concurrent create that claims it). The submit
+    is refused with placement-not-found and no request is recorded: a placement serves one create, and the check never leaves
+    out a hold that another request owns."""
+    client, ctx, git, kube, validator, keys = world
+    nodes(kube)
+    snapshot(world)
+    pid = place(world).json()["placementId"]
+    plan = ctx.pipeline.plan_namespace(who(), "CRC", {**body("payments-a"), "placementId": pid}, action="create")
+    assert plan.placement_id == pid
+    with ctx.db.session() as s:
+        s.execute(text("UPDATE capacity_reservations SET expires_at = now() - interval '1 second'"))
+    with pytest.raises(Problem) as e:
+        with ctx.db.session() as s:
+            ctx.pipeline.submit(who(), plan, RequestRepo(s), JobRepo(s), idempotency_key=None, body_fingerprint="x",
+                                justification=None)
+    assert (e.value.status, e.value.code) == (422, "placement-not-found")
+    with ctx.db.session() as s:
+        assert s.execute(text("SELECT count(*) FROM change_requests")).scalar() == 0
 
 
 @pytest.mark.parametrize("change, code", [

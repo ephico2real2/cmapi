@@ -232,6 +232,7 @@ class CapacityReservationRow(Base):
     placement_id: Mapped[str | None] = mapped_column(String(40))
     env: Mapped[str | None] = mapped_column(String(20))
     team: Mapped[str | None] = mapped_column(String(63))
+    placed_by: Mapped[str | None] = mapped_column(String(100))      # the caller of the placement
 
 
 class CapacitySnapshotRow(Base):

@@ -206,8 +206,9 @@ class SimulatedCapacity:
                 placement_id: str | None = None) -> None:
         """Take the hold of a recorded request, after `reserve_check` in the same transaction. The hold's amounts are rounded up
         to the columns' scale (millicores, bytes), never down; its targets down, so that the live quota reaches them. With
-        `placement_id`, the placement's hold becomes the request's (#21), or, when it lapsed since the plan, a new one is taken:
-        `reserve_check` already found room for it without the placement."""
+        `placement_id`, the placement's hold becomes the request's (#21). The plan and the submit are one call, so a placement
+        that another create claimed or that lapsed in between refuses this one with 422 placement-not-found, and the caller's
+        transaction, the request's row with it, is undone: a placement serves one create."""
         repo = ReservationRepo(session)
         repo.reclaim(cluster_id)
         now = utcnow()
@@ -217,9 +218,11 @@ class SimulatedCapacity:
             target_cpu=None if hold.target_cpu is None else _floor(hold.target_cpu, 3),
             target_memory=None if hold.target_memory is None else int(_floor(hold.target_memory, 0)),
             created_at=now, expires_at=now + term)
-        if placement_id is not None and repo.claim(placement_id, row):
-            return
-        repo.hold(row)
+        if placement_id is None:
+            repo.hold(row)
+        elif not repo.claim(placement_id, row):
+            raise Problem.unprocessable("placement-not-found", f"No active placement {placement_id}: another create used it, "
+                                                               "or it expired. Place again.")
 
     def confirm(self, session: Session, request_id: str, cluster_id: str, environment: str) -> CapacityResult | None:
         """The check again for a request that enters approved ("The count is met (auto or :approve) and capacity still

@@ -79,8 +79,9 @@ def test_crc_one_group_simulated_basis_with_the_nodes_allocatable_beside_it(worl
     client, ctx, git, kube, validator, keys = world
     load_crc(ctx, kube, CRC_QUOTAS + [quota("openshift-x", {"requests.cpu": "100"}, managed=False)])
     page = body(client, keys)
+    # Since #21 the snapshots are stored: each cluster's is its `snapshot`, none yet in this world.
     assert (page["source"], page["snapshotState"], page["groupBy"], page["hiddenClusters"]) == (
-        "live", "not-built", ["region", "environment"], 0)
+        "live", "stored", ["region", "environment"], 0)
     assert page["notMeasured"] == ["requested", "usedAvg", "usedPeak", "history"]
     assert page["targets"] == [{"env": e, "overcommit": {"cpu": 2.0, "memory": 1.25}, "overcommitDefault": False,
                                 "commitment": {"warn": 0.85, "critical": 0.95}} for e in ("dev", "rnd")]

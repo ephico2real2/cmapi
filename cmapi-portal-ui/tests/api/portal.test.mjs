@@ -40,7 +40,8 @@ async function fresh({ user = "requester", items = sixtyOne, mode = "ok", width 
   issuer.state.lifetime = 300;
   Object.assign(api.state, { mode, items, delayMs: 0, hold: null, seen: [], answers: [], lose: new Set(), keys: new Map(), created: 0, clusters, namespaces,
     tiers: SAMPLES.operations.tiers_tiers.response.body, plan: SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body, quotas, etags: new Map(), kpi,
-    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys, protection: new Map(), policies, rejections, capacity, notModified: 0, usage });
+    expirations, never, today: SAMPLES.operations.expiration_expirations.response.body.today, metadataKeys, protection: new Map(), policies, rejections, capacity, notModified: 0, usage,
+    placement: null, placements: new Map(), placed: 0 });
   issuer.state.seen.length = 0;
   expectedStatus = [];
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -633,7 +634,9 @@ try {
     await page.getByLabel("Justification").fill("Payments service dev namespace");
   };
   const posts = () => api.state.seen.filter((c) => c.method === "POST" && c.path === "/api/v1/clusters/CRC/namespaces");
-  const approvalCard = (page) => panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: "Preview" }) });
+  const approvalCard = (page) => panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: "Preview", exact: true }) });
+  const placementCard = (page) => panel(page).locator(".pf-v6-c-card").filter({ has: page.getByRole("heading", { name: "Placement preview" }) });
+  const holds = () => api.state.seen.filter((c) => c.method === "POST" && c.path === "/api/v1/capacity:place" && c.query.dryRun !== "true");
 
   await check("9 New namespace: the tiers and clusters of the API, the dry run's plan and approval, and a submit that opens the new request", async () => {
     const { context, page, errors } = await fresh();
@@ -645,10 +648,15 @@ try {
     assert.deepEqual((await panel(page).getByRole("group", { name: "Tier" }).getByRole("button").allInnerTexts()).map((t) => t.replace(/\s+/g, " ")),
       tiers.map((t) => `${t.name} ${t.quota["requests.cpu"]} cores · ${t.quota["requests.memory"]}`), "the tiers of GET /api/v1/tiers?environment=dev");
     assert.deepEqual(calls("/api/v1/tiers").map((c) => c.query), [{ environment: "dev" }]);
-    assert.equal(await page.getByLabel("Cluster").inputValue(), "CRC");
+    assert.equal(await page.getByLabel("Cluster").count(), 0, "the person does not pick the cluster: placement does (#303)");
     assert.match(await panel(page).innerText(), /prod → prod portal/, "the other instances' portals, from config.json");
     assert.match(await panel(page).innerText(), /Requested by ola \(ola@ephico2real\.com\), from your sign-in\./, "the requester comes from /me");
     await fillForm(page);
+    // The Placement preview ranks dev's clusters for the team and tier, holding nothing (#303).
+    await placementCard(page).getByText("Submitting reserves CRC for 15 minutes.", { exact: false }).waitFor();
+    assert.equal(await placementCard(page).getByRole("listitem").first().locator("b").first().innerText(), "CRC");
+    const ranking = calls("/api/v1/capacity:place").at(-1);
+    assert.deepEqual([ranking.query, ranking.body], [{ dryRun: "true" }, { environment: "dev", team: "payments", tier: "medium", constraints: {} }]);
     await waitValue(page.getByLabel("Namespace (required)"), "payments-dev");
     assert.equal(await page.getByLabel("Namespace (required)").inputValue(), "payments-dev", "no key makes an end of the name here: the suggestion, team and environment");
     assert.equal(await submitButton(page).getAttribute("aria-disabled"), "true", "Submit is off until a check passes (#479 P7)");
@@ -661,7 +669,7 @@ try {
     ]);
     const plan = SAMPLES.operations["namespaces_create_namespace:dryRun"].response.body;
     assert.match(await callout.innerText(), new RegExp(`2 approvals in cmapi from approver-platform\\. ${plan.approval.reasons.join("; ").replace(/[+()]/g, "\\$&")}\\. Self-approval is allowed in dev\\.`));
-    assert.match(await approvalCard(page).innerText(), /Cluster\s+CRC \(dev\)\s+Expires\s+never \(permanent\)\s+Quota\s+medium: 16 cores · 32Gi · 100 pods\s+Approval\s+dev-create · 2 of approver-platform\s+Lands in Git\s+clusters\/CRC\/namespaces\/payments-dev\//);
+    assert.match(await approvalCard(page).innerText(), /Cluster\s+CRC \(dev\), placed\s+Expires\s+never \(permanent\)\s+Quota\s+medium: 16 cores · 32Gi · 100 pods\s+Approval\s+dev-create · 2 of approver-platform\s+Lands in Git\s+clusters\/CRC\/namespaces\/payments-dev\//);
     assert.equal(await submitButton(page).getAttribute("aria-disabled"), null, "a passing check opens Submit");
     const dry = posts().filter((c) => c.query.dryRun === "true");
     assert.equal(dry.length, 1, "one dry run");
@@ -700,6 +708,11 @@ try {
     assert.match(sent[0].key, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, "a random UUID");
     assert.deepEqual(sent.map((c) => c.key), sent.map(() => sent[0].key), "one key for the form, sent again on each retry");
     assert.equal(api.state.created, 1, "the API made one request");
+    // One placement held for the form, before its first create, and the same placementId on each retry (#303).
+    assert.equal(holds().length, 1, "the hold is taken once and reused while it lasts");
+    assert.match(sent[0].body.placementId, /^pl-\d{8}-\d{8}$/);
+    assert.deepEqual(sent.map((c) => c.body.placementId), sent.map(() => sent[0].body.placementId));
+    assert.ok(api.state.seen.indexOf(holds()[0]) < api.state.seen.indexOf(sent[0]), "placed, then created");
     const made = api.state.items[0];
     assert.equal(new URL(page.url()).hash, `#workflow?request=${made.requestId}`, "the Workflow tab follows the new request");
     assert.match(await banner(page).innerText(), new RegExp(`${made.requestId} is at step 1 of 1: plan_auto_approved\\.`));
@@ -715,9 +728,61 @@ try {
     assert.notEqual(last.key, sent[0].key, "a new form, a new key");
     assert.equal(last.body.namespace, "ledger-dev");
     assert.equal(api.state.created, 2);
+    assert.equal(holds().length, 2, "a new form holds its own placement");
+    assert.notEqual(last.body.placementId, sent[0].body.placementId);
     // The lost answer is the one console error that this check causes on purpose.
     assert.deepEqual(errors.filter((e) => !/net::ERR_EMPTY_RESPONSE \(http:\/\/127\.0\.0\.1:\d+\/api\/v1\/clusters\/CRC\/namespaces\)$/.test(e)), []);
     await context.close();
+  });
+
+  await check("303 placement: the Placement preview's ranked and excluded clusters, a refused hold, and the New namespace and Capacity tabs at 390, 820 and 1440 px with no sideways scroll", async () => {
+    // Two dev clusters ranked and one excluded, as the mockup's isNew block shows them; the figures are the API's shape.
+    const recordedRank = SAMPLES.operations["capacity_place:dryRun"].response.body.ranked[0];
+    const second = { ...recordedRank, clusterId: "OCP_GF15", score: recordedRank.score - 12, reserved: false,
+      cpu: { ...recordedRank.cpu, quotaHeadroomBefore: 52000, quotaHeadroomAfter: 36000, usageP95: 0.62 },
+      memory: { ...recordedRank.memory, quotaHeadroomBefore: 140 * 2 ** 30, quotaHeadroomAfter: 108 * 2 ** 30, usageP95: 0.41 } };
+    const ranking = () => ({ ranked: [recordedRank, second],
+      excluded: [{ clusterId: "OCP_GF7", reason: "stale-data", detail: "newest complete snapshot 95 min old, limit 60 min" }] });
+    const shots = process.env.UPDATE_COMMITTED_SCREENSHOTS === "1" ? join(app, "screenshots", "303-placement") : join(out, "303-placement");
+    mkdirSync(shots, { recursive: true });
+    for (const width of [1440, 820, 390]) {
+      const { context, page, errors } = await fresh({ width });
+      try {
+        api.state.placement = ranking;
+        await newTab(page);
+        await fillForm(page);
+        await placementCard(page).getByText("Submitting reserves CRC for 15 minutes.", { exact: false }).waitFor();
+        const rows = await placementCard(page).getByRole("listitem").allInnerTexts();
+        assert.deepEqual(rows.map((t) => t.split("\n")[0].trim()), ["1", "2", "—"], "rank, rank, excluded");
+        assert.match(rows[0].replace(/\s+/g, " "), /^1 CRC cpu [\d.]+ → [\d.]+ cores · memory [\d.]+ → [\d.]+ Gi · p95 (not measured|[\d.]+) \d+$/);
+        assert.match(rows[1].replace(/\s+/g, " "), /^2 OCP_GF15 cpu 52 → 36 cores · memory 140 → 108 Gi · p95 0\.62 \d+$/);
+        assert.match(rows[2].replace(/\s+/g, " "), /^— OCP_GF7 newest complete snapshot 95 min old, limit 60 min stale-data$/);
+        await checkButton(page).click();
+        await panel(page).locator(".pf-v6-c-alert").filter({ hasText: PASSED }).waitFor();
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `New namespace: no sideways scroll at ${width} px`);
+        await page.screenshot({ path: join(shots, `new-namespace-${width}.png`), fullPage: true });
+        await open(page, "#capacity");
+        await page.locator("table[aria-label=Clusters] tbody tr").first().waitFor();
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `Capacity: no sideways scroll at ${width} px`);
+        await page.screenshot({ path: join(shots, `capacity-${width}.png`), fullPage: true });
+        assert.deepEqual(errors, []);
+      } finally { await context.close(); }
+    }
+    // A hold that the API refuses (no cluster can be held, or the team's three placements are held): nothing is created.
+    const { context, page, errors } = await fresh();
+    try {
+      expectedStatus = [429];
+      await newTab(page);
+      await fillForm(page);
+      await placementCard(page).getByText("Submitting reserves CRC for 15 minutes.", { exact: false }).waitFor();
+      await checkButton(page).click();
+      await panel(page).locator(".pf-v6-c-alert").filter({ hasText: PASSED }).waitFor();
+      api.state.answers.push({ route: "POST /api/v1/capacity:place", status: 429, body: { type: "https://cmapi.ephico2real.com/problems/rate-limited", title: "rate-limited", status: 429, code: "rate-limited", detail: "payments already holds 3 active placements in dev", retryAfter: 60 } });
+      await submitButton(page).click();
+      await panel(page).locator(".pf-v6-c-alert").filter({ hasText: "Not placed" }).getByText("rate-limited: payments already holds 3 active placements in dev").waitFor();
+      assert.equal(posts().filter((c) => c.query.dryRun !== "true").length, 0, "no create without a hold");
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
   });
 
   await check("9 New namespace refusals and states: a refused dry run, the browser's own checks, a 403, a 5xx and loading", async () => {
@@ -846,7 +911,10 @@ try {
     await submitButton(page).click();
     await banner(page).waitFor();
     assert.equal(writes().length, 1);
-    assert.deepEqual(writes()[0].body, dryRuns().at(-1).body, "the submitted body is the dry run's");
+    // The checked body, and the placementId of the hold that Submit took for its cluster (#303).
+    const { placementId, ...checkedBody } = writes()[0].body;
+    assert.deepEqual(checkedBody, dryRuns().at(-1).body, "the submitted body is the dry run's");
+    assert.match(placementId, /^pl-\d{8}-\d{8}$/, "with its placement");
     assert.deepEqual(errors, []);
     await context.close();
   });
@@ -1175,13 +1243,10 @@ try {
       assert.equal((await page.locator("#ns-name-full").innerText()).trim(), "Will be created as abc-payments-rnd (16 of 63 characters)");
       assert.equal(await name.inputValue(), "payments", "the person types the middle only");
       assert.match(await name.getAttribute("aria-describedby"), /ns-name-start.*ns-name-end/, "a screen reader hears both ends");
-      // The suffix follows the cluster's environment at once (plan R6), and so do the keys that cmapi fills in.
-      assert.equal(await page.getByLabel("Cluster").inputValue(), "KIND_CMAPI_TEST");
+      // The suffix follows the environment at once (plan R6), and so do the keys that cmapi fills in.
       await panel(page).getByRole("group", { name: "Environment" }).getByRole("button", { name: "dev" }).click();
       await end.filter({ hasText: "-dev" }).waitFor();
       assert.equal((await end.innerText()).trim(), "-dev");
-      await waitValue(page.getByLabel("Cluster"), "CRC");
-      assert.equal(await page.getByLabel("Cluster").inputValue(), "CRC");
       await waitValue(section(page, "Labels").getByLabel("Name", { exact: true }), "abc-payments-dev");
       assert.equal(await section(page, "Labels").getByLabel("Name", { exact: true }).inputValue(), "abc-payments-dev");
       await waitValue(section(page, "Labels").getByLabel("App environment", { exact: true }), "dev");
@@ -1289,7 +1354,9 @@ try {
         'company.net/lob: "amgsst"', 'company.net/cl: "1"', 'cmapi.net/team: "abc"   # from Mnemonic', 'cmapi.net/team-dl: "payments-team@company.net"']) {
         assert.ok(yaml.includes(line), `the preview has ${line}`);
       }
-      assert.match(await approvalCard(page).innerText(), /Namespace\s+abc-payments-dev\s+Cluster\s+CRC \(dev\)\s+Expires\s+never \(permanent\)/);
+      // The cluster is placement's (#303): it shows once the team, tier and region are ranked.
+      await approvalCard(page).getByText("CRC (dev), placed").waitFor();
+      assert.match(await approvalCard(page).innerText(), /Namespace\s+abc-payments-dev\s+Cluster\s+CRC \(dev\), placed\s+Expires\s+never \(permanent\)/);
       assert.equal(await submitButton(page).getAttribute("aria-disabled"), "true", "not checked: Submit is off");
       await checkButton(page).click();
       await passed(page).waitFor();
@@ -1305,7 +1372,10 @@ try {
       await submitButton(page).click();
       await banner(page).waitFor();
       const write = posts().filter((c) => c.query.dryRun !== "true").at(-1);
-      assert.deepEqual(write.body, dryRuns().at(-1).body, "Submit sends the checked body");
+      // The checked body, with the placementId of the hold that Submit took (#303).
+      const { placementId, ...checked } = write.body;
+      assert.deepEqual(checked, dryRuns().at(-1).body, "Submit sends the checked body");
+      assert.match(placementId, /^pl-\d{8}-\d{8}$/);
     });
   });
 
@@ -1568,8 +1638,6 @@ try {
       await panel(page).getByRole("group", { name: "Environment" }).getByRole("button", { name: "dev" }).click();
       await waitValue(page.getByLabel("Region"), "any");
       assert.equal(await page.getByLabel("Region").inputValue(), "any");
-      await waitValue(page.getByLabel("Cluster"), "CRC");
-      assert.equal(await page.getByLabel("Cluster").inputValue(), "CRC");
       assert.equal(await checkButton(page).isEnabled(), true);
       assert.deepEqual(errors, []);
     } finally { await context.close(); }
@@ -1916,7 +1984,11 @@ try {
       // sizes, the plan's checks and approval, the key and words of each field from the answer, the name's length, the date's
       // rules from x-cmapi-expiration, the additional keys' rules from the answer, and the plan's own namespace.yaml.
       const ADDED = ["Environment", "Region", "Any region", "From clusters.yaml metadata.", "This is the Non-production portal: it serves rnd, dev only.",
-        "The dev clusters that take writes, from GET /api/v1/clusters. Placement is not on the API yet (#303).",
+        // The Placement preview (#303): the mockup's isNew card in Main.dc.html, from the API's ranking.
+        "Placement preview", "Enter the team to rank this environment's clusters for it.", "Ranking the clusters…", ", placed",
+        "No cluster is ranked for this request yet. The Placement preview says why.",
+        /^Ranked from this instance's stored snapshots, committed quota and active reservations; no Thanos call\. Submitting reserves [A-Z][A-Z0-9_]+ for 15 minutes\.$/,
+        /^snapshot \d\d:\d\d · \d+ min old$/, /^cpu [\d.]+ → [\d.]+ cores · memory [\d.]+ → [\d.]+ Gi · p95 (not measured|[\d.]+)$/, /^\d+$/,
         "cmapi writes the tier's ResourceQuota and LimitRange (config/tiers.yaml) into the namespace folder.", "Leave empty for a team-wide namespace: abc-dev.", "Expires (optional)", "Open the calendar",
         "Requested by ola (ola@ephico2real.com), from your sign-in.", "Filled from Mnemonic; you can change it.", "Environment served", "Capacity", "fits on fresh data", "Expiry",
         "Approval", "Lands in Git", "Nothing is written yet.", "Check (dry run) asks cmapi which approval applies.", "Self-approval is allowed in dev.", "Key", "Value",
@@ -4317,6 +4389,8 @@ try {
   const CAP_WORD = { ok: (c) => (c.status === "ok" ? "ok" : `${c.status} · ${c.boundBy}`), loading: () => "loading", "not-imported": () => "not imported", unreachable: (c) => `unreachable since ${hhmm(c.asOf)}`,
     forbidden: () => "no access to the quotas", "no-size": () => "no size", stale: (c) => `stale since ${hhmm(c.asOf)}` };
   const CAP_TONE = { ok: "success", warn: "warning", critical: "danger", over: "danger" };
+  // The Snapshot column (#21): the newest complete snapshot's minute, or why placement cannot use it.
+  const SNAP_WORD = { ok: (s) => hhmm(s.takenAt), stale: (s) => `stale ${hhmm(s.takenAt)}`, incomplete: () => "incomplete", none: () => "none yet" };
   const sizeOf = (r, f, basis) => {
     const simulated = f.simulated === null ? null : `simulated ${amountOf(r, f.simulated)}`, nodes = f.allocatable === null ? null : `nodes ${amountOf(r, f.allocatable)}`;
     return (basis === "allocatable" ? [nodes, simulated] : [simulated, nodes]).filter(Boolean).join(" · ");
@@ -4324,7 +4398,7 @@ try {
   const meterOf = (r, f, basis) => [f.commitment === null ? "—" : pctOf(f.commitment), sizeOf(r, f, basis)].filter(Boolean).join(" ");
   const expectedCap = (c) => [c.clusterId, c.env, c.zones?.length ? c.zones.join(" · ") : "—", meterOf("cpu", c.cpu, c.basis), meterOf("memory", c.memory, c.basis),
     c.cpu.headroom === null && c.memory.headroom === null ? "—" : `${roomOf("cpu", c.cpu.headroom)} · ${roomOf("memory", c.memory.headroom)}`,
-    boundOf(c.boundBy), c.asOf ? hhmm(c.asOf) : "—", CAP_WORD[c.state](c)];
+    boundOf(c.boundBy), SNAP_WORD[c.snapshot.state](c.snapshot), CAP_WORD[c.state](c)];
   const LEFT_OUT = { stale: (e) => `stale since ${hhmm(e.asOf)}`, forbidden: () => "no access to the quotas", "no-size": () => "no size", "not-imported": () => "not imported" };
   const expectedGroup = (g) => {
     const coverage = Number.isInteger(g.coverage * 10) ? g.coverage.toFixed(1) : g.coverage.toFixed(2);
@@ -4473,9 +4547,10 @@ try {
     assert.deepEqual(await panel(page).getByRole("heading", { level: 1 }).allInnerTexts(), ["Capacity"], "the mockup's heading");
     const shown = await shownText(page);
     await context.close();
-    // The mockup's lede and pill speak of snapshots, which are not built (#21): the page says where its figures come from.
+    // The mockup's lede says the figures are the snapshots'; the commitment is live from the watch, and the snapshot is beside
+    // it (#21). Its pill's sample time is the API's newest snapshot.
     const MOCKUP_ONLY = ["Cluster capacity from the latest complete snapshots, grouped by clusters.yaml metadata. CPU and memory are measured, committed and checked separately; a cluster is as full as its fuller resource. Headroom never crosses cluster boundaries, so the largest single placement is shown beside the total.",
-      "snapshot 17:00 · every 30 min", "Snapshot"];
+      "snapshot 17:00 · every 30 min"];
     const fromMockup = mockupBlock("isCapacity", "isKpis").filter((t) => !MOCKUP_ONLY.includes(t));
     const data = fleet.clusters.flatMap((c) => [c.clusterId, c.env, ...(c.zones ?? []), c.stateDetail && `${c.clusterId}: ${c.stateDetail}.`, c.nodesDetail && `${c.clusterId} nodes: ${c.nodesDetail}.`])
       .concat(fleet.groups.map((g) => g.name)).filter(Boolean);
@@ -4484,13 +4559,14 @@ try {
       /^(ok|warn|critical|over)( · \d+ of \d+)?$/, /^quota headroom \d+(\.\d)? (cores?|Gi)$/, /^on [A-Z0-9_]+$/, /^(cpu|memory) \d+% vs (cpu|memory) \d+% committed$/,
       /^\d+ of \d+ clusters?( · .*)?$/, /^[a-z]+ overcommit: CPU [\d.]+, memory [\d.]+\.( Sized by .*)?$/, capFoot(fleet)];
     // The portal's own words, each in MOCKUP-CONTRACT.md.
-    const ADDED = ["As of", "live from the watch · no snapshots yet",
-      "Cluster capacity from each cluster's watch of its quotas and nodes, grouped by clusters.yaml metadata. CPU and memory are committed and checked separately; a cluster is as full as its fuller resource. Headroom never crosses cluster boundaries, so the largest single placement is shown beside the total.",
+    const ADDED = [/^(snapshot \d{2}:\d{2}|no snapshot yet) · every \d+ min$/, "none yet", "incomplete", /^stale \d{2}:\d{2}$/,
+      /^[A-Z][A-Z0-9_]+ snapshot: .+; placement leaves it out\.$/,
+      "Cluster capacity from each cluster's watch of its quotas and nodes and its latest complete snapshot, grouped by clusters.yaml metadata. CPU and memory are committed and checked separately; a cluster is as full as its fuller resource. Headroom never crosses cluster boundaries, so the largest single placement is shown beside the total.",
       /^(simulated|nodes) \d+(\.\d)? (cores?|Gi)( · (simulated|nodes) \d+(\.\d)? (cores?|Gi))?$/, /^over by \d+(\.\d)? (cores?|Gi) · over by \d+(\.\d)? (cores?|Gi)$/, /^(over by )?\d+(\.\d)? cores? · (over by )?\d+(\.\d)? Gi$/,
       /^over · (cpu|memory|both)$/, /^(stale|unreachable) since \d{2}:\d{2}$/, "loading", "not imported", "no access to the quotas", "no size", "quota headroom —", /^cpu on [A-Z0-9_]+ · memory on [A-Z0-9_]+$/,
       "OCP_GF14: writes are off in clusters.yaml, so it takes no placement and is left out of its group.",
       /^\d+ clusters? of environments where your roles do not read capacity (is|are) not shown\.$/,
-      /^Committed is the hard requests of the ResourceQuotas that cmapi manages on the nonprod instance, per namespace its smallest unscoped one, against the size × overcommit\. Pods of other namespaces are not subtracted\. Not measured until the capacity snapshots: requested, usedAvg, usedPeak, history\.$/,
+      /^Committed is the hard requests of the ResourceQuotas that cmapi manages on the nonprod instance, per namespace its smallest unscoped one, against the size × overcommit, live from each cluster's watch\. Pods of other namespaces are not subtracted\. The worker stores a snapshot of each cluster every \d+ minutes; placement leaves out a cluster whose newest complete one is over \d+ minutes old\. Not measured: [a-zA-Z, ]+\.$/,
       "Clusters", "nonprod", "dev", "rnd", "us-central", "eu-west",
       // Each meter's accessible name: the demo tab's, from the mockup's column headings.
       /^[A-Z][A-Z0-9_]+ (CPU|memory) commitment$/];

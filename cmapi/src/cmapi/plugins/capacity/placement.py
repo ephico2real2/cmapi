@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from typing import Any
 
 from prometheus_client import Counter
@@ -48,14 +48,14 @@ def ask_of(c: AppContext, body: dict[str, Any]) -> Ask:
     env = body["environment"]
     hard = binding_hard(c.cfg.tiers.quota_for(env, body.get("tier") or "small", body.get("quota")))
     cons = body.get("constraints") or {}
-    return Ask(env, body["team"], qty(hard.get("requests.cpu", "0")), qty(hard.get("requests.memory", "0")),
+    return Ask(env, body.get("team"), qty(hard.get("requests.cpu", "0")), qty(hard.get("requests.memory", "0")),
                int(qty(hard.get("pods", "0"))), cons.get("region"), tuple(cons.get("zones") or ()),
                dict(((cons.get("clusterSelector") or {}).get("matchLabels")) or {}))
 
 
-def _team_namespaces(st: ClusterState, team: str) -> int:
+def _team_namespaces(st: ClusterState, team: str | None) -> int:
     cache = st.cache
-    if cache is None:
+    if cache is None or team is None:
         return 0
     return sum(1 for ns in cache.all("Namespace")
                if ((ns.get("metadata") or {}).get("labels") or {}).get("cmapi.net/team") == team)
@@ -110,7 +110,7 @@ def candidates(c: AppContext, session: Session, ask: Ask, now: datetime) -> list
     return [candidate(c, st, session, ask, latest[st.cluster_id], p95.get(st.cluster_id)) for st in states]
 
 
-def place(c: AppContext, ask: Ask, settings: PlacementSettings, *, reserve: bool
+def place(c: AppContext, ask: Ask, settings: PlacementSettings, *, reserve: bool, placed_by: str = ""
           ) -> tuple[list[Ranked], list[Excluded], CapacityReservationRow | None, datetime]:
     """Rank, and with `reserve` hold the first cluster that still passes under its lock. Raises 429 rate-limited when the team
     already holds MAX_ACTIVE_PLACEMENTS in the environment, and 422 no-placement when no cluster can be held."""
@@ -128,12 +128,13 @@ def place(c: AppContext, ask: Ask, settings: PlacementSettings, *, reserve: bool
     for r in ranked:
         with c.db.session() as s:
             repo = ReservationRepo(s)
-            repo.lock_team_placements(ask.team, ask.environment)
-            active = repo.active_placements(ask.team, ask.environment)
+            repo.lock_team_placements(ask.team, ask.environment, placed_by)
+            active = repo.active_placements(ask.team, ask.environment, placed_by)
             if active >= MAX_ACTIVE_PLACEMENTS:
                 PLACEMENTS.labels("rate-limited").inc()
-                raise Problem.too_many(f"{ask.team} already holds {active} active placements in {ask.environment}; a "
-                                       "placement lasts until a create claims it or it lapses", retry_after=60)
+                raise Problem.too_many(f"{ask.team or placed_by} already holds {active} active placements in "
+                                       f"{ask.environment}; a placement lasts until a create claims it or it lapses",
+                                       retry_after=60)
             repo.lock_cluster(r.cluster_id)
             repo.reclaim(r.cluster_id)
             st = c.registry.get(r.cluster_id)
@@ -145,7 +146,9 @@ def place(c: AppContext, ask: Ask, settings: PlacementSettings, *, reserve: bool
             when = utcnow()
             row = repo.hold(CapacityReservationRow(
                 placement_id=f"pl-{when:%Y%m%d}-{secrets.token_hex(4)}", cluster_id=r.cluster_id, env=ask.environment,
-                team=ask.team, cpu=ask.cpu.quantize(Decimal("0.001")), memory=int(ask.memory), pods=ask.pods,
+                # Rounded up to the columns' scale, as a request's hold (capacity_backend.reserve): never less than was checked.
+                team=ask.team, placed_by=placed_by[:100], cpu=ask.cpu.quantize(Decimal("0.001"), rounding=ROUND_CEILING),
+                memory=int(ask.memory.to_integral_value(rounding=ROUND_CEILING)), pods=ask.pods,
                 created_at=when, expires_at=when + timedelta(seconds=settings.reservation_seconds)))
             s.expunge(row)
         r.reserved = True
