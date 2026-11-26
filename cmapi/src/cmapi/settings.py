@@ -69,6 +69,16 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = 2.0
     worker_id: str = Field(default="", description="Pod name; defaults to the hostname")
 
+    # The validator's slots (#708; core/validate, ValidatorSlots): one kyverno apply peaked at 151 to 158 MiB RSS and used
+    # one CPU for 2.6 to 5.4 s, so one slot fits the API's 512Mi and 1 CPU beside the app (docs/18, "The validator's slots").
+    # The upper bounds are AnyIO's 40 worker threads and nginx's 60 s proxy_read_timeout, the front door's.
+    validator_concurrency: int = Field(default=1, ge=1, le=40, description="Plans that run kubeconform and kyverno at once "
+                                       "in this process")
+    validator_queue: int = Field(default=4, ge=0, le=40, description="Plans that wait for a slot; another is refused at once "
+                                 "with 503 validator-busy")
+    validator_wait_seconds: float = Field(default=15.0, ge=0, le=60, allow_inf_nan=False, description="How long a plan "
+                                          "waits for a slot before 503 validator-busy; Retry-After is this, rounded up")
+
     @property
     def metadata_keys_path(self) -> Path:
         return self.metadata_keys or self.config_dir / "metadata-keys.yaml"

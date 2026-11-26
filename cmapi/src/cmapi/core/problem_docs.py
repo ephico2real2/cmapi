@@ -104,6 +104,9 @@ ACTIONS: dict[str, str] = {
     "capacity-service-unavailable": "Try again later. The capacity service did not answer.",
     "git-unavailable": "Try again later. The Git host did not answer.",
     "validator-unavailable": "Try again later. The manifest validator did not start.",
+    "validator-busy": "Wait for the number of seconds in `Retry-After`, then send the request again. Nothing was done: every "
+                      "slot of this pod for the policy check (kubeconform and Kyverno) was taken. The platform team can raise "
+                      "the slots with the pod's memory (docs/18, \"The validator's slots\").",
     "docs-assets-missing": "Use the image of cmapi, which holds the bundles, or run `cmapi-tools docs-assets` once in a source checkout.",
 }
 

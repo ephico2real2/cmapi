@@ -34,9 +34,10 @@ from cmapi.core.identity.claims import EXPIRY_NAME, Identity, label_value_of
 from cmapi.core.identity.directory import CachedDirectory
 from cmapi.core.lifecycle import Event as E
 from cmapi.core.naming import check_name, check_not_unmanaged, is_label
-from cmapi.core.observability import AUTO_APPROVALS, AUTO_FALLBACKS, CHANGE_REQUESTS, ENV_NOT_SERVED, PLUGIN_DISABLED, VALIDATION_FAILURES
+from cmapi.core.observability import (AUTO_APPROVALS, AUTO_FALLBACKS, CHANGE_REQUESTS, ENV_NOT_SERVED, PLUGIN_DISABLED,
+                                      VALIDATION_FAILURES, VALIDATOR_BUSY, log)
 from cmapi.core.ports import CapacityBackend, CapacityResult, Finding, Validator
-from cmapi.core.validate import ValidatorUnavailable
+from cmapi.core.validate import ValidatorBusy, ValidatorUnavailable
 from cmapi.core.registry import ClusterRegistry
 from cmapi.core.render.manifests import (DELETED, ManifestRenderer, NamespaceSpec, diff_files, folder, objects_of, own_quota,
                                          plan_hash, quotas_kept)
@@ -387,6 +388,15 @@ class Pipeline:
                 raise Problem.unprocessable("no-change", "The request changes nothing")
             try:
                 findings = self.validator.validate(files, cluster_id, env, previous=prev_files)
+            except ValidatorBusy as exc:
+                if refusal is not None:
+                    raise  # the metadata 422 found above is the answer (the handler below), so no 503 is counted
+                # Every slot of this pod is taken (#708): the plan is not refused, it is to be sent again.
+                VALIDATOR_BUSY.labels(exc.reason).inc()
+                log.warning("validator_busy", reason=exc.reason, retry_after=exc.retry_after, cluster_id=cluster_id,
+                            namespace=ns)
+                raise Problem(503, "validator-busy", ValidatorBusy.public_detail,
+                              extra={"retryAfter": exc.retry_after}) from exc
             except ValidatorUnavailable as exc:
                 raise Problem(503, "validator-unavailable", str(exc)[:300], extra={"retryAfter": 60}) from exc
         except Exception as exc:

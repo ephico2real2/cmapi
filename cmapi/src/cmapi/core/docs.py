@@ -107,6 +107,7 @@ PROBLEMS: dict[str, tuple[int, str]] = {
     "capacity-service-unavailable": (503, "cmapi-capacity cannot be reached"),
     "git-unavailable": (502, "The Git host answered 500"),
     "validator-unavailable": (503, "kubeconform did not start"),
+    "validator-busy": (503, "The policy check is temporarily busy. Try again after the delay in Retry-After."),
     "internal-error": (500, "The service failed. Give the X-Request-Id of this answer to the platform team"),
     "docs-assets-missing": (503, "The Swagger UI bundle is not in /opt/app-root/static"),
 }
@@ -191,6 +192,7 @@ PROBLEM_EXTRAS: dict[str, dict[str, Any]] = {
     "idp-unavailable": {"retryAfter": 30},
     "cluster-unreachable": {"retryAfter": 30},
     "validator-unavailable": {"retryAfter": 60},
+    "validator-busy": {"retryAfter": 15},     # CMAPI_VALIDATOR_WAIT_SECONDS, here its default (core/validate, #708)
     "rate-limited": {"retryAfter": 2},
     "folder-holds-submodule": {"paths": ["clusters/CRC/namespaces/payments-dev/vendor"]},
     # instance.yaml http.maxRequestBodyBytes, here its default (core/http_settings.py, #683)

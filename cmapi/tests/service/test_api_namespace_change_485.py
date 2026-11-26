@@ -26,7 +26,7 @@ CHANGE_CODES = {
     "400": {"idempotency-key-required"}, "401": {"unauthenticated"}, "403": {"forbidden", "environment-forbidden"},
     "404": {"cluster-not-found", "object-not-found"}, "409": {"change-pending", "idempotency-replay"},
     "412": {"precondition-failed"}, "428": {"precondition-required"}, "502": {"git-unavailable"},
-    "503": {"cluster-unreachable", "validator-unavailable"},
+    "503": {"cluster-unreachable", "validator-unavailable", "validator-busy"},     # validator-busy: #708
 }
 # Recorded from a run (tests/service/test_api_samples.py), not synthesized, for the answers a client meets on a change.
 RECORDED = {"400": "idempotency-key-required", "401": "unauthenticated", "403": "forbidden", "404": "object-not-found",

@@ -53,6 +53,12 @@ spec:
               value: api
             - name: CMAPI_LOG_LEVEL
               value: {{ .Values.api.logLevel | quote }}
+            - name: CMAPI_VALIDATOR_CONCURRENCY
+              value: {{ .Values.api.validator.concurrency | quote }}
+            - name: CMAPI_VALIDATOR_QUEUE
+              value: {{ .Values.api.validator.queue | quote }}
+            - name: CMAPI_VALIDATOR_WAIT_SECONDS
+              value: {{ .Values.api.validator.waitSeconds | quote }}
             - name: CMAPI_BIND_PORT
               value: "8080"
             - name: CMAPI_METRICS_PORT
