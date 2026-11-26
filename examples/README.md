@@ -31,7 +31,7 @@ came from. Where two documents show the same file, the copy in
 | `cluster-configs/clusters/OCP_GF15/namespaces/payments-dev/` | One namespace as cmapi writes it: namespace.yaml, resourcequota.yaml, limitrange.yaml, serviceaccounts.yaml, rolebindings.yaml, token-issuer-rolebinding.yaml (plain manifests, dev, optional expiry) | New |
 | `cluster-configs/clusters/OCP_GF15/argocd/root-application.yaml` | The cluster's root Application: syncs every namespace folder with directory recurse | New; set repoURL and the AppProject |
 | `cluster-configs/clusters/OCP_GF1/bootstrap/notifications.yaml` | Argo CD Notifications with a per-cluster token and cluster ID | Updated |
-| `baseline/cmapi-reader-rbac.yaml` | The read-only cmapi-reader ServiceAccount the baseline process applies to every cluster, now with Kyverno policy reports | Updated |
+| `baseline/cmapi-reader-rbac.yaml` | The read-only cmapi-reader ServiceAccount the baseline process applies to every OpenShift cluster, with Kyverno policy reports and the reader's own Thanos grants in `openshift-monitoring` (#724) | Updated |
 | `hub/cmapi-imports-secret.yaml` | The import contract: one Secret per cluster in cmapi-imports | Verbatim |
 | `hub/cmapi-adoption-configmap.yaml` | Adoption selector and exclusions | Verbatim |
 | `observability/servicemonitor.yaml` | One per component on the metrics port | Verbatim |
@@ -48,3 +48,6 @@ Notes:
   Who asked comes from the token; employee ID and names stay in cmapi's database, never in these files.
 - Approvals are recorded in cmapi (`POST /requests/{id}:approve`); nothing in these files relies on
   Git reviews or approval labels.
+
+When upgrading a managed OpenShift cluster, apply the reader baseline first. Then retire the old cmapi-owned grant with
+`oc delete clusterrolebinding cmapi-reader-monitoring --ignore-not-found` on that cluster. Plain apply retains omitted objects.
