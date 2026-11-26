@@ -200,9 +200,12 @@ class PromUsage:
     configured = True
 
     def __init__(self, metrics: MetricsSource, clock: Callable[[], float] = time.time, cache_seconds: float = CACHE_SECONDS,
-                 sweep_metrics: MetricsSource | None = None):
-        """`sweep_metrics`: the source the sweep reads with, when its timeout differs from a plan's (thanos.py)."""
+                 sweep_metrics: MetricsSource | None = None, check_cached: Callable[[str], None] | None = None):
+        """`sweep_metrics`: the source the sweep reads with, when its timeout differs from a plan's (thanos.py).
+        `check_cached`: raises MetricsUnavailable when a cluster's cached answers must not be served
+        (ThanosQuerier.check_grants, #724)."""
         self.metrics, self.clock, self.cache_seconds = metrics, clock, cache_seconds
+        self.check_cached = check_cached
         self.sweep_metrics = sweep_metrics or metrics
         self._cache: dict[tuple[str, str], tuple[float, NamespaceUsage]] = {}
         self._lock = threading.Lock()
@@ -232,10 +235,12 @@ class PromUsage:
         started = time.monotonic()
         with self._lock:
             hit = self._cache.get((cluster_id, namespace))
-        if hit and started - hit[0] < self.cache_seconds:
-            return hit[1]
         at = datetime.fromtimestamp(self.clock(), timezone.utc)
         try:
+            if hit and started - hit[0] < self.cache_seconds:
+                if self.check_cached is not None:
+                    self.check_cached(cluster_id)
+                return hit[1]
             answers = self._run(self.metrics, cluster_id, usage_queries(selector(namespace)), at, LIVE_TIMEOUT_SECONDS)
         except MetricsUnavailable as exc:
             # Not cached: the next plan asks again. docs/02: "the plan carries usage: unavailable".
@@ -318,7 +323,8 @@ def usage_source(raw: Mapping[str, Any] | None, registry: Any) -> UsageSource:
     if usage_source_name(raw) == "none":
         return NoUsage()
     from cmapi.capacity.thanos import ThanosQuerier       # the adapter, imported only when an instance names it
-    return PromUsage(ThanosQuerier(registry), sweep_metrics=ThanosQuerier(registry, SWEEP_TIMEOUT_SECONDS))
+    live = ThanosQuerier(registry)
+    return PromUsage(live, sweep_metrics=ThanosQuerier(registry, SWEEP_TIMEOUT_SECONDS), check_cached=live.check_grants)
 
 
 UNITS = {"cpu": "millicores", "memory": "bytes"}

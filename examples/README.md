@@ -48,3 +48,6 @@ Notes:
   Who asked comes from the token; employee ID and names stay in cmapi's database, never in these files.
 - Approvals are recorded in cmapi (`POST /requests/{id}:approve`); nothing in these files relies on
   Git reviews or approval labels.
+
+When upgrading a managed OpenShift cluster, apply the reader baseline first. Then retire the old cmapi-owned grant with
+`oc delete clusterrolebinding cmapi-reader-monitoring --ignore-not-found` on that cluster. Plain apply retains omitted objects.

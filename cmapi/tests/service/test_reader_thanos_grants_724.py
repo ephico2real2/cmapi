@@ -216,9 +216,11 @@ def test_a_cluster_without_openshift_monitoring_says_so():
     cluster = Cluster(monitoring=False)
     reg = registry_for(cluster)
     reg.refresh()
-    assert reg.get("ONE").usage_findings == [
-        "usage: the cluster serves no monitoring.coreos.com/v1, so it has no OpenShift monitoring"]
+    st = reg.get("ONE")
+    assert st.usage_findings == ["usage: the cluster serves no monitoring.coreos.com/v1, so it has no OpenShift monitoring"]
     assert cluster.reviews == []
+    # No grant fixes it, so the fix does not ask for one.
+    assert st.view()["findingDetails"][0]["fix"].startswith("No grant can fix this")
 
 
 def test_with_a_thanos_url_the_route_is_not_reviewed():
@@ -279,7 +281,7 @@ def test_the_usage_of_a_cluster_with_a_finding_is_unavailable_with_its_reason():
     client = SimpleNamespace(monitoring_get=lambda *a: asked.append(a), get=lambda *a: asked.append(a))
     finding = "usage: missing grant in openshift-monitoring: get on prometheuses/api k8s (...)"
     st = SimpleNamespace(client=client, status="connected", policy=None, usage_findings=[finding])
-    querier = thanos.ThanosQuerier(SimpleNamespace(get=lambda cid: st))
+    querier = thanos.ThanosQuerier(SimpleNamespace(snapshot=lambda cid: st))
     with pytest.raises(usage.MetricsUnavailable, match="missing grant in openshift-monitoring"):
         querier.query("ONE", "vector(1)")
     got = usage.PromUsage(querier).namespace("ONE", "payments-dev")
@@ -322,3 +324,148 @@ def test_the_instance_asks_for_the_grants_when_it_reads_usage(test_config, tmp_p
     with pytest.raises(Built):
         context_mod.build_context(s, start_registry=False, import_source=Source([]))
     assert seen["usage_grants"] is asked
+
+
+@pytest.mark.parametrize("mode", ["evaluation", "http", "timeout", "malformed"])
+def test_inconclusive_review_preserves_reads_and_recovers(mode):
+    healthy = Cluster()
+    transient = True
+
+    def answer(request):
+        if transient and request.url.path == LSAR:
+            if mode == "evaluation":
+                return httpx.Response(201, json={"status": {"allowed": False, "evaluationError": "authorizer timeout"}})
+            if mode == "timeout":
+                raise httpx.ReadTimeout("authorizer timeout")
+            if mode == "malformed":
+                return httpx.Response(201, json={"status": {}})
+            return httpx.Response(503)
+        return healthy(request)
+
+    reg = registry_for(answer)
+    reg.refresh()
+    row = reg.get("ONE").view()
+    assert row["status"] == "connected"
+    assert reg.cache("ONE") is not None and reg.writable("ONE").policy.writes
+    detail, = row["findingDetails"]
+    assert "could not be checked" in detail["finding"]
+    assert "probe" in detail["fix"] and "Apply" not in detail["fix"]
+    transient = False
+    assert reg.probe("ONE")["findings"] == []
+
+
+def test_explicit_allow_survives_an_unrelated_evaluation_error():
+    def answer(request):
+        if request.url.path == LSAR:
+            return httpx.Response(201, json={"status": {"allowed": True, "evaluationError": "another Role is missing"}})
+        return Cluster()(request)
+
+    reg = registry_for(answer)
+    reg.refresh()
+    assert (reg.get("ONE").status, reg.get("ONE").findings) == ("connected", [])
+
+
+def test_probe_finding_takes_precedence_over_cached_usage(monkeypatch):
+    cluster = Cluster()
+    reg = registry_for(cluster, thanos_url="https://thanos.example.test")
+    reg.refresh()
+    live = usage.usage_source({"usage": {"source": "thanos"}}, reg)
+    calls = []
+
+    def metrics(*args):
+        calls.append(args)
+        return httpx.Response(200, json={"status": "success", "data": {"resultType": "vector", "result": []}})
+
+    monkeypatch.setattr(reg.get("ONE").client, "monitoring_get", metrics)
+    assert live.namespace("ONE", "payments-dev").state == "insufficient-data"
+    assert calls
+    calls.clear()
+    cluster.held.remove("query")
+    row = reg.probe("ONE")
+    answer = live.namespace("ONE", "payments-dev")
+    assert answer.state == "unavailable" and row["findings"][0] in answer.reason
+    assert calls == []
+
+
+def test_new_client_is_private_until_its_grants_are_checked():
+    observed = []
+    cluster = Cluster(held=("check",))
+
+    def observe(request):
+        if request.url.path == LSAR:
+            observed.append(reg.snapshot("ONE").client)
+        return cluster(request)
+
+    reg = registry_for(observe)
+    starting = []
+
+    def start_nodes(st, client):
+        starting.append(reg.snapshot("ONE"))
+        return None
+
+    reg.nodes_factory = start_nodes
+    reg.refresh()
+    assert observed == [None, None]
+    assert len(starting) == 1 and starting[0].usage_findings
+    st = reg.snapshot("ONE")
+    assert st.client is not None and st.usage_findings
+
+
+def test_a_cached_answer_is_hidden_by_a_finding_and_not_by_a_dropped_client():
+    """The cache guard checks the grants alone (#724). A cluster whose client dropped keeps its cached answer for its 10
+    minutes, as before #724; a usage finding hides it."""
+    st = SimpleNamespace(client=object(), status="connected", policy=None, usage_findings=[])
+    querier = thanos.ThanosQuerier(SimpleNamespace(snapshot=lambda cid: st))
+    reader = usage.PromUsage(SimpleNamespace(query=lambda *args: []), check_cached=querier.check_grants)
+    cached = reader.namespace("ONE", "payments-dev")
+    st.client, st.status = None, "unreachable"
+    assert reader.namespace("ONE", "payments-dev") is cached
+    st.usage_findings = ["usage: missing grant in openshift-monitoring: get on prometheuses/api k8s (...)"]
+    hidden = reader.namespace("ONE", "payments-dev")
+    assert hidden.state == "unavailable" and st.usage_findings[0] in hidden.reason
+
+
+def test_a_namespace_is_created_and_its_quota_changed_without_the_grants(test_config, fresh_db, keys, monkeypatch, tmp_path):
+    """The whole write path on PostgreSQL, with usage.source thanos and neither grant (#724). docs/02: "Namespace creation and
+    placement never call Thanos", and the cluster stays connected: the create is auto-approved and synced with no monitoring
+    call. A quota change then carries usage unavailable with the finding as the reason, and the platform approval
+    ("If Thanos cannot answer, the plan carries usage: unavailable and the change needs a platform approval")."""
+    import shutil
+
+    from conftest import FakeKube, build_world
+    from test_flow import NS, OLA, auth, run_jobs
+
+    config = tmp_path / "config"
+    shutil.copytree(test_config, config)
+    with (config / "capacity.yaml").open("a") as f:
+        f.write("usage: {source: thanos}\n")
+    served, monitoring = FakeKube.served, []
+    monkeypatch.setattr(FakeKube, "served", lambda self, gv: gv == "monitoring.coreos.com/v1" or served(self, gv))
+    monkeypatch.setattr(FakeKube, "access_review", lambda self, *args: False)
+    monkeypatch.setattr(FakeKube, "monitoring_get", lambda self, *args: monitoring.append(args))
+    monkeypatch.setattr(FakeKube, "get", lambda self, path: monitoring.append(path))
+    with build_world(config, keys, monkeypatch) as (api, ctx, git, kube, *_):
+        st = ctx.registry.get("CRC")
+        assert st.status == "connected" and len(st.usage_findings) == 2
+        h = auth(keys, "ola", **OLA)
+        r = api.post("/api/v1/clusters/CRC/namespaces", json=NS, headers=h)
+        assert r.status_code == 202, r.text
+        assert r.json()["status"] == "approved"
+        run_jobs(ctx)
+        assert api.get(f"/api/v1/requests/{r.json()['requestId']}", headers=h).json()["status"] == "synced"
+        assert "Namespace//payments-dev" in kube.applied
+        assert monitoring == []
+        ns = api.get("/api/v1/clusters/CRC/namespaces/payments-dev", headers=h)
+        assert ns.status_code == 200, ns.text
+        etag = {"If-Match": ns.json()["etag"]}
+        plan = api.patch("/api/v1/clusters/CRC/namespaces/payments-dev?dryRun=true", json={"tier": "medium"},
+                         headers={**auth(keys, "ola", **OLA), **etag})
+        assert plan.status_code == 200, plan.text
+        assert plan.json()["usage"]["state"] == "unavailable" and st.usage_findings[0] in plan.json()["usage"]["reason"]
+        change = api.patch("/api/v1/clusters/CRC/namespaces/payments-dev", json={"tier": "medium"},
+                           headers={**auth(keys, "ola", **OLA), **etag})
+        assert change.status_code == 202, change.text
+        assert change.json()["status"] == "pending_approval"
+        slots = change.json()["approval"]["slots"]
+        assert {"group": "approver-platform", "count": 1, "reason": "Live usage unavailable"} in slots
+        assert monitoring == []

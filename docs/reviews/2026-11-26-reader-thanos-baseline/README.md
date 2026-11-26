@@ -72,9 +72,11 @@ Groups: spec.Groups, ...}` (`release-1.31` `fa33e07f6a06`, identical in `openshi
 > scoped resource makes it much easier to grant namespace scoped policy that includes permissions checking.
 
 `pkg/registry/authorization/localsubjectaccessreview/rest.go` refuses a review whose namespace is not the request's, so the Role
-`cmapi-reader-grant-check` reviews `openshift-monitoring` alone. It can tell whether any user may do something there; the baseline's
-reader already reads every Role and RoleBinding cluster-wide, so that discloses nothing new on a baseline cluster. CRC's reader does
-not read RBAC, and this is the one new view it gets.
+`cmapi-reader-grant-check` reviews `openshift-monitoring` alone. The holder can ask for an authorization decision and its
+reason for any supplied user, groups and resource action in that namespace. Even a reader with access to RBAC objects can
+learn decisions made by other authorizers. CRC's reader also gains this visibility. An allow establishes effective access
+with the supplied groups. A binding to all service accounts can also produce that answer. The manifests establish which
+grants cmapi installs.
 
 So, with `usage.source: thanos`, check 6 also: reads discovery of `monitoring.coreos.com/v1` (no OpenShift monitoring: one
 finding); then reviews `get` on Route `thanos-querier` (not with a `thanosUrl`) and `get` on `prometheuses/api` `k8s`, both in
@@ -85,8 +87,9 @@ other failure of the review is a finding too: a grant that is unknown is not tak
 
 **Not a refusal.** docs/01's check 6 says "reach Thanos. A 403 names the missing grant", and docs/02's usage design is that a
 plan without usage "carries usage: unavailable", never a refused cluster. So the cluster stays `connected`, every read works, the
-finding is on `GET /api/v1/clusters` with the fix "Apply the reader's openshift-monitoring grants of
-examples/baseline/cmapi-reader-rbac.yaml on the cluster", and its usage is `unavailable` with the finding as the reason. The shipped
+finding appears on `GET /api/v1/clusters`, and usage is `unavailable` even with a warm plan cache. Missing grants point to
+the baseline. An inconclusive review (an error, or an `evaluationError` without an allow) points to the API server and its
+authorizers, and to the next check or `:probe`. A cluster without OpenShift monitoring is told that no grant fixes it. The shipped
 approval rule adds the platform approver on `usage == "unavailable"`, as for any Thanos failure.
 
 ## kind
@@ -111,3 +114,29 @@ change its plans already had usage `unavailable` (the Route could not be read); 
 | `deploy/tests/crc-scripts-test.sh`: the proof stops without the review grant, with a usage finding on CRC, and with CRC not connected | n/a | each stops, with its own message |
 
 Before: the new file on #726's head (`7aa2c553`), with the constants it imports from `core/registry.py` stubbed so that each test runs: 18 failed, 1 passed (kind's). After: 19 passed. Both runs are in the pull request.
+
+## Review and the coordinator's rulings (2026-11-26)
+
+**Reviewers:** reviewer 1 is Codex gpt-6.2-astra xhigh (`review/reviewer-1-codex.md`). Reviewer 2 is Opus 5.5 high, on PostgreSQL (`review/reviewer-2-opus.md`). Both read the pinned release-4.18 and newer sources, and agree on the Role, the Route and kube-rbac-proxy's check.
+
+| Finding | Reviewer 1 | Reviewer 2 | Ruling |
+|---|---|---|---|
+| A warm usage cache served while a finding stands | High | Medium: the cached figures were read while the grants held, and the 300 s relist already allows a 5-minute window | **Fixed**, as reviewer 2 narrowed it: `ThanosQuerier.check_grants` refuses only on a usage finding, so a dropped cluster still serves its cache as before |
+| A new client published before its grants are reviewed | High | Medium: the window is one discovery call and two reviews | **Fixed**: the client and its check's findings are published together, under the registry's lock |
+| The old `cmapi-reader-monitoring` ClusterRoleBinding kept on upgrade | Medium | Medium: cmapi shipped that exact object (base baseline) | **Fixed**: `baseline-crc.sh` deletes it by name after the apply, with `--ignore-not-found`. CRC does not hold it (`oc get`, NotFound, 2026-11-26) |
+| An `evaluationError` reported as a missing grant | Medium | Medium: a missing Role shows in `reason`, so a real missing grant is still reported as missing | **Fixed**: inconclusive, retried at the next check |
+| Reviewer 2: kind was told to apply grants it cannot have | | Low, introduced by this PR | **Fixed**: "No grant can fix this" |
+
+**Backlog** (predates this PR, from reviewer 2):
+- `crc-rollback.sh` never deletes `cmapi-reader-monitoring`;
+- `KubeClient.served` treats any non-404 answer below 400 as served;
+- every usage reason starts "Thanos did not answer:", even when nothing was asked.
+
+**Runs** (reviewer 2; final patch on a fresh copy of head, on PostgreSQL):
+- 14 service files: 367 passed;
+- the new tests against head: 11 failed, 19 passed;
+- `tests/core`: 843 passed;
+- `crc-scripts-test.sh`: 287 ok;
+- render: 96 ok.
+
+A real namespace create with `usage.source: thanos` and both grants missing is auto-approved, reaches `synced`, and makes no Thanos call. docs/02 line 834 now states the cache rule and the two other fixes.

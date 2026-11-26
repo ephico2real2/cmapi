@@ -70,6 +70,8 @@ GRANT_CHECK = "create localsubjectaccessreviews (Role and RoleBinding cmapi-read
 # ClusterRoleBinding of cluster-monitoring-view) is not cmapi's and must not hide a missing one of its own (#724).
 READER_GROUPS = ["system:serviceaccounts", "system:serviceaccounts:cmapi-system"]
 USAGE_FINDING = "usage: "                        # the start of every finding of the usage grants
+USAGE_UNCHECKED = USAGE_FINDING + "the reader's grants could not be checked: "
+USAGE_NO_MONITORING = USAGE_FINDING + "the cluster serves no monitoring.coreos.com/v1, so it has no OpenShift monitoring"
 USAGE_FIX = ("Apply the reader's openshift-monitoring grants of examples/baseline/cmapi-reader-rbac.yaml on the cluster; until "
              "then its usage is unavailable.")
 HEADER_TOKEN = re.compile(r"[\x21-\x7e]+")      # visible ASCII: what a bearer token in an Authorization header may hold
@@ -137,6 +139,11 @@ class ClusterState:
 
     def _fix(self, finding: str) -> str:
         if finding.startswith(USAGE_FINDING):
+            if finding == USAGE_NO_MONITORING:
+                return "No grant can fix this: the cluster has no OpenShift monitoring, so its usage stays unavailable."
+            if finding.startswith(USAGE_UNCHECKED) and GRANT_CHECK not in finding:
+                # The API server or one of its authorizers failed, which no grant fixes (#724): the next check asks again.
+                return "Check the cluster's API server and its authorizers; the next import check, or :probe, asks again."
             return USAGE_FIX
         if self.status == "invalid-secret":
             if finding.startswith("duplicate cluster ID"):
@@ -492,6 +499,7 @@ class ClusterRegistry:
             status, found, version = self._probe(client, trust)
             if status != "connected":
                 return self._set(st, status, found, version, secret, trust, probed=True)
+            usage = self._usage_grants(client, st.policy) if self.usage_grants else []
             # Anything the client verifies with is in the fingerprint (G6 of #434): a rotated caData, a new server name, a
             # change of mode or a bundle that changed gives the caches the new client, not only a new token or URL.
             if st.client is None or self._fingerprints.get(cluster_id) != fp:
@@ -501,6 +509,9 @@ class ClusterRegistry:
                 with self._lock:
                     # Together, under the lock `quota_watch` reads them under: a read never pairs one cache with another's ledger.
                     st.client, st.ledger, st.cache = client, ledger, cache
+                    # Readers can query this client while its watches start. Publish its own decision with it.
+                    forms = _diagnostic_forms(secret)
+                    st.usage_findings = [redact(f, forms) for f in usage]
                 st.reports = self.reports_factory(st, client) if self.reports_factory else None
                 st.nodes = self.nodes_factory(st, client) if self.nodes_factory else None
                 if self.start_caches:
@@ -511,7 +522,6 @@ class ClusterRegistry:
                         st.nodes.start()
                 self._fingerprints[cluster_id] = fp
                 adopted = True
-            usage = self._usage_grants(client, st.policy) if self.usage_grants else []
             # Cache setup can still fail after the probe. Publish only the completed check.
             return self._set(st, "connected", usage, version, secret, trust, probed=True, usage=usage)
         except Exception as exc:                           # the remote check ran, even if cache setup then failed
@@ -571,22 +581,25 @@ class ClusterRegistry:
         included. The Route is read only without a clusters.yaml thanosUrl (capacity/thanos.py). A cluster that serves no
         monitoring.coreos.com/v1 has no OpenShift monitoring, and one finding says so. A check that cannot be asked is a
         finding too: an unknown grant is not taken as held."""
-        unchecked = f"{USAGE_FINDING}the reader's grants could not be checked: "
         try:
             if not client.served("monitoring.coreos.com/v1"):
-                return [f"{USAGE_FINDING}the cluster serves no monitoring.coreos.com/v1, so it has no OpenShift monitoring"]
+                return [USAGE_NO_MONITORING]
         except (KubeError, ClusterUnreachable, BadResponse) as exc:
-            return [unchecked + str(exc)[:200]]
+            return [USAGE_UNCHECKED + str(exc)[:200]]
         reads = [QUERY_READ] if policy and policy.thanos_url else [ROUTE_READ, QUERY_READ]
         missing: list[str] = []
         try:
             for attributes, grant in reads:
-                if not client.access_review(MONITORING_NAMESPACE, READER_IDENTITY, READER_GROUPS, attributes):
+                allowed = client.access_review(MONITORING_NAMESPACE, READER_IDENTITY, READER_GROUPS, attributes)
+                if allowed is None:          # the authorizer failed to decide: not a missing grant
+                    return [USAGE_UNCHECKED + "the API server reported an authorization evaluation error"]
+                if not allowed:
                     missing.append(f"{USAGE_FINDING}missing grant in {MONITORING_NAMESPACE}: {grant}")
         except KubeError as exc:
-            return [unchecked + (f"missing grant in {MONITORING_NAMESPACE}: {GRANT_CHECK}" if exc.status == 403 else str(exc)[:200])]
+            cause = f"missing grant in {MONITORING_NAMESPACE}: {GRANT_CHECK}" if exc.status == 403 else str(exc)[:200]
+            return [USAGE_UNCHECKED + cause]
         except (ClusterUnreachable, BadResponse) as exc:
-            return [unchecked + str(exc)[:200]]
+            return [USAGE_UNCHECKED + str(exc)[:200]]
         return missing
 
     def _set(self, st: ClusterState, status: str, findings: list[str], version: str | None,

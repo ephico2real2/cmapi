@@ -132,7 +132,7 @@ def _querier(answer):
     client._monitoring = httpx.Client(transport=httpx.MockTransport(answer))
     st = SimpleNamespace(client=client, status="connected", policy=SimpleNamespace(thanos_url="https://thanos.example.test"),
                          usage_findings=[])
-    return thanos.ThanosQuerier(SimpleNamespace(get=lambda cid: st)), client
+    return thanos.ThanosQuerier(SimpleNamespace(snapshot=lambda cid: st)), client
 
 
 def test_the_querier_error_is_kept_and_the_token_taken_out():

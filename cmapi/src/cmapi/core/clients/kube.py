@@ -270,14 +270,17 @@ class KubeClient:
             return self._text(self._object(r, path), r, path, "status", "userInfo", "username")
         raise self._error(r.status_code, "whoami", r.text)
 
-    def access_review(self, namespace: str, user: str, groups: list[str], attributes: Mapping[str, str]) -> bool:
+    def access_review(self, namespace: str, user: str, groups: list[str], attributes: Mapping[str, str]) -> bool | None:
         """Whether `user` with exactly `groups` may do `attributes` in `namespace`, by a LocalSubjectAccessReview (#724).
 
         The API server judges the spec's user and groups as written (kubernetes pkg/registry/authorization/util/helpers.go,
         AuthorizationAttributesFrom: `Groups: spec.Groups`), so a group the caller leaves out, system:authenticated, grants
         nothing here. The namespaced kind needs only `create localsubjectaccessreviews` in that namespace (its API type:
         "Having a namespace scoped resource makes it much easier to grant namespace scoped policy that includes permissions
-        checking"). A refusal is KubeError, an answer without a boolean `status.allowed` BadResponse."""
+        checking"). None when the answer is no with an `evaluationError`: an authorizer failed to decide ("EvaluationError is
+        an indication that some error occurred during the authorization check", authorization/v1 types.go), so the grant
+        is unknown, not missing; a yes stands. A refusal is KubeError, an answer without a boolean `status.allowed`
+        BadResponse."""
         path = f"/apis/authorization.k8s.io/v1/namespaces/{namespace}/localsubjectaccessreviews"
         r = self._request("POST", path, json={"apiVersion": "authorization.k8s.io/v1", "kind": "LocalSubjectAccessReview",
                                               "metadata": {"namespace": namespace},
@@ -289,6 +292,8 @@ class KubeClient:
         allowed = status.get("allowed") if isinstance(status, Mapping) else None
         if not isinstance(allowed, bool):
             raise BadResponse(path, r.status_code, "no boolean status.allowed")
+        if not allowed and status.get("evaluationError"):
+            return None
         return allowed
 
     def served(self, group_version: str) -> bool:

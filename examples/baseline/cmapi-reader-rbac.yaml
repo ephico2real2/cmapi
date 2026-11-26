@@ -1,5 +1,7 @@
 # Source: docs/02-technical-design-v2.md
 # Applied to every cluster by the cluster-baseline process, not by cmapi
+# Upgrade an existing managed cluster: after applying this file, retire the old cmapi-owned binding with
+# oc delete clusterrolebinding cmapi-reader-monitoring --ignore-not-found
 apiVersion: v1
 kind: Namespace
 metadata: {name: cmapi-system}
