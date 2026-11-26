@@ -1,7 +1,7 @@
 # cmapi build tracker
 
 What is done, what is in progress, what remains, and which cluster proved each thing. The next-step instructions are in
-[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-24 (see "Current"); first written on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
+[`HANDOVER-AND-RESUME.md`](HANDOVER-AND-RESUME.md). Last updated 2026-11-26 (see "Current"); first written on the night of 2026-11-06 by the coordinator, from `git`, `gh` and the proofs' logs, when the owner stopped all work to resume later.
 
 **2026-11-15, 05:00Z.** `main` is at `08f7fe5`. The PRs merged since, the CRC state and the next steps are in the handover's section "State on 2026-11-15". In short:
 
@@ -19,7 +19,62 @@ What is done, what is in progress, what remains, and which cluster proved each t
 Mac, **CRC** is OpenShift Local. "None" means it has not run anywhere. A kind pass never counts as a CRC pass.
 
 
-## Current: 2026-11-25, 00:55Z
+## Current: 2026-11-26, 22:30Z
+
+`main` is `64e342c` (PR #735). CRC runs `4db5c48` (run 44, every check passed). OpenShift cluster and user-workload monitoring are on again (the owner, 2026-11-26), and inkcast is scaled down, with a restore script. Run 45 is next: it deploys main with `usage.source: thanos` and is the first live proof of #726 and #734.
+
+**Stories.** Closed since the last update: #13, #14, #17 and #20, each with its proof in the closing comment. Built and merged, not closed yet:
+- **#21:** reservations (#725, criterion 3). Snapshots and placement (criteria 1, 2 and 4) are in PR #738.
+- **#26:** adoption, criterion 1 (#733), plus #735.
+- **#22:** live usage and its verdicts (#707), and the reader's Thanos grants (#726, #734).
+
+Each closes after its CRC proof and the owner's approval.
+
+**Merged since 2026-11-25, 00:55Z.** Every PR was reviewed as `fix-defect` and `adversarial-review` say: Codex as reviewer 1, and an Opus reviewer 2 on PostgreSQL for authorization, write paths and migrations.
+
+| Area | Issue | State | Proof |
+|---|---|---|---|
+| `/static` ignores Range | #649 | Merged #665 | CI |
+| Image builds pull verified base images | #663 | Merged #666 | CI |
+| Images run as an arbitrary UID in group 0 | #650 | Merged #667 | CI |
+| Process: triage by severity, reviews by risk, stories first | | Merged #670, #672, #673 | |
+| `environment-not-served` names the serving instance | #671 | Merged #674 | CI |
+| A surrogate code point is refused, naming each place | #353 | Merged #681 | CI |
+| One reader for folder files; keep the quotas and LimitRanges cmapi does not own | #250, #680, #685 | Merged #682 | CI |
+| Request body limit 413, and a 422 for a malformed body | #683, #693 | Merged #691 | CI; CRC run 44 |
+| Rate limits on every route that takes a token (429) | #689, #694 | Merged #695 | CI; CRC run 44 |
+| A submit holds one pooled connection at a time | #696 | Merged #700 | CI; CRC run 44 (the burst of run 43) |
+| The daily `expire_check` | #263, #321, #701 | Merged #699 | CI; CRC run 44 |
+| Live 14-day usage, the verdicts and the Quotas tab's Verdict column; **migration 0010** | #310, #712 | Merged #707 | CI; CRC run 44 with `usage.source: none` |
+| Bounded Kyverno runs, 503 `validator-busy` | #708 | Merged #709 | CI; CRC run 44, a burst of 12 dry runs |
+| A change is sized from the quota Git holds | #710, #715 | Merged #714 | CI |
+| A revert is sized and approved like any quota change | #716 | Merged #718 | CI |
+| The revert's inverse policy, and a removed exposure bound | #719, #720 | Merged #722 | CI |
+| CRC reads usage from Thanos, with the reader's least grant | (#22) | Merged #726 | CI. CRC: run 45 |
+| OpenShift 4.18 and later, audited from the docs and `release-4.18` sources (5.0 read in #734's review) | #727 | Merged #729 | CI; docs/13 mutation test |
+| Capacity reservations: holds counted, the double count of a namespace's own hold fixed; **migration 0011** | #62 | Merged #725 | CI; the portal suite caught the double count |
+| The reader's own Thanos grants on every cluster, and the import check of them | #724 | Merged #734 | CI; 367 service tests. CRC: run 45 |
+| Adoption of an existing namespace through GitOps (#26 criterion 1) | #248, #731 | Merged #733 | CI; 252 service and 877 core tests. kind run of an apply-mode adoption: next |
+| A request adds a missing derived or prefix key with its exact value | #732 | Merged #735 | CI |
+
+**In flight.**
+
+| Item | Issue | State |
+|---|---|---|
+| Capacity snapshots and safe placement, **migration 0012** | #21, #303 | PR #738: two reviewers ruled, main merged in, CI running |
+| docs/21: how cmapi reads Thanos, with every permission of the reader account and a figure | (#22) | PR #740: its citations need relocation after #738. Page: https://claude.ai/artifact/NJeNjAMqos6nGVgMFkBhpd |
+| Self-service adoption: supply the missing metadata at adoption, and add it later from the same screen | #739 | Being built. The owner's decision, 2026-11-26, is on #26 |
+
+**Backlog, batched:** #736 (adoption follow-ups B-1 to B-10) and #737 (placement follow-ups B1 to B7). The earlier list is in the handover.
+
+**Questions for the owner:**
+- Who may use a placement: the team, as the design says, or only its maker (#737 B1)?
+- Is a required key held as `""` missing (#736 B-10)?
+- Does undoing a delete always need a person?
+- A real write to prove #25's notices.
+- #728: re-check capacity at delivery.
+
+## Previous: 2026-11-25, 00:55Z
 
 `main` is `39dd4a8` (PR #658). There are no open PRs. CRC runs `aceaded` (run 38), and run 39 is next. No core story is closed. The story audit's verdicts are in the handover's 2026-11-25 section.
 

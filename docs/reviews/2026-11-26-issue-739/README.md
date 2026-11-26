@@ -36,8 +36,9 @@ decision left room, and why.
 ## Found on the way
 
 - `tests/service/test_add_missing_key_732.py` imports `approve_both` from `test_adoption_26.py`, which `feat/26-adoption` renamed
-  to `approve_all` in its review fixes (b173497f). Merged together, the file fails at import. Fixed here; PR #735 needs the same
-  line when it takes `feat/26-adoption`.
+  to `approve_all` in its review fixes (b173497f). Merged together, the file fails at import. PR #735 merged first with its own
+  fix (140c6801: an approval loop that approves as many times as the plan asks), and the merge of `main` into this branch keeps
+  #735's version of the file.
 - docs/14 counted 0 routes for `adoption:write` and listed adoption among the routes not built, while PR #733 had built three
   under it. Corrected here with the move to `namespaces:write`.
 

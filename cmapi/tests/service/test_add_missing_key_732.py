@@ -15,8 +15,8 @@ import pytest
 import yaml
 
 from conftest import EXAMPLES, build_world
-from test_adoption_26 import LABELS, NS, adopt, approve_all, owner_sample, request
-from test_flow import OPAL, auth, run_jobs
+from test_adoption_26 import ANN, LABELS, NS, adopt, owner_sample, request
+from test_flow import AMY, OPAL, auth, run_jobs
 
 BASE = f"/api/v1/clusters/CRC/namespaces/{NS}"
 
@@ -35,7 +35,12 @@ def adopted_without(world, *missing):
     client, ctx, git, kube, validator, keys = world
     owner_sample(kube, labels={k: v for k, v in LABELS.items() if k not in missing})
     rid = adopt(client, keys).json()["requestId"]
-    approve_all(client, keys, rid)
+    # As many approvers of approver-platform as this instance's rules ask of the plan (its findings set the count).
+    for user, role in (("amy", AMY), ("ann", ANN), ("alan", ANN), ("abe", ANN)):
+        if request(client, keys, rid)["status"] != "pending_approval":
+            break
+        r = client.post(f"/api/v1/requests/{rid}:approve", json={"comment": "ok"}, headers=auth(keys, user, **role))
+        assert r.status_code == 200, r.text
     run_jobs(ctx, limit=40)
     assert request(client, keys, rid)["status"] == "synced"
 
