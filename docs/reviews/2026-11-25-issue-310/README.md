@@ -69,3 +69,33 @@ why, and the sources each choice rests on.
   <https://github.com/kubernetes/kube-state-metrics/blob/main/internal/store/resourcequota.go>: `LabelValues: []string{string(res), "hard"}`
   and `LabelValues: []string{string(res), "used"}`. `kube_pod_status_phase`, "The pods current phase", `phase` Pending, Running,
   Succeeded, Failed or Unknown (<https://github.com/kubernetes/kube-state-metrics/blob/main/docs/metrics/workload/pod-metrics.md>).
+
+## Review and the coordinator's rulings (2026-11-26)
+
+**Reviewers.**
+- **Reviewer 1:** Codex gpt-6.2-astra xhigh (`review/reviewer-1-codex.md`). Its sandbox could not reach PostgreSQL or start Chromium.
+- **Reviewer 2:** Opus 5.5 high, on PostgreSQL 16, the portal's `npm test`, and read-only `oc get` on CRC (`review/reviewer-2-opus.md`).
+
+| Finding | Ruling |
+|---|---|
+| Codex H1: Thanos reuses the cluster's trust | **Rejected; head's trust is right.** Measured on CRC: the Thanos Route is issued by `ingress-operator@…`. That CA is in the cluster's `kube-root-ca.crt`: OpenShift puts it in every ServiceAccount's `ca.crt` on purpose (cluster-kube-controller-manager-operator, `manageServiceAccountCABundle`). It is not in the pods' trusted bundle. Codex's `trusted_context()` failed with CERTIFICATE_VERIFY_FAILED; head's context verified (TLSv1.3). Verification is never off. |
+| Codex H1: an http `thanosUrl` could send the token in clear text | **Fixed, Medium.** It is refused when `clusters.yaml` loads, and again before sending (no http, no userinfo). |
+| Codex H2: server text in plans and logs | **Fixed, Medium, as amended.** The text is kept, with the client's `redact` run over it before it is cut (docs/02 "Client rules", #420). |
+| Codex H3: the usage read is skipped on a hard-quota change under the same tier name | **Fixed, High.** |
+| Codex M1: no deadline, unbounded body | **Fixed, as amended.** One pool per read, with `wait(timeout)` and `cancel_futures`, and an 8 MiB streamed body. Codex's process-wide pools were cut: one slow cluster could starve every plan. |
+| Codex M2: malformed answers | **Fixed, as amended.** Non-2xx answers and malformed members fail the read; `[None]` was an HTTP 500. "Nested warnings" was cut: Prometheus puts `warnings` only at the top. |
+| Codex M3, M5b, M7b; Lows L1, L2; the Route cache keyed by client | **Fixed, Low.** |
+| Codex M4: usage figures stored in the plan | **Fixed.** docs/01:418 "Stored? No"; docs/01:831 "Namespace usage samples are never stored". |
+| Codex M6: ceiling hours | **Fixed.** Counted over the 336-hour window (docs/03:58, :84). |
+| Codex M5a: a missing `now` or average means insufficient data | **Rejected.** It would hide 14 days of history for a namespace with no pod running now. The guard test pins this. |
+| Codex M7a: batched deletes and a new index | **Rejected as over-built.** Migration 0010 is unchanged. |
+| Reviewer 2: catalog drift, a label-only change re-renders the quota with no approval | **Filed #710, High, security, older than this PR.** Fixed next. |
+
+**Migration 0010:** up, down and up, from empty and from 0009 with data, with `alembic check` clean. **Two workers:** one sweep.
+
+**The coordinator:**
+- applied reviewer 2's final patch with `patch -p1 -F0`;
+- merged main (#699): `jobs/__init__.py` registers both `usage_sweep` and `expire_check`;
+- took main's side of the docs/14 citation conflicts, relocated 14 citations, and read each target.
+
+**Run:** service (usage, expiry, job claim order, contract, standard, quota seam, models against migrations, citations) **247 passed**; `tests/core` **842 passed, 113 skipped**. The portal is gated by CI's `portal-ui` job; reviewer 2's portal run gave 198 ok.
