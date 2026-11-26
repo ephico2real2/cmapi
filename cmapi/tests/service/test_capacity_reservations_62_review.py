@@ -241,3 +241,27 @@ def test_a_merge_failed_request_holds_nothing_the_ledger_does_not_already_count(
             repo.move(repo.get(rid), event, "worker", "test")
     cap = ctx.pipeline.capacity.check("CRC", "dev", 0, 0)
     assert (cap.detail["cpu"], cap.detail["reserved"]) == (0.812, {"cpu": 0.0, "memory": 0})
+
+
+def test_0012_roundtrip_keeps_request_holds_and_drops_unclaimed_placements(empty_schema):
+    def run(*args):
+        proc = migrate(empty_schema, *args)
+        output = proc.communicate()[0]
+        assert proc.returncode == 0, output[-1500:]
+
+    run("0011")
+    with psycopg.connect(empty_schema, autocommit=True) as conn:
+        conn.execute(ROW, ("r-create", "n-create", "create", "approved", "{}", "{}"))
+        conn.execute("""INSERT INTO capacity_reservations
+                     (reservation_id, request_id, cluster_id, namespace, cpu, memory, pods, expires_at)
+                     VALUES (gen_random_uuid(), 'r-create', 'CRC', 'n-create', 1, 10, 2, now() + interval '1 day')""")
+        run("0012")
+        conn.execute("""INSERT INTO capacity_reservations
+                     (reservation_id, placement_id, cluster_id, cpu, memory, pods, expires_at)
+                     VALUES (gen_random_uuid(), 'pl-test', 'CRC', 1, 10, 2, now() + interval '15 min')""")
+        run("0011", "--downgrade")
+        assert conn.execute("SELECT to_regclass('capacity_snapshots')").fetchone() == (None,)
+        assert conn.execute("SELECT request_id, cpu FROM capacity_reservations").fetchall() == [("r-create", 1)]
+        run("0012")
+        assert conn.execute("SELECT count(*) FROM capacity_snapshots").fetchone() == (0,)
+        assert conn.execute("SELECT request_id, placement_id FROM capacity_reservations").fetchall() == [("r-create", None)]

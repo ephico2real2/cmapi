@@ -404,6 +404,24 @@ def test_each_operation_has_a_sample_from_a_run(world):
     capacity = rec.call("capacity_capacity", "GET", "/api/v1/capacity", ola)
     assert capacity.status_code == 200 and capacity.json()["clusters"][0]["state"] == "ok", capacity.text
 
+    # ---- the snapshots and placement (#21, #303): a run of CRC's snapshot, its rows, then a placement and the creates that
+    # refuse a placement of another target or none
+    run = rec.call("capacity_run_snapshot", "POST", "/api/v1/clusters/CRC/capacity/snapshots:run", opal)
+    assert run.status_code == 202 and "capacity_snapshot" in run_jobs(ctx), run.text
+    rec.call("capacity_cluster_capacity", "GET", "/api/v1/clusters/CRC/capacity", ola)
+    rec.call("capacity_cluster_capacity", "GET", "/api/v1/clusters/NOPE/capacity", ola)                         # 404
+    ask = {"environment": "dev", "team": "payments", "tier": "small", "constraints": {"region": "us-central"}}
+    dry = rec.call("capacity_place:dryRun", "POST", "/api/v1/capacity:place?dryRun=true", ola, json_body=ask)
+    assert dry.status_code == 200 and dry.json()["ranked"], dry.text
+    placed = rec.call("capacity_place", "POST", "/api/v1/capacity:place", ola, json_body={**ask, "team": "billing"})
+    assert placed.status_code == 201, placed.text
+    rec.call("capacity_place", "POST", "/api/v1/capacity:place", ola,
+             json_body={**ask, "constraints": {"region": "eu-west"}})                                             # 422 no-placement
+    other = {**NS, "namespace": "payments-placed", "placementId": placed.json()["placementId"]}
+    rec.call("namespaces_create_namespace", "POST", f"{base}?dryRun=true", ola, json_body=other)                 # 422 mismatch
+    rec.call("namespaces_create_namespace", "POST", f"{base}?dryRun=true", ola,
+             json_body={**other, "placementId": "pl-20260101-00000000"})                                           # 422 not found
+
     # ---- a conditional read's If-Match (#590): a tag that is not the answer's is 412, with the current etag
     rec.call("core_metadata_keys", "GET", "/api/v1/metadata-keys", ola, headers={"If-Match": '"stale"'})       # 412
     rec.call("capacity_capacity", "GET", "/api/v1/capacity", ola, headers={"If-Match": '"stale"'})            # 412

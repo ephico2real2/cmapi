@@ -43,7 +43,8 @@ def test_each_operation_that_takes_a_token_charges_its_caller_once_from_its_clas
     for template, operations in json.loads(CONTRACT.read_text())["paths"].items():
         path = re.sub(r"\{[^}]+\}", "example", template)
         for op, details in operations.items():
-            kind = {"/api/v1/quotas:export": "export", "/api/v1/quotas:suggest": "suggest"}.get(
+            kind = {"/api/v1/quotas:export": "export", "/api/v1/quotas:suggest": "suggest",
+                    "/api/v1/capacity:place": "place"}.get(
                 template, "read" if op == "get" else "write")
             for method in (op, "head") if op == "get" else (op,):
                 calls.clear()

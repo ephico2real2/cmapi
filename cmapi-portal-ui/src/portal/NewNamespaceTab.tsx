@@ -1,5 +1,7 @@
-// The New namespace tab: GET /api/v1/tiers, GET /api/v1/clusters and GET /api/v1/metadata-keys for the form, the dry run
-// for the plan and its approval, then the create with an Idempotency-Key that the portal makes (#282). The labels and
+// The New namespace tab: GET /api/v1/tiers, GET /api/v1/clusters and GET /api/v1/metadata-keys for the form, the Placement
+// preview that ranks the environment's clusters (POST /api/v1/capacity:place?dryRun=true, #303), the dry run on the first
+// one for the plan and its approval, then the placement's hold and the create with its placementId and an Idempotency-Key
+// that the portal makes (#282). The person never picks the cluster: placement does, as the mockup's isNew block. The labels and
 // annotations are the instance's own keys, from its metadata-keys.yaml (#336). The form follows the mockup of #479
 // (mockups/portal/new-namespace-479.html): the name with both ends locked, the team's default, the expiry date, the
 // additional keys, a live preview, and Check (dry run) before Submit. MOCKUP-CONTRACT.md lists what differs, and why.
@@ -9,18 +11,20 @@
 //   2. CHECK_AFTER_MS later the fields are checked by the API's own rules (checkForm), each pattern off the page's thread.
 //   3. Check (dry run) checks the form now; with no problem it plans the body (usePlan), else it lists the problems.
 //   4. The plan's answer replaces the preview; Submit opens only for a passing plan of the form as it is now.
-//   5. Submit sends that body with one Idempotency-Key, and a 202 opens the Workflow tab on the new request.
+//   5. Submit holds the planned cluster (POST /api/v1/capacity:place) and sends that body with the placement's id and one
+//      Idempotency-Key; a 202 opens the Workflow tab on the new request. When placement now holds another cluster, nothing
+//      is sent and the person checks again.
 import {
   ActionGroup, Alert, AlertActionLink, Button, Checkbox, CodeBlock, CodeBlockCode, EmptyState, EmptyStateBody, Flex, Form, FormGroup, FormSection,
   FormSelect, FormSelectOption, Grid, GridItem, List, ListItem, Skeleton, Stack, TextArea
 } from "@patternfly/react-core";
 import { LockIcon } from "@patternfly/react-icons";
 import { useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
-import { useClusters, useMe, useMetadataKeys, usePlan, useSubmitNamespace, useTiers } from "../api/hooks";
-import type { Cluster, CreateBody, Plan, TierCatalog } from "../api/hooks";
+import type { FormEvent, ReactNode } from "react";
+import { useClusters, useMe, useMetadataKeys, usePlace, usePlacementPreview, usePlan, useSubmitNamespace, useTiers } from "../api/hooks";
+import type { CreateBody, Plan, PlacementExcluded, PlacementRanked, PlacementRequest, PlacementResult, TierCatalog } from "../api/hooks";
 import type { ProblemItem } from "../api/problem";
-import { Callout, Checks, Choices, Empty, Head, Hint, KV, Panel, Small } from "../components/ui";
+import { Callout, Checks, Choices, Empty, Head, Hint, KV, Panel, Pill, Small } from "../components/ui";
 import type { Check } from "../components/ui";
 import { operatorIn, PROTECT_KEY, PROTECT_VALUE } from "./access";
 import { ExpiryField } from "./ExpiryField";
@@ -74,6 +78,90 @@ function folderOf(plan: Plan): string {
 
 /** How long the form waits after the last keystroke before it checks the fields (design B of #336, D7). */
 const CHECK_AFTER_MS = 150;
+/** How long the team, tier and region stay still before the Placement preview ranks them: each ranking spends the caller's
+ * :place bucket (10 a minute), so typing a team name does not rank each prefix. */
+const RANK_AFTER_MS = 600;
+const TEAM_KEY = "cmapi.net/team";
+const LABEL_VALUE = /^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/;
+const GI = 2 ** 30;
+
+/** `value` once it has stayed the same for `ms`, the first value at once; and a function that takes the current value now. */
+function useSettled<T>(value: T, ms: number): [T, () => void] {
+  const [settled, setSettled] = useState(value);
+  const latest = useRef(value);
+  latest.current = value;
+  const text = JSON.stringify(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [text]);
+  return [settled, () => setSettled(latest.current)];
+}
+
+const tenths = (x: number): string => String(Math.round(x * 10) / 10);
+/** "17:00 · 5 min old": a snapshot's minute and its age. */
+function snapshotWords(iso: string | null, now: number): string {
+  if (!iso) return "no snapshot";
+  const minutes = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000));
+  return `snapshot ${new Date(iso).toISOString().slice(11, 16)} · ${minutes} min old`;
+}
+
+/** The mockup's line of a ranked cluster: "cpu 96 → 88 cores · memory 410 → 394 Gi · zone-loss 21 cores, 78 Gi · p95 0.33". */
+function rankedDetail(r: PlacementRanked): string {
+  const zone = r.cpu.zoneFailureHeadroomAfter !== null && r.memory.zoneFailureHeadroomAfter !== null
+    ? ` · zone-loss ${tenths(r.cpu.zoneFailureHeadroomAfter / 1000)} cores, ${tenths(r.memory.zoneFailureHeadroomAfter / GI)} Gi` : "";
+  const p95 = r.cpu.usageP95 === null && r.memory.usageP95 === null ? "p95 not measured"
+    : `p95 ${Math.max(r.cpu.usageP95 ?? 0, r.memory.usageP95 ?? 0).toFixed(2)}`;
+  return `cpu ${tenths(r.cpu.quotaHeadroomBefore / 1000)} → ${tenths(r.cpu.quotaHeadroomAfter / 1000)} cores · memory ` +
+    `${tenths(r.memory.quotaHeadroomBefore / GI)} → ${tenths(r.memory.quotaHeadroomAfter / GI)} Gi${zone} · ${p95}`;
+}
+
+/** One row of the Placement preview: the rank, the cluster and its figures, and its score or why it was left out. */
+function PlaceRow({ rank, cluster, detail, end, tone }: { rank: string; cluster: string; detail: string; end: ReactNode; tone?: "top" | "out" }) {
+  return (
+    <div className={`cp-place${tone ? ` cp-place-${tone}` : ""}`}>
+      <span className="cp-place-rank">{rank}</span>
+      <div className="cp-place-main"><b>{cluster}</b><div><Small>{detail}</Small></div></div>
+      <span className="cp-place-end">{end}</span>
+    </div>
+  );
+}
+
+/** The Placement preview card: the mockup's isNew "Placement preview", from the API's ranking. */
+function PlacementPreview({ env, result }: { env: string; result: ReturnType<typeof usePlacementPreview> }) {
+  const now = Date.now();
+  if (result.state === "idle") {
+    return <Panel title="Placement preview"><Small>Enter the team to rank this environment's clusters for it.</Small></Panel>;
+  }
+  if (result.state === "loading") {
+    return <Panel title="Placement preview"><span role="status">Ranking the clusters…</span><Skeleton /></Panel>;
+  }
+  if (result.state === "forbidden" || result.state === "error") {
+    return <Panel title="Placement preview"><Callout tone="bad" title="The clusters could not be ranked.">{result.state === "error" ? result.cause : result.detail}</Callout></Panel>;
+  }
+  const data: PlacementResult = result.data;
+  const top = data.ranked[0];
+  const lede = top
+    ? `Ranked from this instance's stored snapshots, committed quota and active reservations; no Thanos call. Submitting reserves ${top.clusterId} for 15 minutes.`
+    : `No ${env} cluster in scope has room for this tier. Pick a smaller tier or ask the platform team for capacity.`;
+  return (
+    <Panel title="Placement preview" pill={<Pill>{snapshotWords(top?.snapshotAt ?? null, now)}</Pill>}>
+      <Small>{lede}</Small>
+      <div role="list" aria-label="Ranked clusters">
+        {data.ranked.map((r, i) => (
+          <div role="listitem" key={r.clusterId}><PlaceRow rank={String(i + 1)} cluster={r.clusterId} detail={rankedDetail(r)} end={<b>{r.score}</b>} tone={i === 0 ? "top" : undefined} /></div>
+        ))}
+      </div>
+      {data.excluded.length > 0 && (
+        <div role="list" aria-label="Excluded clusters">
+          {data.excluded.map((x: PlacementExcluded) => (
+            <div role="listitem" key={x.clusterId}><PlaceRow rank="—" cluster={x.clusterId} detail={x.detail} end={<Pill tone="warn">{x.reason}</Pill>} tone="out" /></div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
 
 /** The refusal of a dry run or a submit, for the field errors and the summary. */
 interface Refusal { code: string; detail: string; errors: ProblemItem[] }
@@ -174,7 +262,6 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   const tiers = useTiers(env);
   const [tier, setTier] = useState("medium");
   const [region, setRegion] = useState(ANY_REGION);
-  const [chosen, setChosen] = useState("");
   // The part of the name that the person types: the middle between the locked ends, or the whole name without them.
   const [desired, setDesired] = useState("");
   // What the person typed in each label and annotation field, keyed by kind and key (metadataForm.valueKey), so a value
@@ -189,7 +276,14 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   const [why, setWhy] = useState("");
   // The body that the last Check planned, and the form's draft then. It stays while the form changes: the status then
   // says that the form changed.
-  const [planned, setPlanned] = useState<{ cluster: string; body: CreateBody; draft: string } | null>(null);
+  const [planned, setPlanned] = useState<{ cluster: string; body: CreateBody; draft: string; ask: PlacementRequest } | null>(null);
+  // The placement that the last Submit holds, for the planned request it was made for: a Submit again (a lost answer, a
+  // refusal) reuses it while it lasts, so the create and its Idempotency-Key stay the same.
+  const held = useRef<{ request: string; result: PlacementResult } | null>(null);
+  // Placement held another cluster than the planned one: nothing was sent.
+  const [moved, setMoved] = useState<string | null>(null);
+  // The last Check passed the form's own checks, and placement has no cluster for it: nothing was sent.
+  const [unplaced, setUnplaced] = useState(false);
   // The last Check found problems in the form itself and sent nothing: the status lists them, as they are now.
   const [blocked, setBlocked] = useState(false);
   // The body that the last Submit sent, so that its refusal shows on the fields only while the form is that body.
@@ -205,6 +299,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
     return sent.current.key;
   };
   const submit = useSubmitNamespace();
+  const placing = usePlace();
   const plan = usePlan(planned?.cluster ?? "", planned?.body ?? null);
   const formRef = useRef<HTMLFormElement>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
@@ -217,11 +312,23 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   const inEnv = (writable ?? []).filter((c) => c.environment === env);
   // A region that this environment's clusters lack (picked in another environment, or gone in a refetch) filters nothing.
   const activeRegion = inEnv.some((c) => c.labels.region === region) ? region : ANY_REGION;
-  const candidates = inEnv.filter((c) => activeRegion === ANY_REGION || c.labels.region === activeRegion);
-  const cluster: Cluster | undefined = candidates.find((c) => c.clusterId === chosen) ?? candidates[0];
+  const instance = me.state === "ok" ? me.data.instance : "";
+  // The team the namespace is for, as the form shows it: placement ranks for it, and the create must carry the same label.
+  const teamField = form?.fields.find((f) => f.kind === "label" && f.key === TEAM_KEY) ?? null;
+  const team = form && teamField ? shownValues(form, typed, { namespace: "", environment: env, cluster: "", instance })[valueKey(teamField)] ?? "" : "";
+  // A label value (PlacementRequest.team), or the preview waits: the form's own check names what is wrong with it. An instance
+  // whose keys have no team label places with no team.
+  const teamOk = teamField === null || LABEL_VALUE.test(team);
+  const ask: PlacementRequest | null = form && env && teamOk && (current?.name ?? tier)
+    ? { environment: env, ...(teamField ? { team } : {}), tier: current?.name ?? tier, constraints: activeRegion === ANY_REGION ? {} : { region: activeRegion } } : null;
+  const [settledAsk, settleAsk] = useSettled(ask, RANK_AFTER_MS);
+  const preview = usePlacementPreview(settledAsk);
+  // The planned cluster is the first of the ranking of the ask as it is now; a ranking of an older ask places nothing.
+  const ranking = preview.state === "ok" && !preview.refreshing && JSON.stringify(settledAsk) === JSON.stringify(ask) ? preview.data : null;
+  const cluster = ranking?.ranked[0]?.clusterId;
   // The name: its ends come from the keys that make them (P2), and the person types the rest.
   const ends = form ? nameEnds(form) : { start: null, end: null };
-  const place: Record<Source, string> = { namespace: "", environment: env, cluster: cluster?.clusterId ?? "", instance: me.state === "ok" ? me.data.instance : "" };
+  const place: Record<Source, string> = { namespace: "", environment: env, cluster: cluster ?? "", instance };
   // The ends read the values before the name is known; a default copied from the name itself is read after it, below.
   const early = form ? shownValues(form, typed, place) : typed;
   const startValue = endValue(ends.start, early, place), endPart = endValue(ends.end, early, place);
@@ -293,7 +400,8 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   // change the form without an edit, so the bodies are compared; an edit can leave the body as it was (a row with no key
   // yet), so the drafts are compared too (P7: Submit is off again after any change).
   const draft = JSON.stringify([typed, extras]);
-  const planIsOfForm = planned !== null && planned.cluster === cluster?.clusterId && JSON.stringify(planned.body) === JSON.stringify(body) && planned.draft === draft;
+  const planIsOfForm = planned !== null && planned.cluster === cluster && JSON.stringify(planned.body) === JSON.stringify(body) && planned.draft === draft
+    && JSON.stringify(planned.ask) === JSON.stringify(ask);
   const refusal: Refusal | null = plan.state === "refused" && planIsOfForm ? plan
     : submit.state === "refused" && submitted === JSON.stringify(body) ? submit : null;
   const mapped = form && refusal ? errorsByField(refusal.errors, form) : null;
@@ -347,7 +455,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
   const nameError = !attempted && desired === "" && !(startValue && endPart) ? null : result?.name ?? nameRefused;
   const planOk = plan.state === "ok" && planIsOfForm ? plan.data : null;
   const problems = result ? problemsOf(form, result, extras, expiry, ends.start) : [];
-  const canSubmit = planOk !== null && submit.state !== "sending" && !!cluster;
+  const canSubmit = planOk !== null && submit.state !== "sending" && placing.state !== "sending" && !!cluster;
 
   const focusOn = (id: string) => {
     if (id.startsWith("ns-x")) setExtraOpen(true);
@@ -356,7 +464,6 @@ export function NewNamespaceTab({ config, open }: TabProps) {
 
   /** Check (dry run): the form's own checks first, then the browser's (required, the address); then the dry run. */
   const onCheck = async () => {
-    if (!cluster) return;
     setAttempted(true);
     const found = await checkNow();
     if (!found) return;
@@ -371,17 +478,38 @@ export function NewNamespaceTab({ config, open }: TabProps) {
       return;
     }
     setBlocked(false);
+    // The ranking of the form as it is now: from the cache, or asked now when the team, tier or region just changed.
+    settleAsk();
+    const first = ask ? (await preview.rank(ask).catch(() => null))?.ranked[0]?.clusterId : undefined;
+    setUnplaced(!first);
+    if (!first || !ask) return;
     // Check on a form that has its plan asks cmapi again: the answer can change (capacity, a namespace made since).
     if (planIsOfForm) plan.reload();
-    else setPlanned({ cluster: cluster.clusterId, body, draft });
+    else setPlanned({ cluster: first, body, draft, ask });
+    setMoved(null);
   };
-  /** Submit: only the plan on the page, of the form as it is now (P7). Nothing goes straight to submit. */
+  /**
+   * Submit: only the plan on the page, of the form as it is now (P7). It holds the planned cluster first (POST
+   * /api/v1/capacity:place), then sends the create with the placement's id, which turns the hold into the request's own.
+   */
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!canSubmit || !planned) return;
+    const request = JSON.stringify(planned);
     setSubmitted(JSON.stringify(planned.body));
-    // The tab ends on a 202: the Workflow tab follows the new request, as the mockup's Submit opens its workflow.
-    submit.submit(planned.cluster, planned.body, keyFor(planned.cluster, planned.body)).then((request) => open("workflow", { request: request.requestId }), () => undefined);
+    setMoved(null);
+    const last = held.current;
+    const reuse = last?.request === request && Date.parse(last.result.expiresAt ?? "") > Date.now() + 30_000 ? last.result : null;
+    (reuse ? Promise.resolve(reuse) : placing.place(planned.ask)).then((placed) => {
+      held.current = { request, result: placed };
+      if (placed.clusterId !== planned.cluster) {
+        setMoved(placed.clusterId);
+        return;
+      }
+      const sent = { ...planned.body, placementId: placed.placementId };
+      // The tab ends on a 202: the Workflow tab follows the new request, as the mockup's Submit opens its workflow.
+      return submit.submit(planned.cluster, sent, keyFor(planned.cluster, sent)).then((created) => open("workflow", { request: created.requestId }));
+    }).catch(() => undefined);
   };
   const addRow = (kind: Kind) => {
     const id = ++rowIds.current;
@@ -447,6 +575,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
         </Callout>
       );
     }
+    if (unplaced && !cluster) return <Callout tone="warn" title="No cluster is ranked for this request yet. The Placement preview says why." />;
     if (stale || blocked) return <Callout tone="info" title="Changed since the last check. Press Check (dry run) again." />;
     return <Callout tone="info" title="Not checked yet. Press Check (dry run) to ask cmapi whether this request passes." />;
   };
@@ -460,7 +589,7 @@ export function NewNamespaceTab({ config, open }: TabProps) {
             <Form noValidate={false} onSubmit={onSubmit} ref={formRef}>
               <FormSection title="Where" titleElement="h3">
                 <FormGroup label="Environment" role="group" fieldId="ns-env">
-                  <Choices label="Environment" options={config.environments.map((e) => ({ label: e, on: e === env, pick: () => { setEnv(e); setChosen(""); } }))} />
+                  <Choices label="Environment" options={config.environments.map((e) => ({ label: e, on: e === env, pick: () => setEnv(e) }))} />
                   <Hint>This is the {config.displayName} portal: it serves {config.environments.join(", ")} only.</Hint>
                   {config.otherInstances.length > 0 && (
                     <Flex gap={{ default: "gapMd" }}>
@@ -468,26 +597,13 @@ export function NewNamespaceTab({ config, open }: TabProps) {
                     </Flex>
                   )}
                 </FormGroup>
-                <Grid hasGutter>
-                  <GridItem md={6}>
-                    <FormGroup label="Region" fieldId="ns-region">
-                      <FormSelect id="ns-region" value={activeRegion} aria-describedby="ns-region-help" onChange={(_, v) => { setRegion(v); setChosen(""); }}>
-                        {regions.map((r) => <FormSelectOption key={r} value={r} label={r} />)}
-                        <FormSelectOption value={ANY_REGION} label="Any region" />
-                      </FormSelect>
-                      <Hint id="ns-region-help">From clusters.yaml metadata.</Hint>
-                    </FormGroup>
-                  </GridItem>
-                  <GridItem md={6}>
-                    <FormGroup label="Cluster" fieldId="ns-cluster">
-                      <FormSelect id="ns-cluster" value={cluster?.clusterId ?? ""} isDisabled={!candidates.length} aria-describedby="ns-cluster-help" onChange={(_, v) => setChosen(v)}>
-                        {candidates.map((c) => <FormSelectOption key={c.clusterId} value={c.clusterId} label={`${c.clusterId} (${c.environment})`} />)}
-                        {!candidates.length && <FormSelectOption value="" label="—" />}
-                      </FormSelect>
-                      <Hint id="ns-cluster-help">{candidates.length ? `The ${env} clusters that take writes, from GET /api/v1/clusters. Placement is not on the API yet (#303).` : `No ${env} cluster takes writes on this instance.`}</Hint>
-                    </FormGroup>
-                  </GridItem>
-                </Grid>
+                <FormGroup label="Region" fieldId="ns-region">
+                  <FormSelect id="ns-region" value={activeRegion} aria-describedby="ns-region-help" onChange={(_, v) => setRegion(v)}>
+                    {regions.map((r) => <FormSelectOption key={r} value={r} label={r} />)}
+                    <FormSelectOption value={ANY_REGION} label="Any region" />
+                  </FormSelect>
+                  <Hint id="ns-region-help">From clusters.yaml metadata.</Hint>
+                </FormGroup>
                 <FormGroup label="Tier" role="group" fieldId="ns-tier">
                   <Choices label="Tier" options={offered.map((t) => ({ label: t.name, sub: `${t.cpu} cores · ${t.memory}`, on: t.name === current?.name, pick: () => setTier(t.name) }))} />
                   <Hint>cmapi writes the tier's ResourceQuota and LimitRange (config/tiers.yaml) into the namespace folder.</Hint>
@@ -523,18 +639,20 @@ export function NewNamespaceTab({ config, open }: TabProps) {
               <ExtraKeysSection form={form} rows={extras} checks={result?.extras ?? {}} refused={refusedAt} attempted={attempted} expanded={extraOpen} onExpand={setExtraOpen}
                 onChange={(kind, rows) => setExtras((x) => ({ ...x, [kind]: rows }))} onAdd={addRow} />
               <ActionGroup>
-                <Button variant="secondary" type="button" isDisabled={!cluster} onClick={() => void onCheck()}>Check (dry run)</Button>
-                <Button variant="primary" type="submit" isAriaDisabled={!canSubmit} aria-describedby="ns-status" isLoading={submit.state === "sending"}>Submit request</Button>
+                <Button variant="secondary" type="button" onClick={() => void onCheck()}>Check (dry run)</Button>
+                <Button variant="primary" type="submit" isAriaDisabled={!canSubmit} aria-describedby="ns-status" isLoading={submit.state === "sending" || placing.state === "sending"}>Submit request</Button>
               </ActionGroup>
             </Form>
           </Panel>
         </GridItem>
         <GridItem md={5} className="cp-sticky">
+          <Stack hasGutter>
+          <PlacementPreview env={env} result={preview} />
           <Panel title="Preview">
             <Small>What will be created. It updates as you type.</Small>
             <KV rows={[
               { k: "Namespace", v: <code>{shownName || "—"}</code> },
-              { k: "Cluster", v: cluster ? `${cluster.clusterId} (${env})` : "—" },
+              { k: "Cluster", v: cluster ? `${cluster} (${env}), placed` : "—" },
               { k: "Expires", v: expiresText },
               { k: "Quota", v: current ? `${current.name}: ${current.cpu} cores · ${current.memory} · ${current.pods} pods` : "—" },
               { k: "Approval", v: appr ? appr.rule : "Check (dry run) asks cmapi which approval applies." },
@@ -546,8 +664,12 @@ export function NewNamespaceTab({ config, open }: TabProps) {
               {status()}
               {submit.state === "refused" && <Callout tone="bad" title="Not submitted">{`${submit.code}: ${submit.detail}`}{refusal === submit && summary}</Callout>}
               {submit.state === "error" && <Callout tone="bad" title="Not submitted">{`${submit.cause} Submit again: the same request is sent, and the API makes it at most once.`}</Callout>}
+              {placing.state === "refused" && <Callout tone="bad" title="Not placed">{`${placing.code}: ${placing.detail}`}</Callout>}
+              {placing.state === "error" && <Callout tone="bad" title="Not placed">{`${placing.cause} Submit again to place it.`}</Callout>}
+              {moved && <Callout tone="warn" title={`Placement now holds ${moved}, not ${planned?.cluster ?? "the checked cluster"}.`}>Nothing was sent. Press Check (dry run) again to plan on the cluster that placement ranks first.</Callout>}
             </div>
           </Panel>
+          </Stack>
         </GridItem>
       </Grid>
     </Stack>

@@ -428,12 +428,52 @@ class ReservationRepo:
     def _active(now: datetime) -> Any:
         return and_(CapacityReservationRow.released_at.is_(None), CapacityReservationRow.expires_at > now)
 
-    def active(self, cluster_id: str, *, exclude: str | None = None) -> list[CapacityReservationRow]:
-        """The cluster's active holds; `exclude`: leave out this request's own, to check it again on its own terms."""
+    def active(self, cluster_id: str, *, exclude: str | None = None,
+               exclude_placement: str | None = None) -> list[CapacityReservationRow]:
+        """The cluster's active holds; `exclude`: leave out this request's own, to check it again on its own terms;
+        `exclude_placement`: leave out the placement that a create claims, whose amount the create's own check counts (#21)."""
         q = select(CapacityReservationRow).where(CapacityReservationRow.cluster_id == cluster_id, self._active(utcnow()))
         if exclude is not None:
             q = q.where(or_(CapacityReservationRow.request_id.is_(None), CapacityReservationRow.request_id != exclude))
+        if exclude_placement is not None:
+            # Only while no request has claimed it: once claimed, it is that request's hold and counts.
+            q = q.where(or_(CapacityReservationRow.placement_id.is_(None),
+                            CapacityReservationRow.placement_id != exclude_placement,
+                            CapacityReservationRow.request_id.is_not(None)))
         return list(self.s.scalars(q))
+
+    def placement(self, placement_id: str) -> CapacityReservationRow | None:
+        """The placement's hold while it is active and no request has claimed it (#21), else None."""
+        return self.s.scalars(select(CapacityReservationRow).where(
+            CapacityReservationRow.placement_id == placement_id, CapacityReservationRow.request_id.is_(None),
+            self._active(utcnow()))).first()
+
+    def lock_team_placements(self, team: str | None, env: str, placed_by: str) -> None:
+        """Serialize the placements of one team (or, with no team, one caller) in one environment until this transaction ends,
+        so two at once cannot both pass the count of `active_placements`."""
+        who = f"team:{team}" if team is not None else f"caller:{placed_by}"
+        digest = hashlib.sha256(f"cmapi-placements:{env}:{who}".encode()).digest()
+        self.s.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": int.from_bytes(digest[:8], "big", signed=True)})
+
+    def active_placements(self, team: str | None, env: str, placed_by: str) -> int:
+        """The team's placements in the environment that are active and not claimed by a create (docs/01: "at most 3 active
+        placements per team and environment, so nobody can hold a cluster's headroom with reservations"). On an instance whose
+        metadata keys have no team label, a placement has no team, and the caller's own are counted."""
+        who = CapacityReservationRow.team == team if team is not None else and_(
+            CapacityReservationRow.team.is_(None), CapacityReservationRow.placed_by == placed_by)
+        return self.s.scalar(select(func.count()).select_from(CapacityReservationRow).where(
+            CapacityReservationRow.placement_id.is_not(None), CapacityReservationRow.request_id.is_(None),
+            who, CapacityReservationRow.env == env, self._active(utcnow()))) or 0
+
+    def claim(self, placement_id: str, row: CapacityReservationRow) -> bool:
+        """docs/02: "The create request then carries the placementId, which turns that reservation into the request's own."
+        The placement's hold takes the request, its namespace, the amounts its plan was checked for and the request's term.
+        False when the hold lapsed or was claimed since the plan."""
+        return self.s.execute(update(CapacityReservationRow).where(
+            CapacityReservationRow.placement_id == placement_id, CapacityReservationRow.request_id.is_(None),
+            self._active(utcnow())).values(
+            request_id=row.request_id, namespace=row.namespace, cpu=row.cpu, memory=row.memory, pods=row.pods,
+            target_cpu=row.target_cpu, target_memory=row.target_memory, expires_at=row.expires_at)).rowcount == 1
 
     def of(self, request_id: str) -> CapacityReservationRow | None:
         """The request's active hold, or None: it has none (no increase, a delete), or it ended."""

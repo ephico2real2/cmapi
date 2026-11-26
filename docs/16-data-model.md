@@ -18,11 +18,12 @@ The database is PostgreSQL through CloudNativePG, or an existing PostgreSQL serv
 | `approval_notifications` | One notice that a channel recorded for a request | The worker job `channel_notify` (`jobs/channel_notify.py:30`) | The same job, to send a notice only once |
 | `expiration_notices` | One expiry notice for a namespace | No code writes it yet. The job `expire_check` is not built | No code reads it yet |
 | `policy_rejections` | One refusal of cmapi before Git on one UTC day, or Kyverno's warnings on a plan that became a request (#302) | `RejectionRepo.record` (`core/rejections.py`), from the namespace routes, `_submit` and the job `pr_checks`; pruned by the job `rejections_prune` | `GET /api/v1/policies/rejections` |
-| `capacity_reservations` | The CPU and memory that one open request holds on its cluster until its quota is live (#62; docs/02, Placement, "Reservations") | `Pipeline.submit` through `SimulatedCapacity.reserve` (`core/capacity_backend.py`), under the cluster's advisory lock; `RequestRepo.move` releases a hold as the request leaves a holding state, takes it again on a `:retry` into one, and moves its expiry on at each step between | The capacity check of every plan, dry run, submit, last approval and `:retry` (`SimulatedCapacity.check`) |
+| `capacity_reservations` | The CPU and memory that one open request holds on its cluster until its quota is live (#62; docs/02, Placement, "Reservations") | `POST /api/v1/capacity:place` for a placement's 15-minute hold (#21, `plugins/capacity/placement.py`); `Pipeline.submit` through `SimulatedCapacity.reserve` (`core/capacity_backend.py`), under the cluster's advisory lock; `RequestRepo.move` releases a hold as the request leaves a holding state, takes it again on a `:retry` into one, and moves its expiry on at each step between | The capacity check of every plan, dry run, submit, last approval and `:retry` (`SimulatedCapacity.check`), and placement |
+| `capacity_snapshots` | One scope (the cluster, a zone or a node role) of one cluster's capacity at the end of one snapshot interval (#21; docs/02, "Stored capacity") | The worker job `capacity_snapshot` (`jobs/capacity_snapshot.py`, `capacity/snapshots.py`), every capacity.yaml `snapshotInterval`, and on `POST /api/v1/clusters/{clusterId}/capacity/snapshots:run`; it deletes the rows past 13 months | Placement (freshness, zones, the 14-day p95 of use), `GET /api/v1/clusters/{clusterId}/capacity` and `GET /api/v1/capacity` |
 
 ## Relations
 
-`change_requests` is the centre. Six tables refer to it with a foreign key on `request_id`: `request_events`, `approvals`, `jobs` (optional), `approval_notifications`, `policy_rejections` (optional) and `capacity_reservations` (optional). The other tables have no foreign key.
+`change_requests` is the centre. Six tables refer to it with a foreign key on `request_id`: `request_events`, `approvals`, `jobs` (optional), `approval_notifications`, `policy_rejections` (optional) and `capacity_reservations` (optional). The other tables, `capacity_snapshots` among them, have no foreign key.
 
 ```text
 change_requests (request_id)
@@ -31,7 +32,7 @@ change_requests (request_id)
   |-- jobs.request_id                    many jobs for one request; a job can have no request
   |-- approval_notifications.request_id  many notices for one request
   |-- policy_rejections.request_id       many stored findings for one request; a refusal before a request has none
-  |-- capacity_reservations.request_id   the holds of one request, one active at a time; a placement hold has none (not built)
+  |-- capacity_reservations.request_id   the holds of one request, one active at a time; a placement's hold has none until a create claims it (#21)
 
 audit_events, jwks_keys, admin_switches, expiration_notices: no foreign key
 ```
@@ -205,9 +206,15 @@ Migration 0006 (#302). One row is one refusal on one UTC day: `stage` `plan` wit
 
 ### `capacity_reservations`
 
-Migration 0011 (#62). One row is the capacity that one request holds on its cluster: `cpu` (cores, to the millicore) and `memory` (bytes) are the increase its plan was checked for, rounded up, and `pods` its increase of the `pods` quota, kept for the record. A request that raises neither CPU nor memory (a decrease, a label change, a delete) holds nothing. `namespace`, `target_cpu` and `target_memory` are not in docs/02's table: they are the namespace and its binding quota after the change, rounded down so that the exact live quota reaches them, and the capacity check stops counting a hold once the cluster's quota ledger shows that quota there, so a quota is never counted both as committed and as held (docs/02: "Committed quota counts it from then on, so it is never counted twice"). The plan and the submit of a change to a namespace do not count a hold on that same namespace: only the namespace's one open request can hold there (the Reservation states lie within the lock's), and its hold and the change are both sized from the quota that Git holds, so they are alternatives, never both; the change is refused 409 `change-pending` until that request ends (#725). `zone` is for placement (not built) and is always null.
+Migration 0011 (#62). One row is the capacity that one request holds on its cluster: `cpu` (cores, to the millicore) and `memory` (bytes) are the increase its plan was checked for, rounded up, and `pods` its increase of the `pods` quota, kept for the record. A request that raises neither CPU nor memory (a decrease, a label change, a delete) holds nothing. `namespace`, `target_cpu` and `target_memory` are not in docs/02's table: they are the namespace and its binding quota after the change, rounded down so that the exact live quota reaches them, and the capacity check stops counting a hold once the cluster's quota ledger shows that quota there, so a quota is never counted both as committed and as held (docs/02: "Committed quota counts it from then on, so it is never counted twice"). The plan and the submit of a change to a namespace do not count a hold on that same namespace: only the namespace's one open request can hold there (the Reservation states lie within the lock's), and its hold and the change are both sized from the quota that Git holds, so they are alternatives, never both; the change is refused 409 `change-pending` until that request ends (#725). `zone` is always null: placement does not pin a zone yet.
 
 A hold is active while `released_at` is null and `expires_at` is ahead. `expires_at` is one term after the request's last step: its approval rule's `timeoutHours`, plus one hour for the hourly `approval_timeout` job (`hold_term`, `core/db/repo.py`). The term starts at submit and starts again at each step that keeps the hold (`RequestRepo.move`), so a request that stops moving lets its hold go one term later. The next hold taken on the cluster marks such a row `expired`. A hold that the ledger shows is not marked: each API pod and the worker reads the holds and its own ledger at one instant (`CapacityLedger.snapshot`) and stops counting it from its own watch, so a reader whose watch is behind still counts it. The last `:approve` takes a hold that lapsed again before it checks capacity. Migration `0011` gives the requests already in flight their holds: the increase of each stored plan in a holding state, and a released one for a failed request's `:retry`.
+
+Migration 0012 (#21) adds what a placement's hold needs before any request exists: `placement_id` (the id that `POST /api/v1/capacity:place` returns, unique where it is set), and `env` and `team`, which the create must match and which count a team's active placements (at most 3 in an environment, docs/01), and `placed_by`, the caller, whose own placements are counted instead on an instance whose metadata keys have no team label. A placement holds the tier's `requests.cpu`, `requests.memory` and `pods` for 15 minutes (placement.yaml `reservation`) with `request_id` and `namespace` null. The create that sends its `placementId` turns the same row into its own: it takes the request, the namespace, the amounts its plan was checked for, the targets and the request's term (`ReservationRepo.claim`). A placement that no create claims stops counting when it expires, and the next hold on its cluster marks it `expired`.
+
+### `capacity_snapshots`
+
+Migration 0012 (#21). One row is one scope of one cluster at `taken_at`, the end of an interval floored to `interval_seconds` (capacity.yaml `snapshotInterval`, 30 minutes by default): `cluster`, `zone:<name>` (the nodes' `topology.kubernetes.io/zone`) or `role:<worker|infra|master>` (`node-role.kubernetes.io/<role>`; a node with several role labels counts in each). `cpu` (cores) and `memory` (bytes) hold `capacity` and `allocatable` from the API's nodes, `requested`, `limits`, `usedAvg` and `usedPeak` from Thanos per node, `nodeUsedAvg` (not queried yet, null) and, on the cluster row, `quotaCommitted` from the watch's ledger. `pods` holds `allocatable` and `running`, `nodes` the counts of the nodes and their conditions, `storage` is null (not queried yet). `source` is `thanos` when capacity.yaml `usage.source` is thanos, else `api`, and then every figure only Thanos gives is null, never 0. `complete` is false, with `detail` saying why, when a query failed or warned, the nodes could not be listed, or Thanos's allocatable and the API's differ by more than 5%. The columns are docs/02's with `source` and `detail` added; like 0010's tables it is not partitioned by month (#705) and lives in the cmapi schema, since the worker runs the job in the embedded mode. The job deletes rows past 395 days.
 
 ## Planned adoption quota view (#26, #251; not built)
 
@@ -254,7 +261,7 @@ The owner's rule, 2026-11-13: "we can use postgress for cache as well if needed 
 | The lock of a namespace | The index `uq_cr_open_namespace` | The request leaves the open states |
 | The work queue | `jobs`, claimed with a lease | `locked_until` |
 
-These caches are in the memory of each process, and are not shared: the signing keys for ten minutes (`cmapi/src/cmapi/core/auth.py:40`), the watch cache of each cluster, the directory lookups, and the rate limits (`cmapi/src/cmapi/core/ratelimit.py:3-4`, #689).
+These caches are in the memory of each process, and are not shared: the signing keys for ten minutes (`cmapi/src/cmapi/core/auth.py:40`), the watch cache of each cluster, the directory lookups, and the rate limits (`cmapi/src/cmapi/core/ratelimit.py:4-5`, #689).
 
 **Decision, 2026-11-13: no new cache table and no cache library.** Nothing in the built code needs a general key-value cache that replicas share. When a feature needs one, the reference is the owner's `github.com/inkcasthq/kvpg` at commit `f654a121820f`: its contract v1 (rules S1 to S14), a logged table, expiry by the database's `now()`, and cleanup in batches. The choice between a small store of cmapi's own and a public Python library is open until then, with the checks in `OB1-PROMPT.md`. OB1 did not read kvpg for this decision, because the decision adds nothing.
 
@@ -264,10 +271,10 @@ The figure is `docs/diagrams/data-model/source.html`, drawn to diagram-kit's `/v
 
 ## The tables
 
-Written by `scripts/db-schema-doc.py` from the test database of the service suite (PostgreSQL 16 on `127.0.0.1:55432`, macOS, 2026-11-13; written again on 2026-11-23 for migrations `0008` (#592) and `0009` (#603), and on 2026-11-26 for `0011` (#62)). The test `tests/service/test_data_model_doc.py` fails when this part differs from the database. To write it again: `CMAPI_DATABASE_URL=... python scripts/db-schema-doc.py`, and replace the text between the two marker lines.
+Written by `scripts/db-schema-doc.py` from the test database of the service suite (PostgreSQL 16 on `127.0.0.1:55432`, macOS, 2026-11-13; written again on 2026-11-23 for migrations `0008` (#592) and `0009` (#603), and on 2026-11-26 for `0011` (#62) and `0012` (#21)). The test `tests/service/test_data_model_doc.py` fails when this part differs from the database. To write it again: `CMAPI_DATABASE_URL=... python scripts/db-schema-doc.py`, and replace the text between the two marker lines.
 
 <!-- schema:begin -->
-Migration head: `0011`. Tables: 13.
+Migration head: `0012`. Tables: 14.
 
 ### `admin_switches`
 
@@ -376,6 +383,10 @@ Migration head: `0011`. Tables: 13.
 | `expires_at` | timestamptz | no |  |
 | `released_at` | timestamptz | yes |  |
 | `released_why` | varchar(20) | yes |  |
+| `placement_id` | varchar(40) | yes |  |
+| `env` | varchar(20) | yes |  |
+| `team` | varchar(63) | yes |  |
+| `placed_by` | varchar(100) | yes |  |
 
 | Constraint or index | Kind | Definition |
 |---|---|---|
@@ -385,6 +396,32 @@ Migration head: `0011`. Tables: 13.
 | `capacity_reservations_pkey` | Primary key | `PRIMARY KEY (reservation_id)` |
 | `idx_resv_active` | Index | `btree (cluster_id) WHERE (released_at IS NULL)` |
 | `idx_resv_request` | Index | `btree (request_id)` |
+| `uq_resv_placement` | Unique index | `btree (placement_id) WHERE (placement_id IS NOT NULL)` |
+
+### `capacity_snapshots`
+
+| Column | Type | Null | Default |
+|---|---|---|---|
+| `cluster_id` | varchar(63) | no |  |
+| `taken_at` | timestamptz | no |  |
+| `scope` | varchar(80) | no |  |
+| `interval_seconds` | integer | no |  |
+| `source` | varchar(10) | no |  |
+| `cpu` | jsonb | no |  |
+| `memory` | jsonb | no |  |
+| `pods` | jsonb | no |  |
+| `storage` | jsonb | yes |  |
+| `nodes` | jsonb | no |  |
+| `complete` | boolean | no |  |
+| `detail` | text | yes |  |
+
+| Constraint or index | Kind | Definition |
+|---|---|---|
+| `ck_snapshot_detail` | Check | `CHECK ((complete = (detail IS NULL)))` |
+| `ck_snapshot_source` | Check | `CHECK (((source)::text = ANY ((ARRAY['thanos'::character varying, 'api'::character varying])::text[])))` |
+| `capacity_snapshots_pkey` | Primary key | `PRIMARY KEY (cluster_id, taken_at, scope)` |
+| `idx_snapshots_cluster_taken` | Index | `btree (cluster_id, taken_at)` |
+| `idx_snapshots_taken` | Index | `btree (taken_at)` |
 
 ### `change_requests`
 

@@ -711,7 +711,7 @@
                 "type": "null"
               }
             ],
-            "description": "The size the commitment is measured against: `simulated` when clusters.yaml sets `simulatedCapacity` (what the plan's capacity check uses until cmapi-capacity, #21), else `allocatable` from the nodes. Null when neither is known",
+            "description": "The size the commitment is measured against: `simulated` when clusters.yaml sets `simulatedCapacity`, else `allocatable` from the nodes. The plan's capacity check and placement use the same size, and a node read that is not fresh is unknown to them (#21). Null when neither is known",
             "examples": [
               "simulated"
             ],
@@ -770,7 +770,7 @@
                 "type": "null"
               }
             ],
-            "description": "The cluster's figures over time, from the snapshots of cmapi-capacity (#21). Null: not measured yet",
+            "description": "Always null here: a cluster's snapshots are `GET /api/v1/clusters/{clusterId}/capacity`",
             "examples": [
               null
             ],
@@ -869,6 +869,10 @@
               0
             ],
             "title": "Scopedquotas"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/CapacitySnapshotState",
+            "description": "The cluster's stored capacity snapshots (#21), which placement reads"
           },
           "state": {
             "description": "What can be said of its figures: `ok`; `loading` (the quotas, or the nodes of a cluster sized by them, are being listed); `not-imported` (clusters.yaml names the cluster and no import Secret does: nothing was tried); `unreachable` (the import is not connected: the detail names its status of GET /clusters); `forbidden` (cmapi-reader may not list ResourceQuotas); `stale` (no good read for 30 minutes: the figures are the last ones read); `no-size` (no `simulatedCapacity`, and the nodes' allocatable is not known)",
@@ -969,7 +973,8 @@
           "boundBy",
           "cpu",
           "memory",
-          "history"
+          "history",
+          "snapshot"
         ],
         "title": "CapacityCluster",
         "type": "object"
@@ -1386,7 +1391,7 @@
             "type": "integer"
           },
           "notMeasured": {
-            "description": "The fields that are null for every cluster because only the snapshots can give them",
+            "description": "The fields that are null for every cluster: `history`, and with capacity.yaml `usage.source` none `requested`, `usedAvg` and `usedPeak`, which only Thanos measures",
             "examples": [
               [
                 "requested",
@@ -1401,11 +1406,19 @@
             "title": "Notmeasured",
             "type": "array"
           },
-          "snapshotState": {
-            "const": "not-built",
-            "description": "The snapshots of cmapi-capacity (#21): `not-built` until it serves them",
+          "snapshotIntervalSeconds": {
+            "description": "capacity.yaml `snapshotInterval`, in seconds",
             "examples": [
-              "not-built"
+              1800
+            ],
+            "title": "Snapshotintervalseconds",
+            "type": "integer"
+          },
+          "snapshotState": {
+            "const": "stored",
+            "description": "The capacity snapshots (#21): `stored` every `snapshotIntervalSeconds` by the worker; each cluster's own state is its `snapshot`",
+            "examples": [
+              "stored"
             ],
             "title": "Snapshotstate",
             "type": "string"
@@ -1419,6 +1432,14 @@
             "title": "Source",
             "type": "string"
           },
+          "staleAfterSeconds": {
+            "description": "How old a cluster's newest complete snapshot may be before placement excludes it: `snapshotInterval` \u00d7 `staleAfterIntervals`",
+            "examples": [
+              3600
+            ],
+            "title": "Staleafterseconds",
+            "type": "integer"
+          },
           "targets": {
             "description": "The overcommit and the targets of each environment in the caller's scope",
             "items": {
@@ -1431,6 +1452,8 @@
         "required": [
           "source",
           "snapshotState",
+          "snapshotIntervalSeconds",
+          "staleAfterSeconds",
           "notMeasured",
           "groupBy",
           "hiddenClusters",
@@ -1593,7 +1616,7 @@
                 "type": "null"
               }
             ],
-            "description": "The requests of every pod, from the snapshots of cmapi-capacity (#21). Null: not measured yet (`notMeasured`)",
+            "description": "The requests of the cluster's live pods, from its newest complete snapshot (#21). Null when no snapshot measured it: capacity.yaml `usage.source` none, or no complete snapshot yet",
             "examples": [
               null
             ],
@@ -1656,7 +1679,7 @@
                 "type": "null"
               }
             ],
-            "description": "The average use over a snapshot interval (#21). Null: not measured yet",
+            "description": "The pods' average use over the newest complete snapshot's interval (#21). Null when not measured",
             "examples": [
               null
             ],
@@ -1671,7 +1694,7 @@
                 "type": "null"
               }
             ],
-            "description": "The peak use over a snapshot interval (#21). Null: not measured yet",
+            "description": "The pods' peak use over that interval, in 5-minute steps (#21). Null when not measured",
             "examples": [
               null
             ],
@@ -1695,6 +1718,83 @@
           "usedPeak"
         ],
         "title": "CapacityResource",
+        "type": "object"
+      },
+      "CapacitySnapshotState": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the newest snapshot is incomplete, or how old the newest complete one is",
+            "examples": [
+              null
+            ],
+            "title": "Detail"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "thanos",
+                  "api"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What measured it: `thanos` (capacity.yaml `usage.source: thanos`), or `api`, the nodes and quotas alone",
+            "examples": [
+              "api"
+            ],
+            "title": "Source"
+          },
+          "state": {
+            "description": "`ok`: the newest complete snapshot is within capacity.yaml `staleAfterIntervals`; `incomplete`: the newest one is not complete (`detail`); `stale`: the newest complete one is older; `none`: no snapshot yet. Placement takes only `ok`",
+            "enum": [
+              "ok",
+              "stale",
+              "incomplete",
+              "none"
+            ],
+            "examples": [
+              "ok"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "takenAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The end of the newest complete snapshot's interval",
+            "examples": [
+              "2026-11-26T17:00:00Z"
+            ],
+            "title": "Takenat"
+          }
+        },
+        "required": [
+          "state",
+          "takenAt",
+          "source",
+          "detail"
+        ],
+        "title": "CapacitySnapshotState",
         "type": "object"
       },
       "CapacityStatusCounts": {
@@ -2164,6 +2264,85 @@
           "items"
         ],
         "title": "ClusterList",
+        "type": "object"
+      },
+      "ClusterSelector": {
+        "additionalProperties": false,
+        "properties": {
+          "matchLabels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Each label the cluster must carry with this value: clusters.yaml `labels`",
+            "examples": [
+              {
+                "region": "us-central"
+              }
+            ],
+            "title": "Matchlabels",
+            "type": "object"
+          }
+        },
+        "title": "ClusterSelector",
+        "type": "object"
+      },
+      "ClusterSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "clusterId": {
+            "description": "The cluster",
+            "examples": [
+              "CRC"
+            ],
+            "title": "Clusterid",
+            "type": "string"
+          },
+          "env": {
+            "description": "Its environment",
+            "examples": [
+              "dev"
+            ],
+            "title": "Env",
+            "type": "string"
+          },
+          "intervalSeconds": {
+            "description": "capacity.yaml `snapshotInterval`, in seconds",
+            "examples": [
+              1800
+            ],
+            "title": "Intervalseconds",
+            "type": "integer"
+          },
+          "scopes": {
+            "description": "The newest complete snapshot's rows: the cluster, each zone, each role. Empty when there is none",
+            "items": {
+              "$ref": "#/components/schemas/SnapshotScope"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/CapacitySnapshotState",
+            "description": "Its freshness, as placement reads it"
+          },
+          "staleAfterSeconds": {
+            "description": "Older than this, placement excludes the cluster as stale-data",
+            "examples": [
+              3600
+            ],
+            "title": "Staleafterseconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "clusterId",
+          "env",
+          "intervalSeconds",
+          "staleAfterSeconds",
+          "snapshot",
+          "scopes"
+        ],
+        "title": "ClusterSnapshot",
         "type": "object"
       },
       "ClusterTrust": {
@@ -4392,7 +4571,7 @@
                 "type": "null"
               }
             ],
-            "description": "Reservation from POST /capacity:place",
+            "description": "The `placementId` of POST /api/v1/capacity:place: its hold becomes this request's own. The placement must be active and made for the path's cluster, its environment and the `cmapi.net/team` label sent here",
             "examples": [
               null
             ],
@@ -5322,6 +5501,563 @@
           }
         },
         "title": "PermanentBody",
+        "type": "object"
+      },
+      "PlacementAsk": {
+        "additionalProperties": false,
+        "properties": {
+          "constraints": {
+            "$ref": "#/components/schemas/PlacementConstraints",
+            "description": "As asked"
+          },
+          "cpu": {
+            "description": "The tier's `requests.cpu`, in millicores: what is reserved",
+            "examples": [
+              8000
+            ],
+            "title": "Cpu",
+            "type": "integer"
+          },
+          "environment": {
+            "description": "As asked",
+            "examples": [
+              "dev"
+            ],
+            "title": "Environment",
+            "type": "string"
+          },
+          "memory": {
+            "description": "The tier's `requests.memory`, in bytes",
+            "examples": [
+              17179869184
+            ],
+            "title": "Memory",
+            "type": "integer"
+          },
+          "pods": {
+            "description": "The tier's `pods`, 0 when it sets none",
+            "examples": [
+              50
+            ],
+            "title": "Pods",
+            "type": "integer"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As asked",
+            "examples": [
+              "payments"
+            ],
+            "title": "Team"
+          },
+          "tier": {
+            "description": "As asked",
+            "examples": [
+              "small"
+            ],
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "environment",
+          "team",
+          "tier",
+          "cpu",
+          "memory",
+          "pods",
+          "constraints"
+        ],
+        "title": "PlacementAsk",
+        "type": "object"
+      },
+      "PlacementConstraints": {
+        "additionalProperties": false,
+        "properties": {
+          "clusterSelector": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClusterSelector"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only clusters whose labels match",
+            "examples": [
+              null
+            ]
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only clusters whose clusters.yaml label `region` is this",
+            "examples": [
+              "us-central"
+            ],
+            "title": "Region"
+          },
+          "zones": {
+            "description": "Only clusters with a counted node in each of these zones",
+            "examples": [
+              []
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Zones",
+            "type": "array"
+          }
+        },
+        "title": "PlacementConstraints",
+        "type": "object"
+      },
+      "PlacementExcluded": {
+        "additionalProperties": false,
+        "properties": {
+          "clusterId": {
+            "description": "A cluster of the environment left out",
+            "examples": [
+              "OCP_GF7"
+            ],
+            "title": "Clusterid",
+            "type": "string"
+          },
+          "detail": {
+            "description": "Why, in words",
+            "examples": [
+              "newest complete snapshot 95 min old, limit 60 min"
+            ],
+            "title": "Detail",
+            "type": "string"
+          },
+          "reason": {
+            "description": "The first hard filter it fails",
+            "enum": [
+              "not-connected",
+              "not-writable",
+              "placement-disabled",
+              "outside-region",
+              "outside-zones",
+              "outside-selector",
+              "stale-data",
+              "partial-data",
+              "no-size",
+              "max-namespaces",
+              "no-cpu-headroom",
+              "no-memory-headroom",
+              "zone-failure-headroom"
+            ],
+            "examples": [
+              "stale-data"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clusterId",
+          "reason",
+          "detail"
+        ],
+        "title": "PlacementExcluded",
+        "type": "object"
+      },
+      "PlacementFactors": {
+        "additionalProperties": false,
+        "properties": {
+          "balance": {
+            "description": "0 to 1: 0.5 at the environment's average commitment, more below it",
+            "examples": [
+              0.5
+            ],
+            "title": "Balance",
+            "type": "number"
+          },
+          "quotaHeadroom": {
+            "description": "0 to 1: the smaller resource's headroom after placement, over its limit",
+            "examples": [
+              0.875
+            ],
+            "title": "Quotaheadroom",
+            "type": "number"
+          },
+          "teamAffinity": {
+            "description": "1 when the team already has a namespace on the cluster, else 0",
+            "examples": [
+              0.0
+            ],
+            "title": "Teamaffinity",
+            "type": "number"
+          },
+          "usageHeadroom": {
+            "description": "0 to 1: 1 \u2212 the 14-day p95 of use; 0 when not measured",
+            "examples": [
+              0.0
+            ],
+            "title": "Usageheadroom",
+            "type": "number"
+          },
+          "zoneSpread": {
+            "description": "0 to 1: the smallest zone's allocatable over the largest's; 0 with under two zones",
+            "examples": [
+              0.0
+            ],
+            "title": "Zonespread",
+            "type": "number"
+          }
+        },
+        "required": [
+          "quotaHeadroom",
+          "usageHeadroom",
+          "balance",
+          "teamAffinity",
+          "zoneSpread"
+        ],
+        "title": "PlacementFactors",
+        "type": "object"
+      },
+      "PlacementFigures": {
+        "additionalProperties": false,
+        "properties": {
+          "quotaHeadroomAfter": {
+            "description": "The same after this namespace",
+            "examples": [
+              112000
+            ],
+            "title": "Quotaheadroomafter",
+            "type": "integer"
+          },
+          "quotaHeadroomBefore": {
+            "description": "Size \u00d7 overcommit \u2212 committed \u2212 active reservations, now",
+            "examples": [
+              120000
+            ],
+            "title": "Quotaheadroombefore",
+            "type": "integer"
+          },
+          "unit": {
+            "description": "The unit of the amounts",
+            "enum": [
+              "millicores",
+              "bytes"
+            ],
+            "examples": [
+              "millicores"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "usageP95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The 14-day p95 of use over allocatable, from the snapshots. Null when no snapshot measured use",
+            "examples": [
+              null
+            ],
+            "title": "Usagep95"
+          },
+          "zoneFailureHeadroomAfter": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The headroom after this namespace with the largest zone lost; only in placement.yaml `zoneFailureEnvironments` (prod)",
+            "examples": [
+              null
+            ],
+            "title": "Zonefailureheadroomafter"
+          }
+        },
+        "required": [
+          "unit",
+          "quotaHeadroomBefore",
+          "quotaHeadroomAfter",
+          "zoneFailureHeadroomAfter",
+          "usageP95"
+        ],
+        "title": "PlacementFigures",
+        "type": "object"
+      },
+      "PlacementRanked": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "anyOf": [
+              {
+                "enum": [
+                  "simulated",
+                  "allocatable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The size headroom is measured against, as the Capacity tab's",
+            "examples": [
+              "simulated"
+            ],
+            "title": "Basis"
+          },
+          "boundBy": {
+            "description": "The resource whose commitment is higher after placement",
+            "enum": [
+              "cpu",
+              "memory",
+              "both"
+            ],
+            "examples": [
+              "cpu"
+            ],
+            "title": "Boundby",
+            "type": "string"
+          },
+          "clusterId": {
+            "description": "A cluster that passes every hard filter",
+            "examples": [
+              "CRC"
+            ],
+            "title": "Clusterid",
+            "type": "string"
+          },
+          "cpu": {
+            "$ref": "#/components/schemas/PlacementFigures",
+            "description": "CPU, in millicores"
+          },
+          "factors": {
+            "$ref": "#/components/schemas/PlacementFactors",
+            "description": "Each factor of the score, before its weight"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/PlacementFigures",
+            "description": "Memory, in bytes"
+          },
+          "reserved": {
+            "description": "True on the cluster the placement holds: the first that still fit under its lock",
+            "examples": [
+              true
+            ],
+            "title": "Reserved",
+            "type": "boolean"
+          },
+          "score": {
+            "description": "0 to 100: the weighted factors \u00d7 the cluster's `placement.weight`, capped at 100",
+            "examples": [
+              50
+            ],
+            "title": "Score",
+            "type": "integer"
+          },
+          "snapshotAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The end of the newest complete snapshot's interval",
+            "examples": [
+              "2026-11-26T17:00:00Z"
+            ],
+            "title": "Snapshotat"
+          }
+        },
+        "required": [
+          "clusterId",
+          "score",
+          "reserved",
+          "basis",
+          "snapshotAt",
+          "boundBy",
+          "factors",
+          "cpu",
+          "memory"
+        ],
+        "title": "PlacementRanked",
+        "type": "object"
+      },
+      "PlacementRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "constraints": {
+            "$ref": "#/components/schemas/PlacementConstraints",
+            "description": "Where the namespace may go"
+          },
+          "environment": {
+            "description": "The environment of the new namespace: one this instance serves",
+            "examples": [
+              "dev"
+            ],
+            "title": "Environment",
+            "type": "string"
+          },
+          "quota": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Custom tier only: the sizable quota keys, as the create sends them",
+            "examples": [
+              null
+            ],
+            "title": "Quota"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The team the namespace is for: the create's `cmapi.net/team` label must be the same. Left out on an instance whose metadata keys have no team label; the cap of 3 active placements is then the caller's own",
+            "examples": [
+              "payments"
+            ],
+            "title": "Team"
+          },
+          "tier": {
+            "default": "small",
+            "description": "A tier of GET /tiers, or custom",
+            "examples": [
+              "small"
+            ],
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "environment"
+        ],
+        "title": "PlacementRequest",
+        "type": "object"
+      },
+      "PlacementResult": {
+        "additionalProperties": false,
+        "properties": {
+          "asOf": {
+            "description": "When the clusters were ranked",
+            "examples": [
+              "2026-11-26T17:00:12Z"
+            ],
+            "format": "date-time",
+            "title": "Asof",
+            "type": "string"
+          },
+          "clusterId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reserved cluster: the create's path cluster. Null on a dry run",
+            "examples": [
+              "CRC"
+            ],
+            "title": "Clusterid"
+          },
+          "excluded": {
+            "description": "Every other cluster of the environment in the caller's scope, with its reason",
+            "items": {
+              "$ref": "#/components/schemas/PlacementExcluded"
+            },
+            "title": "Excluded",
+            "type": "array"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the reservation lapses unless a create claims it. Null on a dry run",
+            "examples": [
+              "2026-11-26T17:15:00Z"
+            ],
+            "title": "Expiresat"
+          },
+          "placementId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reservation to send as the create's `placementId`. Null on a dry run",
+            "examples": [
+              "pl-20261126-3f9a1c2e"
+            ],
+            "title": "Placementid"
+          },
+          "ranked": {
+            "description": "The clusters that pass, best first; ties go to the lower cluster ID",
+            "items": {
+              "$ref": "#/components/schemas/PlacementRanked"
+            },
+            "title": "Ranked",
+            "type": "array"
+          },
+          "request": {
+            "$ref": "#/components/schemas/PlacementAsk",
+            "description": "What was asked, sized from the tier"
+          }
+        },
+        "required": [
+          "placementId",
+          "expiresAt",
+          "clusterId",
+          "asOf",
+          "request",
+          "ranked",
+          "excluded"
+        ],
+        "title": "PlacementResult",
         "type": "object"
       },
       "PlanAdoption": {
@@ -7871,6 +8607,241 @@
         "title": "SetBody",
         "type": "object"
       },
+      "SnapshotResource": {
+        "additionalProperties": false,
+        "properties": {
+          "allocatable": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The counted nodes' `status.allocatable`",
+            "examples": [
+              7500
+            ],
+            "title": "Allocatable"
+          },
+          "capacity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The nodes' `status.capacity`",
+            "examples": [
+              8000
+            ],
+            "title": "Capacity"
+          },
+          "limits": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Live pods' limits (Thanos). Null when not measured",
+            "examples": [
+              null
+            ],
+            "title": "Limits"
+          },
+          "quotaCommitted": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What cmapi's quotas committed at the snapshot (cluster row only)",
+            "examples": [
+              8000
+            ],
+            "title": "Quotacommitted"
+          },
+          "requested": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Live pods' requests (Thanos). Null when not measured",
+            "examples": [
+              null
+            ],
+            "title": "Requested"
+          },
+          "unit": {
+            "description": "The unit of the amounts",
+            "enum": [
+              "millicores",
+              "bytes"
+            ],
+            "examples": [
+              "millicores"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "usedAvg": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Average use over the interval (Thanos). Null when not measured",
+            "examples": [
+              null
+            ],
+            "title": "Usedavg"
+          },
+          "usedPeak": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Peak use over the interval, in 5-minute steps (Thanos)",
+            "examples": [
+              null
+            ],
+            "title": "Usedpeak"
+          }
+        },
+        "required": [
+          "unit",
+          "capacity",
+          "allocatable",
+          "requested",
+          "limits",
+          "usedAvg",
+          "usedPeak",
+          "quotaCommitted"
+        ],
+        "title": "SnapshotResource",
+        "type": "object"
+      },
+      "SnapshotRun": {
+        "additionalProperties": false,
+        "properties": {
+          "clusterId": {
+            "description": "The cluster",
+            "examples": [
+              "CRC"
+            ],
+            "title": "Clusterid",
+            "type": "string"
+          },
+          "queued": {
+            "description": "True when a run was queued; false when one was already waiting",
+            "examples": [
+              true
+            ],
+            "title": "Queued",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "clusterId",
+          "queued"
+        ],
+        "title": "SnapshotRun",
+        "type": "object"
+      },
+      "SnapshotScope": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu": {
+            "$ref": "#/components/schemas/SnapshotResource",
+            "description": "CPU, in millicores"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/SnapshotResource",
+            "description": "Memory, in bytes"
+          },
+          "nodes": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "`total`, `schedulable`, `notReady`, `memoryPressure`, `diskPressure`",
+            "examples": [
+              {
+                "diskPressure": 0,
+                "memoryPressure": 0,
+                "notReady": 0,
+                "schedulable": 1,
+                "total": 1
+              }
+            ],
+            "title": "Nodes",
+            "type": "object"
+          },
+          "pods": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "`allocatable` and `running` (Thanos)",
+            "examples": [
+              {
+                "allocatable": 250
+              }
+            ],
+            "title": "Pods",
+            "type": "object"
+          },
+          "scope": {
+            "description": "`cluster`, `zone:<name>` or `role:<worker|infra|master>`",
+            "examples": [
+              "cluster"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "cpu",
+          "memory",
+          "pods",
+          "nodes"
+        ],
+        "title": "SnapshotScope",
+        "type": "object"
+      },
       "Suggestion": {
         "additionalProperties": false,
         "properties": {
@@ -8425,7 +9396,7 @@
                 "example": {
                   "paused": true,
                   "reason": "incident 1234",
-                  "setAt": "2026-11-26T19:40:34.294751+00:00",
+                  "setAt": "2026-11-26T21:29:19.819711+00:00",
                   "setBy": "ada"
                 },
                 "schema": {
@@ -8652,7 +9623,7 @@
                 "example": {
                   "paused": false,
                   "reason": "incident 1234 closed",
-                  "setAt": "2026-11-26T19:40:34.288352+00:00",
+                  "setAt": "2026-11-26T21:29:19.829731+00:00",
                   "setBy": "ada"
                 },
                 "schema": {
@@ -9215,18 +10186,18 @@
                       "cpuThrottledPeriods": null,
                       "cpuThrottledSeconds": null,
                       "cpuUsageSeconds": null,
-                      "measuredAt": 1795722029.082976,
+                      "measuredAt": 1795728550.649558,
                       "memoryBytes": null,
                       "memoryLimitBytes": null
                     }
                   ],
                   "database": {
-                    "connections": 9,
+                    "connections": 12,
                     "connectionsMax": 100,
                     "oldestTransactionSeconds": 0.0,
                     "poolInUse": 0,
                     "poolSize": 5,
-                    "sizeBytes": 8789015,
+                    "sizeBytes": 9976855,
                     "walBytes": 83886080
                   },
                   "instance": "nonprod",
@@ -9238,7 +10209,7 @@
                       "target": "under 10 min",
                       "targetStatus": "proposed",
                       "unit": "seconds",
-                      "value": 0.448472
+                      "value": 0.508825
                     },
                     {
                       "id": "lead-time-approved-p90",
@@ -9695,7 +10666,7 @@
                   "approval": {
                     "approvals": [
                       {
-                        "at": "2026-11-26T19:40:38.576781Z",
+                        "at": "2026-11-26T21:29:27.483037Z",
                         "comment": "",
                         "relayedBy": null,
                         "sub": "sub-amy",
@@ -9722,74 +10693,74 @@
                   "baseSha": "f2384f006831a8a6663be5efae93955878f7cae8",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:38.481947Z",
+                  "createdAt": "2026-11-26T21:29:27.340680Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:38.495727Z",
+                      "at": "2026-11-26T21:29:27.361637Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-26T19:40:38.597053Z",
+                      "at": "2026-11-26T21:29:27.506122Z",
                       "by": "amy",
                       "event": "approval",
                       "note": "",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-26T19:40:38.611699Z",
+                      "at": "2026-11-26T21:29:27.529881Z",
                       "by": "amy",
                       "event": "approved",
                       "note": "approval count met",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-26T19:40:38.769151Z",
+                      "at": "2026-11-26T21:29:27.723576Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
                       "note": "cmapi/CRC/req-20261126-0008 at 89561eb2 on f2384f00 (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-26T19:40:38.922700Z",
+                      "at": "2026-11-26T21:29:27.935135Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
                       "note": "cmapi/CRC/req-20261126-0008 #7",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:39.040742Z",
+                      "at": "2026-11-26T21:29:28.112503Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:39.189714Z",
+                      "at": "2026-11-26T21:29:28.323531Z",
                       "by": "worker",
                       "event": "merge_verified",
                       "note": "merged 89561eb2; the folder at it is the plan's",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:39.207616Z",
+                      "at": "2026-11-26T21:29:28.342302Z",
                       "by": "cmapi-bot",
                       "event": "merged",
                       "note": "merged 89561eb2",
                       "status": "merged"
                     },
                     {
-                      "at": "2026-11-26T19:40:39.352918Z",
+                      "at": "2026-11-26T21:29:28.537793Z",
                       "by": "cmapi-deliverer",
                       "event": "prune_pending",
                       "note": "Prune=confirm: waiting for an operator to confirm the prune",
                       "status": "awaiting_prune"
                     },
                     {
-                      "at": "2026-11-26T19:40:39.853518Z",
+                      "at": "2026-11-26T21:29:29.397031Z",
                       "by": "opal",
                       "event": "prune_confirm",
                       "note": "operator confirmed the prune",
@@ -9839,7 +10810,7 @@
                     "submittedByClient": null
                   },
                   "status": "awaiting_prune",
-                  "updatedAt": "2026-11-26T19:40:39.758577Z"
+                  "updatedAt": "2026-11-26T21:29:29.266005Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -10165,7 +11136,7 @@
                 "example": {
                   "clusters": [
                     {
-                      "asOf": "2026-11-26T19:40:00Z",
+                      "asOf": "2026-11-26T21:29:00Z",
                       "basis": "simulated",
                       "boundBy": "cpu",
                       "clusterId": "CRC",
@@ -10215,6 +11186,12 @@
                       "nodesState": "ok",
                       "region": "us-central",
                       "scopedQuotas": 0,
+                      "snapshot": {
+                        "detail": "no snapshot yet",
+                        "source": null,
+                        "state": "none",
+                        "takenAt": null
+                      },
                       "state": "ok",
                       "stateDetail": null,
                       "status": "ok",
@@ -10279,8 +11256,10 @@
                     "usedPeak",
                     "history"
                   ],
-                  "snapshotState": "not-built",
+                  "snapshotIntervalSeconds": 1800,
+                  "snapshotState": "stored",
                   "source": "live",
+                  "staleAfterSeconds": 3600,
                   "targets": [
                     {
                       "commitment": {
@@ -10414,7 +11393,7 @@
                     "value": {
                       "code": "precondition-failed",
                       "detail": "If-Match does not list the current ETag of this answer: read it again",
-                      "etag": "9901c3f32a72c5b466861cd4ecf273e7",
+                      "etag": "8b06cd76defcd0c28f92ad8438846587",
                       "status": 412,
                       "title": "precondition failed",
                       "type": "https://cmapi.ephico2real.com/problems/precondition-failed"
@@ -10547,6 +11526,394 @@
         "x-plugin-version": "0.2.0"
       }
     },
+    "/api/v1/capacity:place": {
+      "post": {
+        "description": "Ranks every cluster of the environment for a namespace of this tier, and holds the first that still fits for 15 minutes\n(placement.yaml `reservation`): 201 with its `placementId`. The create then sends `placementId`, which turns the hold into the request's own\n(docs/02, \"Placement\"). `dryRun=true` ranks and holds nothing: the portal's preview.\n\nEach cluster is either ranked, best first, or excluded with a named reason: not connected, not writable, placement disabled,\noutside the region, zones or clusterSelector, stale or partial snapshot data, no size, maxNamespaces reached, no CPU or\nmemory headroom after committed quota and active reservations, and in prod no headroom after losing its largest zone. CPU\nand memory are checked separately. Nothing calls Thanos: the facts are the stored snapshots, the watch of each cluster and\nthe active holds.\n\nRanking needs capacity:read in the environment; the hold needs namespaces:create there too. A team holds at most 3 active\nplacements in an environment: a fourth is 429 rate-limited until one is claimed or lapses. When no cluster can be held,\n422 `no-placement` lists every exclusion. plugins.yaml can stop placement in an environment: 422 `plugin-disabled`, the dry\nrun too, after the permission check.\n\n**Requires** `capacity:read`.",
+        "operationId": "capacity_place",
+        "parameters": [
+          {
+            "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`.",
+              "examples": [
+                true
+              ],
+              "title": "Dryrun",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "constraints": {
+                  "region": "us-central"
+                },
+                "environment": "dev",
+                "team": "billing",
+                "tier": "small"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PlacementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "asOf": "2026-11-26T21:29:38Z",
+                  "clusterId": null,
+                  "excluded": [],
+                  "expiresAt": null,
+                  "placementId": null,
+                  "ranked": [
+                    {
+                      "basis": "simulated",
+                      "boundBy": "cpu",
+                      "clusterId": "CRC",
+                      "cpu": {
+                        "quotaHeadroomAfter": 72000,
+                        "quotaHeadroomBefore": 80000,
+                        "unit": "millicores",
+                        "usageP95": null,
+                        "zoneFailureHeadroomAfter": null
+                      },
+                      "factors": {
+                        "balance": 0.4375,
+                        "quotaHeadroom": 0.5625,
+                        "teamAffinity": 1.0,
+                        "usageHeadroom": 0.0,
+                        "zoneSpread": 0.0
+                      },
+                      "memory": {
+                        "quotaHeadroomAfter": 223338299392,
+                        "quotaHeadroomBefore": 240518168576,
+                        "unit": "bytes",
+                        "usageP95": null,
+                        "zoneFailureHeadroomAfter": null
+                      },
+                      "reserved": false,
+                      "score": 39,
+                      "snapshotAt": "2026-11-26T21:00:00Z"
+                    }
+                  ],
+                  "request": {
+                    "constraints": {
+                      "clusterSelector": null,
+                      "region": "us-central",
+                      "zones": []
+                    },
+                    "cpu": 8000,
+                    "environment": "dev",
+                    "memory": 17179869184,
+                    "pods": 50,
+                    "team": "payments",
+                    "tier": "small"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PlacementResult"
+                }
+              }
+            },
+            "description": "Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "asOf": "2026-11-26T21:29:38Z",
+                  "clusterId": "CRC",
+                  "excluded": [],
+                  "expiresAt": "2026-11-26T21:44:38.342666Z",
+                  "placementId": "pl-20261126-e4546b12",
+                  "ranked": [
+                    {
+                      "basis": "simulated",
+                      "boundBy": "cpu",
+                      "clusterId": "CRC",
+                      "cpu": {
+                        "quotaHeadroomAfter": 72000,
+                        "quotaHeadroomBefore": 80000,
+                        "unit": "millicores",
+                        "usageP95": null,
+                        "zoneFailureHeadroomAfter": null
+                      },
+                      "factors": {
+                        "balance": 0.4375,
+                        "quotaHeadroom": 0.5625,
+                        "teamAffinity": 0.0,
+                        "usageHeadroom": 0.0,
+                        "zoneSpread": 0.0
+                      },
+                      "memory": {
+                        "quotaHeadroomAfter": 223338299392,
+                        "quotaHeadroomBefore": 240518168576,
+                        "unit": "bytes",
+                        "usageP95": null,
+                        "zoneFailureHeadroomAfter": null
+                      },
+                      "reserved": true,
+                      "score": 29,
+                      "snapshotAt": "2026-11-26T21:00:00Z"
+                    }
+                  ],
+                  "request": {
+                    "constraints": {
+                      "clusterSelector": null,
+                      "region": "us-central",
+                      "zones": []
+                    },
+                    "cpu": 8000,
+                    "environment": "dev",
+                    "memory": 17179869184,
+                    "pods": 50,
+                    "team": "billing",
+                    "tier": "small"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PlacementResult"
+                }
+              }
+            },
+            "description": "The placement that holds the first cluster for 15 minutes (created), and the clusters ranked for the namespace."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "unauthenticated": {
+                    "value": {
+                      "code": "unauthenticated",
+                      "detail": "Bearer token required",
+                      "status": 401,
+                      "title": "unauthenticated",
+                      "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "environment-forbidden": {
+                    "value": {
+                      "code": "environment-forbidden",
+                      "detail": "Your roles grant capacity:read only in ['rnd'], not dev",
+                      "status": 403,
+                      "title": "environment forbidden",
+                      "type": "https://cmapi.ephico2real.com/problems/environment-forbidden"
+                    }
+                  },
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "detail": "Missing permission capacity:read: no role in your token grants it (roles: ['cmapi-requester'])",
+                      "status": 403,
+                      "title": "forbidden",
+                      "type": "https://cmapi.ephico2real.com/problems/forbidden"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`, `environment-forbidden`."
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "content-too-large": {
+                    "value": {
+                      "code": "content-too-large",
+                      "detail": "The request content is larger than 1048576 bytes, the most that this instance reads",
+                      "maxBytes": 1048576,
+                      "status": 413,
+                      "title": "content too large",
+                      "type": "https://cmapi.ephico2real.com/problems/content-too-large"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.\n\nCodes: `content-too-large`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "environment-not-served": {
+                    "value": {
+                      "code": "environment-not-served",
+                      "detail": "qa is not served by the nonprod instance",
+                      "instanceUrl": "https://cmapi-staging.ephico2real.com",
+                      "portalUrl": "https://portal-staging.ephico2real.com",
+                      "status": 422,
+                      "title": "environment not served",
+                      "type": "https://cmapi.ephico2real.com/problems/environment-not-served"
+                    }
+                  },
+                  "no-placement": {
+                    "value": {
+                      "code": "no-placement",
+                      "detail": "No dev cluster can take 8 cores and 16Gi: every candidate was excluded",
+                      "excluded": [
+                        {
+                          "clusterId": "CRC",
+                          "detail": "region us-central, not eu-west",
+                          "reason": "outside-region"
+                        }
+                      ],
+                      "status": 422,
+                      "title": "no placement",
+                      "type": "https://cmapi.ephico2real.com/problems/no-placement"
+                    }
+                  },
+                  "plugin-disabled": {
+                    "value": {
+                      "code": "plugin-disabled",
+                      "detail": "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there",
+                      "status": 422,
+                      "title": "plugin disabled",
+                      "type": "https://cmapi.ephico2real.com/problems/plugin-disabled"
+                    }
+                  },
+                  "policy-violation": {
+                    "value": {
+                      "code": "policy-violation",
+                      "detail": "Metadata refused",
+                      "status": 422,
+                      "title": "policy violation",
+                      "type": "https://cmapi.ephico2real.com/problems/policy-violation"
+                    }
+                  },
+                  "validation-failed": {
+                    "value": {
+                      "code": "validation-failed",
+                      "detail": "Request body is not valid",
+                      "status": 422,
+                      "title": "validation failed",
+                      "type": "https://cmapi.ephico2real.com/problems/validation-failed"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`, `environment-not-served`, `plugin-disabled`, `policy-violation`, `no-placement`."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and this key is not cached",
+                      "retryAfter": 30,
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "keycloak": []
+          }
+        ],
+        "summary": "Place a new namespace: rank the clusters and hold the first",
+        "tags": [
+          "capacity"
+        ],
+        "x-cmapi-permission": "capacity:read",
+        "x-cmapi-plugin": "capacity",
+        "x-cmapi-rate-limit": "place",
+        "x-codeSamples": [
+          {
+            "label": "curl",
+            "lang": "Shell",
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/capacity:place -H \"Authorization: Bearer $TOKEN\" -H 'Content-Type: application/json' -d '{\"constraints\": {\"region\": \"us-central\"}, \"environment\": \"dev\", \"team\": \"billing\", \"tier\": \"small\"}'"
+          }
+        ],
+        "x-plugin-version": "0.2.0"
+      }
+    },
     "/api/v1/clusters": {
       "get": {
         "description": "Every cluster from clusters.yaml and every imported one, with its import status and the findings\nof the six checks. A cluster with a policy entry but no import Secret shows not-imported.\n\n**Requires** `clusters:read`.",
@@ -10558,7 +11925,7 @@
                 "example": {
                   "items": [
                     {
-                      "checkedAt": "2026-11-26T19:40:26.109488Z",
+                      "checkedAt": "2026-11-26T21:29:06.728312Z",
                       "clusterId": "CRC",
                       "environment": "dev",
                       "findingDetails": [],
@@ -10567,11 +11934,11 @@
                       "labels": {
                         "region": "us-central"
                       },
-                      "lastProbeAt": "2026-11-26T19:40:26.109488Z",
+                      "lastProbeAt": "2026-11-26T21:29:06.728312Z",
                       "secretName": "cmapi-cluster-crc",
                       "serverVersion": "v1.35.6-fake",
                       "status": "connected",
-                      "statusSince": "2026-11-26T19:40:26.109488Z",
+                      "statusSince": "2026-11-26T21:29:06.728312Z",
                       "tokenExpiresAt": null,
                       "trust": {
                         "downgrade": false,
@@ -11234,6 +12601,492 @@
         "x-plugin-version": "0.2.0"
       }
     },
+    "/api/v1/clusters/{cluster_id}/capacity": {
+      "get": {
+        "description": "The stored rows of the cluster's newest complete snapshot (docs/02, \"Cluster snapshots\"): one for the cluster, one per\nzone and one per node role, each with CPU in millicores and memory in bytes. A figure that the snapshot did not measure is\nnull, never 0: with capacity.yaml `usage.source: none` the requests, limits and use are null. The worker stores a\nsnapshot every capacity.yaml `snapshotInterval`; `snapshot.state` says whether placement can use it.\n\nGateway scope (docs/02, \"Reached only through cmapi\"): capacity:read in the cluster's environment. A cluster outside the\ncaller's environments answers 404 `cluster-not-found`, as an unknown one does.\n\n**Requires** `capacity:read`.",
+        "operationId": "capacity_cluster_capacity",
+        "parameters": [
+          {
+            "description": "The cluster's ID, as `GET /api/v1/clusters` returns it.",
+            "in": "path",
+            "name": "cluster_id",
+            "required": true,
+            "schema": {
+              "description": "The cluster's ID, as `GET /api/v1/clusters` returns it.",
+              "examples": [
+                "CRC"
+              ],
+              "title": "Cluster Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "clusterId": "CRC",
+                  "env": "dev",
+                  "intervalSeconds": 1800,
+                  "scopes": [
+                    {
+                      "cpu": {
+                        "allocatable": 7800,
+                        "capacity": 7800,
+                        "limits": null,
+                        "quotaCommitted": 48000,
+                        "requested": null,
+                        "unit": "millicores",
+                        "usedAvg": null,
+                        "usedPeak": null
+                      },
+                      "memory": {
+                        "allocatable": 20493357056,
+                        "capacity": 20493357056,
+                        "limits": null,
+                        "quotaCommitted": 103079215104,
+                        "requested": null,
+                        "unit": "bytes",
+                        "usedAvg": null,
+                        "usedPeak": null
+                      },
+                      "nodes": {
+                        "diskPressure": 0,
+                        "memoryPressure": 0,
+                        "notReady": 0,
+                        "schedulable": 1,
+                        "total": 1
+                      },
+                      "pods": {
+                        "allocatable": 250,
+                        "running": null
+                      },
+                      "scope": "cluster"
+                    }
+                  ],
+                  "snapshot": {
+                    "detail": null,
+                    "source": "api",
+                    "state": "ok",
+                    "takenAt": "2026-11-26T21:00:00Z"
+                  },
+                  "staleAfterSeconds": 3600
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterSnapshot"
+                }
+              }
+            },
+            "description": "The cluster's newest complete capacity snapshot: the whole cluster, each zone and each node role, with its freshness as placement reads it."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "unauthenticated": {
+                    "value": {
+                      "code": "unauthenticated",
+                      "detail": "Bearer token required",
+                      "status": 401,
+                      "title": "unauthenticated",
+                      "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "detail": "Missing permission capacity:read: no role in your token grants it (roles: ['cmapi-requester'])",
+                      "status": 403,
+                      "title": "forbidden",
+                      "type": "https://cmapi.ephico2real.com/problems/forbidden"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "cluster-not-found": {
+                    "value": {
+                      "code": "cluster-not-found",
+                      "detail": "Unknown cluster NOPE",
+                      "status": 404,
+                      "title": "cluster not found",
+                      "type": "https://cmapi.ephico2real.com/problems/cluster-not-found"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "What the path names is not known.\n\nCodes: `cluster-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "validation-failed": {
+                    "value": {
+                      "code": "validation-failed",
+                      "detail": "Request body is not valid",
+                      "status": 422,
+                      "title": "validation failed",
+                      "type": "https://cmapi.ephico2real.com/problems/validation-failed"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `validation-failed`."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and this key is not cached",
+                      "retryAfter": 30,
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "keycloak": []
+          }
+        ],
+        "summary": "Get a cluster's capacity snapshot",
+        "tags": [
+          "capacity"
+        ],
+        "x-cmapi-permission": "capacity:read",
+        "x-cmapi-plugin": "capacity",
+        "x-cmapi-rate-limit": "read",
+        "x-codeSamples": [
+          {
+            "label": "curl",
+            "lang": "Shell",
+            "source": "curl -X GET https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/capacity -H \"Authorization: Bearer $TOKEN\""
+          }
+        ],
+        "x-plugin-version": "0.2.0"
+      }
+    },
+    "/api/v1/clusters/{cluster_id}/capacity/snapshots:run": {
+      "post": {
+        "description": "Queues a snapshot of the cluster now, outside the schedule (docs/02, \"POST .../capacity/snapshots:run ... Run now\n(operations:run)\"): the worker writes the rows of the current interval again. Needs operations:run in the cluster's\nenvironment; a cluster outside it answers 404 `cluster-not-found`. plugins.yaml can stop it in an environment: 422\n`plugin-disabled`, after the permission check.\n\n**Requires** `operations:run`.",
+        "operationId": "capacity_run_snapshot",
+        "parameters": [
+          {
+            "description": "The cluster's ID, as `GET /api/v1/clusters` returns it.",
+            "in": "path",
+            "name": "cluster_id",
+            "required": true,
+            "schema": {
+              "description": "The cluster's ID, as `GET /api/v1/clusters` returns it.",
+              "examples": [
+                "CRC"
+              ],
+              "title": "Cluster Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "clusterId": "CRC",
+                  "queued": true
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotRun"
+                }
+              }
+            },
+            "description": "The run is queued: the worker writes the cluster's snapshot of the current interval again."
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "dry-run-not-supported": {
+                    "value": {
+                      "code": "dry-run-not-supported",
+                      "detail": "This call has no dry run, and nothing was done",
+                      "status": 400,
+                      "title": "dry run not supported",
+                      "type": "https://cmapi.ephico2real.com/problems/dry-run-not-supported"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A header or a parameter that cmapi reads first is missing or not valid.\n\nCodes: `dry-run-not-supported`."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "unauthenticated": {
+                    "value": {
+                      "code": "unauthenticated",
+                      "detail": "Bearer token required",
+                      "status": 401,
+                      "title": "unauthenticated",
+                      "type": "https://cmapi.ephico2real.com/problems/unauthenticated"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "No token, or the token is not valid.\n\nCodes: `unauthenticated`."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "detail": "Missing permission operations:run: no role in your token grants it (roles: ['cmapi-requester'])",
+                      "status": 403,
+                      "title": "forbidden",
+                      "type": "https://cmapi.ephico2real.com/problems/forbidden"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The caller may not do this, or not in this environment.\n\nCodes: `forbidden`."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "cluster-not-found": {
+                    "value": {
+                      "code": "cluster-not-found",
+                      "detail": "Unknown cluster OCP_X",
+                      "status": 404,
+                      "title": "cluster not found",
+                      "type": "https://cmapi.ephico2real.com/problems/cluster-not-found"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "What the path names is not known.\n\nCodes: `cluster-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "plugin-disabled": {
+                    "value": {
+                      "code": "plugin-disabled",
+                      "detail": "The namespaces plugin takes no writes in dev on the nonprod instance: plugins.yaml disables it there",
+                      "status": 422,
+                      "title": "plugin disabled",
+                      "type": "https://cmapi.ephico2real.com/problems/plugin-disabled"
+                    }
+                  },
+                  "validation-failed": {
+                    "value": {
+                      "code": "validation-failed",
+                      "detail": "Request body is not valid",
+                      "status": 422,
+                      "title": "validation failed",
+                      "type": "https://cmapi.ephico2real.com/problems/validation-failed"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `plugin-disabled`, `validation-failed`."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "rate-limited": {
+                    "value": {
+                      "code": "rate-limited",
+                      "detail": "Too many write calls by this caller; try again in 2 s",
+                      "retryAfter": 2,
+                      "status": 429,
+                      "title": "rate limited",
+                      "type": "https://cmapi.ephico2real.com/problems/rate-limited"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.\n\nCodes: `rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "idp-unavailable": {
+                    "value": {
+                      "code": "idp-unavailable",
+                      "detail": "Keycloak signing keys are unreachable and this key is not cached",
+                      "retryAfter": 30,
+                      "status": 503,
+                      "title": "idp unavailable",
+                      "type": "https://cmapi.ephico2real.com/problems/idp-unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.\n\nCodes: `idp-unavailable`.",
+            "headers": {
+              "Retry-After": {
+                "description": "The seconds to wait before the next call: the same number as `retryAfter`.",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "keycloak": []
+          }
+        ],
+        "summary": "Run a cluster's capacity snapshot now",
+        "tags": [
+          "capacity"
+        ],
+        "x-cmapi-permission": "operations:run",
+        "x-cmapi-plugin": "capacity",
+        "x-cmapi-rate-limit": "write",
+        "x-codeSamples": [
+          {
+            "label": "curl",
+            "lang": "Shell",
+            "source": "curl -X POST https://cmapi-nonprod.ephico2real.com/api/v1/clusters/CRC/capacity/snapshots:run -H \"Authorization: Bearer $TOKEN\""
+          }
+        ],
+        "x-plugin-version": "0.2.0"
+      }
+    },
     "/api/v1/clusters/{cluster_id}/namespaces": {
       "get": {
         "description": "Every namespace labelled cmapi.net/managed=true on the cluster, from the watch cache, with the request\nholding each one's lock. The etag is only on the single-namespace read, because it comes from Git.\n\nThe lookup after a cluster is chosen (#481): `q` matches the name, the team label and the app label, names that\nstart with it first, then names that contain it, then team and app matches; `mnemonic` keeps one mnemonic's\nnamespaces; `limit` caps the answer. `total` counts every match before the cap, and `facets.mnemonics` the\nnamespaces of each mnemonic. Each item's `sync` is `pending` when a request holds it and `unknown` otherwise: the\nlist reads no Git, so it compares nothing. With none of the three parameters the list is every namespace by name.\n\n**Requires** `objects:read`.",
@@ -11833,11 +13686,11 @@
                   "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:27.687545Z",
+                  "createdAt": "2026-11-26T21:29:08.957546Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:27.750862Z",
+                      "at": "2026-11-26T21:29:09.025795Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
@@ -11881,7 +13734,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-26T19:40:27.652434Z"
+                  "updatedAt": "2026-11-26T21:29:08.891177Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -12164,6 +14017,24 @@
                       "type": "https://cmapi.ephico2real.com/problems/on-behalf-of-required"
                     }
                   },
+                  "placement-mismatch": {
+                    "value": {
+                      "code": "placement-mismatch",
+                      "detail": "Placement pl-20261126-e4546b12 was made for another target: the placement's team is 'billing', the create's 'payments'",
+                      "status": 422,
+                      "title": "placement mismatch",
+                      "type": "https://cmapi.ephico2real.com/problems/placement-mismatch"
+                    }
+                  },
+                  "placement-not-found": {
+                    "value": {
+                      "code": "placement-not-found",
+                      "detail": "No active placement pl-20260101-00000000: it expired, was used by another create, or never existed. Place again.",
+                      "status": 422,
+                      "title": "placement not found",
+                      "type": "https://cmapi.ephico2real.com/problems/placement-not-found"
+                    }
+                  },
                   "plugin-disabled": {
                     "value": {
                       "code": "plugin-disabled",
@@ -12240,7 +14111,7 @@
                 }
               }
             },
-            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `unknown-user`, `on-behalf-of-not-allowed`, `policy-violation`, `capacity-exceeded`, `unknown-serviceaccount`, `reserved-namespace`, `invalid-namespace-name`, `expiration-not-allowed`, `expiration-in-past`."
+            "description": "The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.\n\nCodes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `unknown-user`, `on-behalf-of-not-allowed`, `policy-violation`, `capacity-exceeded`, `unknown-serviceaccount`, `reserved-namespace`, `invalid-namespace-name`, `expiration-not-allowed`, `expiration-in-past`, `placement-not-found`, `placement-mismatch`."
           },
           "429": {
             "content": {
@@ -12571,11 +14442,11 @@
                   "baseSha": "f2384f006831a8a6663be5efae93955878f7cae8",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:38.481947Z",
+                  "createdAt": "2026-11-26T21:29:27.340680Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:38.495727Z",
+                      "at": "2026-11-26T21:29:27.361637Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
@@ -12619,7 +14490,7 @@
                     "submittedByClient": null
                   },
                   "status": "pending_approval",
-                  "updatedAt": "2026-11-26T19:40:38.403609Z"
+                  "updatedAt": "2026-11-26T21:29:27.231566Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -13711,11 +15582,11 @@
                   "baseSha": "cb5c898bb9e87c673d2f8ea2db640d276b35b5a0",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:29.491821Z",
+                  "createdAt": "2026-11-26T21:29:11.158795Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:29.571119Z",
+                      "at": "2026-11-26T21:29:11.310506Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
@@ -13759,7 +15630,7 @@
                     "submittedByClient": null
                   },
                   "status": "pending_approval",
-                  "updatedAt": "2026-11-26T19:40:29.475729Z"
+                  "updatedAt": "2026-11-26T21:29:11.177782Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -14486,11 +16357,11 @@
                   "baseSha": "22a35f4793b3c001e8c8f0e6264753ea45b75be6",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:32.379487Z",
+                  "createdAt": "2026-11-26T21:29:16.622636Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:32.449993Z",
+                      "at": "2026-11-26T21:29:16.765615Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "none-required",
@@ -14534,7 +16405,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-26T19:40:32.357632Z"
+                  "updatedAt": "2026-11-26T21:29:16.632147Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -15246,11 +17117,11 @@
                   "baseSha": "a40cef6e6fff67dfaba8587d441c897bd3af523d",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:46.309473Z",
+                  "createdAt": "2026-11-26T21:29:37.204017Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:46.405777Z",
+                      "at": "2026-11-26T21:29:37.293914Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
@@ -15294,7 +17165,7 @@
                     "submittedByClient": null
                   },
                   "status": "pending_approval",
-                  "updatedAt": "2026-11-26T19:40:46.312394Z"
+                  "updatedAt": "2026-11-26T21:29:37.165519Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -15965,11 +17836,11 @@
                   "baseSha": "f13f28fcafc43bb4f6cbc2d6a90c4972cc5d64c5",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:45.120279Z",
+                  "createdAt": "2026-11-26T21:29:35.980080Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:45.206974Z",
+                      "at": "2026-11-26T21:29:36.079631Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "none-required",
@@ -16013,7 +17884,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-26T19:40:45.115112Z"
+                  "updatedAt": "2026-11-26T21:29:35.950662Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -16933,11 +18804,11 @@
                     ]
                   },
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:50.255724Z",
+                  "createdAt": "2026-11-26T21:29:43.082073Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:50.282578Z",
+                      "at": "2026-11-26T21:29:43.107987Z",
                       "by": "opal",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 3)]",
@@ -16980,7 +18851,7 @@
                     "submittedByClient": null
                   },
                   "status": "pending_approval",
-                  "updatedAt": "2026-11-26T19:40:50.186846Z"
+                  "updatedAt": "2026-11-26T21:29:42.977996Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -17419,7 +19290,7 @@
             "content": {
               "application/json": {
                 "example": {
-                  "checkedAt": "2026-11-26T19:40:26.660450Z",
+                  "checkedAt": "2026-11-26T21:29:07.578004Z",
                   "clusterId": "CRC",
                   "environment": "dev",
                   "findingDetails": [],
@@ -17428,11 +19299,11 @@
                   "labels": {
                     "region": "us-central"
                   },
-                  "lastProbeAt": "2026-11-26T19:40:26.660450Z",
+                  "lastProbeAt": "2026-11-26T21:29:07.578004Z",
                   "secretName": "cmapi-cluster-crc",
                   "serverVersion": "v1.35.6-fake",
                   "status": "connected",
-                  "statusSince": "2026-11-26T19:40:26.109488Z",
+                  "statusSince": "2026-11-26T21:29:06.728312Z",
                   "tokenExpiresAt": null,
                   "trust": {
                     "downgrade": false,
@@ -19340,7 +21211,7 @@
             "content": {
               "application/json": {
                 "example": {
-                  "from": "2026-11-19T19:40:46.635219Z",
+                  "from": "2026-11-19T21:29:37.484885Z",
                   "items": [
                     {
                       "action": "create",
@@ -19359,9 +21230,9 @@
                           "source": "cmapi"
                         }
                       ],
-                      "firstAt": "2026-11-26T19:40:43.198822Z",
+                      "firstAt": "2026-11-26T21:29:33.525797Z",
                       "id": "rej-2",
-                      "lastAt": "2026-11-26T19:40:43.198822Z",
+                      "lastAt": "2026-11-26T21:29:33.525797Z",
                       "namespace": "kube-tools",
                       "outcome": "refused",
                       "plugin": "namespaces",
@@ -19387,9 +21258,9 @@
                           "source": "cmapi"
                         }
                       ],
-                      "firstAt": "2026-11-26T19:40:35.975643Z",
+                      "firstAt": "2026-11-26T21:29:22.698142Z",
                       "id": "rej-1",
-                      "lastAt": "2026-11-26T19:40:35.975643Z",
+                      "lastAt": "2026-11-26T21:29:22.698142Z",
                       "namespace": "search-dev",
                       "outcome": "refused",
                       "plugin": "namespaces",
@@ -19764,7 +21635,7 @@
                 "example": {
                   "clusters": [
                     {
-                      "asOf": "2026-11-26T19:40:46.446064Z",
+                      "asOf": "2026-11-26T21:29:37.316589Z",
                       "bundle": {
                         "actionsDiffer": [],
                         "actionsDifferTotal": 0,
@@ -21893,11 +23764,11 @@
                       "baseSha": "cb5c898bb9e87c673d2f8ea2db640d276b35b5a0",
                       "beyondTier": null,
                       "clusterId": "CRC",
-                      "createdAt": "2026-11-26T19:40:29.491821Z",
+                      "createdAt": "2026-11-26T21:29:11.158795Z",
                       "env": "dev",
                       "events": [
                         {
-                          "at": "2026-11-26T19:40:29.571119Z",
+                          "at": "2026-11-26T21:29:11.310506Z",
                           "by": "ola",
                           "event": "plan_needs_approval",
                           "note": "waiting for [('approver-platform', 1)]",
@@ -21941,7 +23812,7 @@
                         "submittedByClient": null
                       },
                       "status": "pending_approval",
-                      "updatedAt": "2026-11-26T19:40:29.475729Z"
+                      "updatedAt": "2026-11-26T21:29:11.177782Z"
                     }
                   ],
                   "letters": {
@@ -22186,67 +24057,67 @@
                   "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:27.687545Z",
+                  "createdAt": "2026-11-26T21:29:08.957546Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:27.750862Z",
+                      "at": "2026-11-26T21:29:09.025795Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-26T19:40:27.854060Z",
+                      "at": "2026-11-26T21:29:09.160896Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
                       "note": "cmapi/CRC/req-20261126-0001 at cb5c898b on aaaaaaaa (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-26T19:40:27.910630Z",
+                      "at": "2026-11-26T21:29:09.245134Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
                       "note": "cmapi/CRC/req-20261126-0001 #1",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:27.958920Z",
+                      "at": "2026-11-26T21:29:09.302793Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:28.065693Z",
+                      "at": "2026-11-26T21:29:09.422145Z",
                       "by": "cmapi-deliverer",
                       "event": "apply_started",
                       "note": "applying cb5c898b before the merge",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:28.128068Z",
+                      "at": "2026-11-26T21:29:09.488499Z",
                       "by": "cmapi-deliverer",
                       "event": "applied",
                       "note": "5 objects from cmapi/CRC/req-20261126-0001 at cb5c898b, before the merge, confirmed by a read: quota matches the plan",
                       "status": "applied"
                     },
                     {
-                      "at": "2026-11-26T19:40:28.199011Z",
+                      "at": "2026-11-26T21:29:09.564401Z",
                       "by": "worker",
                       "event": "merge_verified",
                       "note": "merged cb5c898b; the folder at it is the plan's",
                       "status": "applied"
                     },
                     {
-                      "at": "2026-11-26T19:40:28.217744Z",
+                      "at": "2026-11-26T21:29:09.584626Z",
                       "by": "cmapi-bot",
                       "event": "merged",
                       "note": "merged cb5c898b",
                       "status": "merged"
                     },
                     {
-                      "at": "2026-11-26T19:40:28.243965Z",
+                      "at": "2026-11-26T21:29:09.613506Z",
                       "by": "cmapi-deliverer",
                       "event": "synced",
                       "note": "applied and confirmed by a read before the merge",
@@ -22296,7 +24167,7 @@
                     "submittedByClient": null
                   },
                   "status": "synced",
-                  "updatedAt": "2026-11-26T19:40:28.146800Z"
+                  "updatedAt": "2026-11-26T21:29:09.478435Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -22729,63 +24600,63 @@
                 "example": {
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:27.750862Z",
+                      "at": "2026-11-26T21:29:09.025795Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-26T19:40:27.854060Z",
+                      "at": "2026-11-26T21:29:09.160896Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
                       "note": "cmapi/CRC/req-20261126-0001 at cb5c898b on aaaaaaaa (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-26T19:40:27.910630Z",
+                      "at": "2026-11-26T21:29:09.245134Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
                       "note": "cmapi/CRC/req-20261126-0001 #1",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:27.958920Z",
+                      "at": "2026-11-26T21:29:09.302793Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:28.065693Z",
+                      "at": "2026-11-26T21:29:09.422145Z",
                       "by": "cmapi-deliverer",
                       "event": "apply_started",
                       "note": "applying cb5c898b before the merge",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:28.128068Z",
+                      "at": "2026-11-26T21:29:09.488499Z",
                       "by": "cmapi-deliverer",
                       "event": "applied",
                       "note": "5 objects from cmapi/CRC/req-20261126-0001 at cb5c898b, before the merge, confirmed by a read: quota matches the plan",
                       "status": "applied"
                     },
                     {
-                      "at": "2026-11-26T19:40:28.199011Z",
+                      "at": "2026-11-26T21:29:09.564401Z",
                       "by": "worker",
                       "event": "merge_verified",
                       "note": "merged cb5c898b; the folder at it is the plan's",
                       "status": "applied"
                     },
                     {
-                      "at": "2026-11-26T19:40:28.217744Z",
+                      "at": "2026-11-26T21:29:09.584626Z",
                       "by": "cmapi-bot",
                       "event": "merged",
                       "note": "merged cb5c898b",
                       "status": "merged"
                     },
                     {
-                      "at": "2026-11-26T19:40:28.243965Z",
+                      "at": "2026-11-26T21:29:09.613506Z",
                       "by": "cmapi-deliverer",
                       "event": "synced",
                       "note": "applied and confirmed by a read before the merge",
@@ -23031,7 +24902,7 @@
                   "approval": {
                     "approvals": [
                       {
-                        "at": "2026-11-26T19:40:29.779524Z",
+                        "at": "2026-11-26T21:29:11.597444Z",
                         "comment": "sizing reviewed",
                         "relayedBy": null,
                         "sub": "sub-amy",
@@ -23059,25 +24930,25 @@
                   "baseSha": "cb5c898bb9e87c673d2f8ea2db640d276b35b5a0",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:29.491821Z",
+                  "createdAt": "2026-11-26T21:29:11.158795Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:29.571119Z",
+                      "at": "2026-11-26T21:29:11.310506Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-26T19:40:29.804146Z",
+                      "at": "2026-11-26T21:29:11.632823Z",
                       "by": "amy",
                       "event": "approval",
                       "note": "sizing reviewed",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-26T19:40:29.830890Z",
+                      "at": "2026-11-26T21:29:11.660991Z",
                       "by": "amy",
                       "event": "approved",
                       "note": "approval count met",
@@ -23121,7 +24992,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-26T19:40:29.730650Z"
+                  "updatedAt": "2026-11-26T21:29:11.525570Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -23463,18 +25334,18 @@
                   "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:33.806387Z",
+                  "createdAt": "2026-11-26T21:29:19.060471Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:33.836876Z",
+                      "at": "2026-11-26T21:29:19.111568Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-26T19:40:34.217553Z",
+                      "at": "2026-11-26T21:29:19.696015Z",
                       "by": "ola",
                       "event": "cancel",
                       "note": "",
@@ -23518,7 +25389,7 @@
                     "submittedByClient": null
                   },
                   "status": "cancelled",
-                  "updatedAt": "2026-11-26T19:40:34.123321Z"
+                  "updatedAt": "2026-11-26T21:29:19.562380Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -23815,18 +25686,18 @@
                   "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:33.954425Z",
+                  "createdAt": "2026-11-26T21:29:19.337036Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:33.987924Z",
+                      "at": "2026-11-26T21:29:19.387942Z",
                       "by": "ola",
                       "event": "plan_needs_approval",
                       "note": "waiting for [('approver-platform', 1)]",
                       "status": "pending_approval"
                     },
                     {
-                      "at": "2026-11-26T19:40:34.104645Z",
+                      "at": "2026-11-26T21:29:19.543765Z",
                       "by": "amy",
                       "event": "rejected",
                       "note": "Use the medium tier",
@@ -23870,7 +25741,7 @@
                     "submittedByClient": null
                   },
                   "status": "rejected",
-                  "updatedAt": "2026-11-26T19:40:34.007426Z"
+                  "updatedAt": "2026-11-26T21:29:19.409489Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -24166,67 +26037,67 @@
                   "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:35.532917Z",
+                  "createdAt": "2026-11-26T21:29:22.047809Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:35.572995Z",
+                      "at": "2026-11-26T21:29:22.098757Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-26T19:40:35.700562Z",
+                      "at": "2026-11-26T21:29:22.292124Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
                       "note": "cmapi/CRC/req-20261126-0007 at f2384f00 on 89561eb2 (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-26T19:40:35.807020Z",
+                      "at": "2026-11-26T21:29:22.452921Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
                       "note": "cmapi/CRC/req-20261126-0007 #5",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:35.985035Z",
+                      "at": "2026-11-26T21:29:22.712574Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: fail",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:36.004822Z",
+                      "at": "2026-11-26T21:29:22.744943Z",
                       "by": "ci",
                       "event": "head_moved",
                       "note": "PR head moved from f2384f00 to ec4de521 after approval",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:36.019661Z",
+                      "at": "2026-11-26T21:29:22.777710Z",
                       "by": "ci",
                       "event": "pr_failed",
                       "note": "checks failed",
                       "status": "failed"
                     },
                     {
-                      "at": "2026-11-26T19:40:36.019707Z",
+                      "at": "2026-11-26T21:29:22.777799Z",
                       "by": "worker",
                       "event": "pr_closed",
                       "note": "#5: its checks failed; the request is failed and may be retried",
                       "status": "failed"
                     },
                     {
-                      "at": "2026-11-26T19:40:36.112224Z",
+                      "at": "2026-11-26T21:29:22.959694Z",
                       "by": "worker",
                       "event": "branch_deleted",
                       "note": "cmapi/CRC/req-20261126-0007 at ec4de521",
                       "status": "failed"
                     },
                     {
-                      "at": "2026-11-26T19:40:37.087029Z",
+                      "at": "2026-11-26T21:29:24.739104Z",
                       "by": "opal",
                       "event": "retry",
                       "note": "retry requested",
@@ -24276,7 +26147,7 @@
                     "submittedByClient": null
                   },
                   "status": "approved",
-                  "updatedAt": "2026-11-26T19:40:36.994712Z"
+                  "updatedAt": "2026-11-26T21:29:24.609786Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -24568,60 +26439,60 @@
                   "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
                   "beyondTier": null,
                   "clusterId": "CRC",
-                  "createdAt": "2026-11-26T19:40:41.290794Z",
+                  "createdAt": "2026-11-26T21:29:31.329822Z",
                   "env": "dev",
                   "events": [
                     {
-                      "at": "2026-11-26T19:40:41.339986Z",
+                      "at": "2026-11-26T21:29:31.379458Z",
                       "by": "ola",
                       "event": "plan_auto_approved",
                       "note": "auto:baseline-rnd-namespace",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-26T19:40:41.471643Z",
+                      "at": "2026-11-26T21:29:31.563139Z",
                       "by": "cmapi-bot",
                       "event": "branch_pushed",
                       "note": "cmapi/CRC/req-20261126-0009 at 88a27e68 on 89561eb2 (created)",
                       "status": "approved"
                     },
                     {
-                      "at": "2026-11-26T19:40:41.538744Z",
+                      "at": "2026-11-26T21:29:31.639120Z",
                       "by": "cmapi-bot",
                       "event": "pr_opened",
                       "note": "cmapi/CRC/req-20261126-0009 #8",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:41.594436Z",
+                      "at": "2026-11-26T21:29:31.720184Z",
                       "by": "ci",
                       "event": "ci",
                       "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:41.647709Z",
+                      "at": "2026-11-26T21:29:31.792680Z",
                       "by": "worker",
                       "event": "merge_verified",
                       "note": "merged 88a27e68; the folder at it is the plan's",
                       "status": "pr_open"
                     },
                     {
-                      "at": "2026-11-26T19:40:41.661693Z",
+                      "at": "2026-11-26T21:29:31.810758Z",
                       "by": "cmapi-bot",
                       "event": "merged",
                       "note": "merged 88a27e68",
                       "status": "merged"
                     },
                     {
-                      "at": "2026-11-26T19:40:41.731925Z",
+                      "at": "2026-11-26T21:29:31.907313Z",
                       "by": "worker",
                       "event": "sync_timeout",
                       "note": "orders-dev exists on the cluster and cmapi does not manage it; nothing applied",
                       "status": "sync_failed"
                     },
                     {
-                      "at": "2026-11-26T19:40:41.958054Z",
+                      "at": "2026-11-26T21:29:32.154505Z",
                       "by": "opal",
                       "event": "revert_requested",
                       "note": "",
@@ -24671,7 +26542,7 @@
                     "submittedByClient": null
                   },
                   "status": "sync_failed",
-                  "updatedAt": "2026-11-26T19:40:41.861079Z"
+                  "updatedAt": "2026-11-26T21:29:32.021570Z"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ChangeRequest"
@@ -25340,7 +27211,7 @@
       "x-plugin-version": "0.2.0"
     },
     {
-      "description": "Each cluster's quota commitment against its size, live from the watch of its quotas and nodes, and the groups of clusters by clusters.yaml: the Capacity tab.",
+      "description": "Each cluster's quota commitment against its size, live from the watch of its quotas and nodes, and the groups of clusters by clusters.yaml: the Capacity tab. Each cluster's stored capacity snapshots, and placement: the clusters ranked for a new namespace, and a 15-minute hold on the first.",
       "name": "capacity",
       "x-plugin-version": "0.2.0"
     },

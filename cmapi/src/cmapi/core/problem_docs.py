@@ -74,6 +74,12 @@ ACTIONS: dict[str, str] = {
                         "`findings`, when present, lists what the validator found on the same files beside them: a Kyverno "
                         "warning in audit says the cluster's policy reports the same value.",
     "capacity-exceeded": "Ask for less, or choose another cluster. `detail` names the resource that does not fit.",
+    "no-placement": "Ask for a smaller tier, widen the region, zones or clusterSelector, or ask the platform team for capacity. "
+                    "`excluded` names each cluster and why it was left out.",
+    "placement-not-found": "Call `POST /api/v1/capacity:place` again and send its new `placementId`. A placement holds its cluster "
+                           "for 15 minutes and serves one create.",
+    "placement-mismatch": "Send the create to the cluster that the placement chose, with the same environment and "
+                          "`cmapi.net/team`, and no more CPU or memory than it holds, or place again for this target.",
     "environment-not-served": "Send the request to the instance that serves the environment: `instanceUrl` is its API and "
                               "`portalUrl` its portal. Each is left out when this instance's directory does not name one.",
     "cluster-not-writable": "Choose a cluster that takes writes, or ask the platform team to add this cluster to `clusters.yaml`.",

@@ -16,6 +16,7 @@ worst member's, with the counts per status.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any, Iterable, Mapping, Sequence
@@ -25,8 +26,21 @@ UNITS = {"cpu": "millicores", "memory": "bytes"}
 STATUSES = ("ok", "warn", "critical", "over")                  # from best to worst
 DEFAULT_OVERCOMMIT = Decimal("1.0")
 DEFAULT_WARN, DEFAULT_CRITICAL = Decimal("0.85"), Decimal("0.95")
-# What only the snapshots of cmapi-capacity (#21) can give: in the contract as null, so #21 fills them with no change.
-NOT_MEASURED = ("requested", "usedAvg", "usedPeak", "history")
+# What GET /api/v1/capacity leaves null for every cluster: the history of the snapshots (#21) is GET .../capacity of one cluster.
+NOT_MEASURED = ("history",)
+# capacity.yaml `snapshotInterval` (docs/02, "Stored capacity": "15m to 60m: the stored grain of cluster capacity", 30m by
+# default) and `staleAfterIntervals` ("placement refuses a cluster whose newest complete snapshot is older", 2 by default).
+SNAPSHOT_INTERVAL_DEFAULT, SNAPSHOT_INTERVAL_MIN, SNAPSHOT_INTERVAL_MAX = 1800, 900, 3600
+STALE_AFTER_INTERVALS_DEFAULT = 2
+DURATION = re.compile(r"^([1-9][0-9]*)(m|h)$")
+
+
+def interval_seconds(value: Any) -> int:
+    """A duration of capacity.yaml (`30m`, `1h`) in seconds. ValueError for anything else."""
+    m = DURATION.fullmatch(str(value)) if isinstance(value, str) else None
+    if m is None:
+        raise ValueError(f"must be minutes or hours such as 30m or 1h, not {value!r}")
+    return int(m.group(1)) * (60 if m.group(2) == "m" else 3600)
 
 
 @dataclass(frozen=True)
@@ -39,8 +53,9 @@ class EnvSettings:
 
 class CapacitySettings:
     """The keys of capacity.yaml that built code reads: `overcommit.<env>.cpu|memory` (default 1.0),
-    `targets.<env>.commitment.warn|critical` (default 0.85 and 0.95) and `countTaints` (default none: the taint keys whose
-    NoSchedule or NoExecute nodes still count as capacity). A value of the wrong type stops the start, with every problem named."""
+    `targets.<env>.commitment.warn|critical` (default 0.85 and 0.95), `countTaints` (default none: the taint keys whose
+    NoSchedule or NoExecute nodes still count as capacity), `snapshotInterval` (15m to 60m, default 30m) and
+    `staleAfterIntervals` (1 or more, default 2; #21). A value of the wrong type stops the start, with every problem named."""
 
     def __init__(self, raw: Mapping[str, Any] | None):
         raw = raw or {}
@@ -71,6 +86,19 @@ class CapacitySettings:
             problems.append("countTaints: must be a list of taint keys")
             taints = []
         self.count_taints: tuple[str, ...] = tuple(taints)
+        self.snapshot_seconds = SNAPSHOT_INTERVAL_DEFAULT
+        if "snapshotInterval" in raw:
+            try:
+                self.snapshot_seconds = interval_seconds(raw["snapshotInterval"])
+            except ValueError as exc:
+                problems.append(f"snapshotInterval: {exc}")
+            if not SNAPSHOT_INTERVAL_MIN <= self.snapshot_seconds <= SNAPSHOT_INTERVAL_MAX:
+                problems.append(f"snapshotInterval: must be 15m to 60m, not {raw['snapshotInterval']!r}")
+        stale = raw.get("staleAfterIntervals", STALE_AFTER_INTERVALS_DEFAULT)
+        if isinstance(stale, bool) or not isinstance(stale, int) or stale < 1:
+            problems.append(f"staleAfterIntervals: must be a whole number, 1 or more, not {stale!r}")
+            stale = STALE_AFTER_INTERVALS_DEFAULT
+        self.stale_after_intervals: int = stale
         if problems:
             raise ValueError("capacity.yaml: " + "; ".join(problems))
 
@@ -89,6 +117,22 @@ class CapacitySettings:
             problems.append(f"{where}: must be a number, {'above 0' if above_zero else '0 or more'}, not {value!r}")
             return Decimal(0)
         return Decimal(str(value))
+
+    @property
+    def stale_after_seconds(self) -> int:
+        """How old a cluster's newest complete snapshot may be before placement excludes it as stale-data."""
+        return self.snapshot_seconds * self.stale_after_intervals
+
+    def for_cluster(self, environment: str, placement: Mapping[str, Any] | None) -> EnvSettings:
+        """The environment's settings with the cluster's clusters.yaml `placement.overcommit` over them (docs/01: "A cluster's
+        placement block can override its environment's overcommit"). The plan's check, the Capacity tab and placement all read
+        a cluster's overcommit here, so they agree."""
+        es = self.env(environment)
+        over = (placement or {}).get("overcommit") or {}
+        if not over:
+            return es
+        return EnvSettings({r: Decimal(str(over[r])) if r in over else es.overcommit[r] for r in RESOURCES}, False,
+                           es.warn, es.critical)
 
     def env(self, environment: str) -> EnvSettings:
         over = self.overcommit.get(environment)

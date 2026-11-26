@@ -81,6 +81,7 @@ class Plan:
     # The files again with the request's ID, for a plan that has no NamespaceSpec to render from (an adoption): submit calls it.
     rerender: Callable[[str], dict[str, str | None]] | None = None
     hold: CapacityHold | None = None               # the increase that submit holds on the cluster (#62); None: no increase
+    placement_id: str | None = None                # the placement whose hold a create claims (#21)
 
     @property
     def hash(self) -> str:
@@ -103,7 +104,8 @@ class Plan:
         return {"files": self.files, "prev": self.prev, "changes": self.changes, "facts": self.facts,
                 "capacity": {"status": self.capacity.status, "fresh": self.capacity.fresh, **dict(self.capacity.detail)},
                 "spec": _spec_json(self.spec), "findings": [f.view() for f in self.findings],
-                "beyondTier": self.beyond_tier, **({"adoption": self.adoption} if self.adoption else {})}
+                "beyondTier": self.beyond_tier, "placementId": self.placement_id,
+                **({"adoption": self.adoption} if self.adoption else {})}
 
 
 def _spec_json(spec: NamespaceSpec | None) -> dict[str, Any] | None:
@@ -438,11 +440,13 @@ class Pipeline:
         old_hard = binding_hard(old_quota) if action != "create" and not quotas_held else {}
         deltas = {k: qty(hard.get(f"requests.{k}", "0")) - qty(old_hard.get(f"requests.{k}", "0")) for k in ("cpu", "memory")}
         cpu_delta, mem_delta = float(deltas["cpu"]), float(deltas["memory"])
-        cap = self.capacity.check(cluster_id, env, max(cpu_delta, 0), max(mem_delta, 0), namespace=ns)
+        target = binding_hard(hard)
+        placement_id = self._placement(body, action, cluster_id, env, labels.get("cmapi.net/team"), target)
+        cap = self.capacity.check(cluster_id, env, max(cpu_delta, 0), max(mem_delta, 0), exclude_placement=placement_id,
+                                  namespace=ns)
         if cap.status == "exceeded":
             raise capacity_exceeded(cap)
         # What submit holds until the quota is live (#62): the increase just checked, and the binding quota it leads to.
-        target = binding_hard(hard)
         hold = CapacityHold.of(ns, {**deltas, "pods": qty(hard.get("pods", "0")) - qty(old_hard.get("pods", "0"))},
                                {k: qty(target[f"requests.{k}"]) if f"requests.{k}" in target else None
                                 for k in ("cpu", "memory")})
@@ -480,7 +484,34 @@ class Pipeline:
         beyond_view = self.beyond_view(facts, beyond)
         return Plan(cluster_id, ns, env, action, "namespaces", spec, files, prev_files, changes, requirement, cap, facts,
                     requester, findings, base_sha, reason=reason, etag=etag, warnings=[f.message for f in findings],
-                    beyond_tier=beyond_view, metadata=metadata_view, metadata_diff=metadata_diff, usage=usage_view, hold=hold)
+                    beyond_tier=beyond_view, metadata=metadata_view, metadata_diff=metadata_diff, usage=usage_view, hold=hold,
+                    placement_id=placement_id)
+
+    def _placement(self, body: Mapping[str, Any], action: str, cluster_id: str, env: str, team: str | None,
+                   target: Mapping[str, str]) -> str | None:
+        """The placement a create claims (#21): its hold must be active and unclaimed, and on the path's cluster, environment
+        and team (NamespaceCreate.placement_id: "must match the path cluster, team and env"). The plan's check then leaves the
+        placement's hold out, since the create's own amount is the delta: counted once. The create may ask for less CPU and
+        memory than the placement holds, never more: placement checked only its own amounts against the zone-failure headroom
+        (docs/02: "so a placed namespace still fits after losing a zone"), which the plan's check does not compute."""
+        pid = body.get("placementId")
+        if pid is None or action != "create":
+            return None
+        held = self.capacity.placement(pid)
+        if held is None:
+            raise Problem.unprocessable("placement-not-found", f"No active placement {pid}: it expired, was used by another "
+                                                               "create, or never existed. Place again.")
+        wrong = [f"the placement's {what} is {theirs!r}, the create's {mine!r}" for what, mine, theirs in
+                 (("cluster", cluster_id, held.cluster_id), ("environment", env, held.env), ("team", team, held.team))
+                 if mine != theirs]
+        if wrong:
+            raise Problem.unprocessable("placement-mismatch", f"Placement {pid} was made for another target: "
+                                                              + "; ".join(wrong))
+        over = [r for r, amount in (("cpu", held.cpu), ("memory", held.memory)) if qty(target.get(f"requests.{r}", "0")) > amount]
+        if over:
+            raise Problem.unprocessable("placement-mismatch", f"Placement {pid} holds less {' and '.join(over)} than this create "
+                                                              "asks for. Place again for this tier.")
+        return pid
 
     def _kept_metadata(self, prev_ns: Mapping[str, Any] | None, kind: str) -> dict[str, str]:
         """The keys of one kind that Git holds and a change merges its patch over: every key but a system one, which the
@@ -770,7 +801,7 @@ class Pipeline:
         if plan.hold is not None:
             # The cluster as it is now, under its lock, with every hold taken since the plan (#62): what the rules decide on.
             # A request that no longer fits is refused here and nothing is recorded.
-            cap = self.capacity.reserve_check(repo.s, plan.cluster_id, plan.env, plan.hold)
+            cap = self.capacity.reserve_check(repo.s, plan.cluster_id, plan.env, plan.hold, placement_id=plan.placement_id)
             moved = (cap.status, cap.fresh) != (plan.capacity.status, plan.capacity.fresh)
             plan.capacity = cap
             plan.facts.update(capacity=cap.status, capacityFresh=cap.fresh)
@@ -805,7 +836,8 @@ class Pipeline:
         repo.insert(row, E.PLAN_AUTO_APPROVED if auto else E.PLAN_NEEDS_APPROVAL, who.username, note)
         if plan.hold is not None:
             # In the transaction that checked it, still under the cluster's lock: the next submit on the cluster counts it.
-            self.capacity.reserve(repo.s, rid, plan.cluster_id, plan.hold, hold_term(row.requirement))
+            self.capacity.reserve(repo.s, rid, plan.cluster_id, plan.hold, hold_term(row.requirement),
+                                  placement_id=plan.placement_id)
         CHANGE_REQUESTS.labels(plan.plugin, plan.action, plan.env, row.status).inc()
         if auto:
             if req.auto and req.auto.startswith("auto:"):
