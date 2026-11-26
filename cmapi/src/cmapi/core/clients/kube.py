@@ -17,7 +17,7 @@ import ssl
 import threading
 import time
 from contextlib import ExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Iterator, Mapping
 
 import httpx
@@ -117,6 +117,8 @@ class KubeClient:
         hooks = {"request": [self._name_server(server_name)]} if server_name else {}
         self._client = httpx.Client(base_url=self.api_url, verify=verify, timeout=timeout, event_hooks=hooks,
                                     headers={"Authorization": f"Bearer {token}"})
+        self._verify, self._trust = verify, trust
+        self._monitoring: httpx.Client | None = None    # made on the first monitoring_get (#310)
 
     @staticmethod
     def _name_server(name: str) -> Callable[[httpx.Request], None]:
@@ -131,6 +133,27 @@ class KubeClient:
 
     def close(self) -> None:
         self._client.close()
+        if self._monitoring is not None:
+            self._monitoring.close()
+
+    def monitoring_get(self, url: str, params: Mapping[str, Any], timeout: float) -> httpx.Response:
+        """GET an absolute URL of the cluster's monitoring stack, its Thanos Querier (docs/02, "Capacity plugin"), with this
+        client's token and trust (#310). The reader's token is bound to cluster-monitoring-view (examples/baseline). Its own
+        httpx client: the Route has its own host, so the API server's tls-server-name, when the import names one, is left
+        out of the trust. A transport failure is ClusterUnreachable, its text without the token."""
+        if self._monitoring is None:
+            verify = self._verify
+            if isinstance(self._trust, Trust) and self._trust.server_name and verify is not False:
+                verify = replace(self._trust, server_name=None).verify()
+            self._monitoring = httpx.Client(verify=verify, headers={"Authorization": self._client.headers["Authorization"]})
+        try:
+            with cluster_http_call():
+                r = self._monitoring.get(url, params=params, timeout=timeout)
+        except httpx.HTTPError as exc:
+            CLUSTER_CALLS.labels(self.cluster_id, "error").inc()
+            raise ClusterUnreachable(self.redact(f"{self.cluster_id}: {type(exc).__name__}: {exc}")) from exc
+        CLUSTER_CALLS.labels(self.cluster_id, "ok" if r.status_code < 400 else str(r.status_code)).inc()
+        return r
 
     def redact(self, text: str) -> str:
         """`text` without this client's token in any form; the whole text, before anything cuts it (#420)."""

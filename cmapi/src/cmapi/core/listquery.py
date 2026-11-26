@@ -60,10 +60,19 @@ class Sorts:
         return lambda r: (-f(r), r["name"], r["clusterId"])
 
 
-def severity(used: float) -> int:
-    """How urgent a namespace's quota is, from its highest use (used divided by hard): 3 at 95% or more, 2 at 80% or more, else 0.
-    The portal's level 1 (a recommendation, idle or oversized) needs the usage analysis, which is not built."""
-    return 3 if used >= 0.95 else 2 if used >= 0.8 else 0
+# The usage verdicts of level 1 (docs/01, Lists): waste that a person should look at. A recommendation is level 1 too, and comes
+# with the recommendations of docs/03 (phase 6), which are not built.
+LEVEL_ONE = frozenset({"idle", "quota-oversized", "requests-oversized"})
+
+
+def severity(used: float, verdict: str | None = None) -> int:
+    """How urgent a namespace's quota is (docs/01, Lists): "quota-tight or 95% used 3, 80% used 2, a recommendation, oversized
+    or idle 1". `used` is its highest use (used divided by hard), `verdict` its usage verdict (capacity/verdicts.py, #310)."""
+    if used >= 0.95 or verdict == "quota-tight":
+        return 3
+    if used >= 0.8:
+        return 2
+    return 1 if verdict in LEVEL_ONE else 0
 
 
 def match_rank(row: Mapping[str, Any], text: str) -> tuple[int, str] | None:

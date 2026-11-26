@@ -11,7 +11,8 @@ from test_flow import AMY, NS, OLA, auth
 def row(name: str, used: float, **kw) -> dict:
     return {"name": name, "clusterId": "CRC", "env": "dev", "team": "payments", "app": None, "tier": "small",
             "cpu": ["0", "8"], "memory": ["0", "16Gi"], "pods": ["0", "50"], "used": used, "expiresAt": None, "tierHash": None,
-            "tierOutdated": kw.get("outdated", False), "openRequest": kw.get("open")}
+            "tierOutdated": kw.get("outdated", False), "openRequest": kw.get("open"),
+            "verdict": "insufficient-data", "verdictKind": "info", "verdictResources": [], "verdictReason": "No sweep.", "verdictDay": None}
 
 
 ROWS = [row("alpha-dev", 0.10), row("bravo-dev", 0.97), row("charlie-dev", 0.85, outdated=True), row("delta-dev", 0.50, open="req-1"),
@@ -28,13 +29,15 @@ def test_quotas_filter_on_one_attention_state_and_keep_each_count(world, monkeyp
     monkeypatch.setattr(quotas_mod, "quota_rows", lambda c, who: [dict(r) for r in ROWS])
     h = auth(keys, "ola", **OLA)
     everything = client.get("/api/v1/quotas", headers=h).json()
-    assert everything["facets"] == {"near-limit": 3, "tier-outdated": 1, "open-request": 1} and everything["page"]["total"] == 5
+    # #310 added the usage verdicts' counts; these rows have insufficient data, so those count none.
+    assert everything["facets"] == {"quota-tight": 0, "near-limit": 3, "oversized": 0, "idle": 0, "tier-outdated": 1, "open-request": 1,
+                                    "needs-attention": 3} and everything["page"]["total"] == 5
     near = client.get("/api/v1/quotas?state=near-limit", headers=h).json()
     assert [i["name"] for i in near["items"]] == ["bravo-dev", "charlie-dev", "echo-dev"] and near["page"]["total"] == 3
     assert near["facets"] == everything["facets"], "a chosen state changed the other chips' counts"
     assert [i["name"] for i in client.get("/api/v1/quotas?state=open-request", headers=h).json()["items"]] == ["delta-dev"]
     assert [i["name"] for i in client.get("/api/v1/quotas?state=tier-outdated", headers=h).json()["items"]] == ["charlie-dev"]
-    bad = client.get("/api/v1/quotas?state=idle", headers=h)
+    bad = client.get("/api/v1/quotas?state=asleep", headers=h)
     assert bad.status_code == 422 and bad.json()["code"] == "validation-failed" and "near-limit" in bad.json()["detail"]
 
 

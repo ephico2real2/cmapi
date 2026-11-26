@@ -29,6 +29,10 @@ thresholds:
 - when: requestToPeakRatio > 3
   add: 1
   reason: Possible over-provisioning
+- when: usage == "unavailable"   # Thanos did not answer the live 14-day usage read of a quota change (#310)
+  add: 1
+  group: approver-platform
+  reason: Live usage unavailable
 - when: capacity == "warn"
   add: 1
 - when: quotaBelowRequested
