@@ -138,10 +138,18 @@ class SimulatedCapacity:
         self.registry, self.settings, self.db = registry, settings, db
 
     def check(self, cluster_id: str, environment: str, cpu_delta: float, memory_delta: float, *,
-              session: Session | None = None, exclude: str | None = None) -> CapacityResult:
+              session: Session | None = None, exclude: str | None = None,
+              namespace: str | None = None) -> CapacityResult:
         """Whether `cpu_delta` cores and `memory_delta` bytes more fit the cluster, after its committed quota and the active
         holds of open requests. `session`: read the holds in the caller's transaction (submit, a job that holds a row
-        lock), never a second pooled session there (#695, #696). `exclude`: leave out this request's own hold."""
+        lock), never a second pooled session there (#695, #696). `exclude`: leave out this request's own hold.
+
+        `namespace`: the namespace that the deltas change; a hold on it is not counted. Only the open request on that
+        namespace can hold there (the Reservation states lie within the namespace lock's, core/lifecycle.py), and its hold
+        and these deltas are both sized from the quota that Git holds (#710): two alternative increases of one namespace,
+        never both. A submit for the namespace is refused 409 change-pending until that request ends, and its hold with it.
+        Counted together, a plan of payments-dev to medium beside its open change to large weighed 40 cores where either
+        outcome is 32 or 16 (#725, CI's recorded plan)."""
         st = self.registry.get(cluster_id)
         size = st.policy.simulated_capacity if st.policy else None
         if not size:
@@ -152,7 +160,7 @@ class SimulatedCapacity:
                                                            "clusterId": cluster_id})
         # The holds first, then the totals and the held namespaces in one ledger snapshot: a quota that lands meanwhile is
         # then either committed or held, never neither (#725 review).
-        rows = self._holds(cluster_id, session, exclude)
+        rows = [r for r in self._holds(cluster_id, session, exclude) if namespace is None or r.namespace != namespace]
         totals, live = read.ledger.snapshot({r.namespace for r in rows if r.namespace})
         reserved = held(rows, live)
         env = self.settings.env(environment)
@@ -185,7 +193,8 @@ class SimulatedCapacity:
         Placement, "Reservations"). Raises 422 capacity-exceeded when it no longer fits. Returns the check, which the plan
         takes as its own: other holds may have been taken since the plan."""
         ReservationRepo(session).lock_cluster(cluster_id)
-        cap = self.check(cluster_id, environment, float(hold.cpu), float(hold.memory), session=session)
+        cap = self.check(cluster_id, environment, float(hold.cpu), float(hold.memory), session=session,
+                         namespace=hold.namespace)
         if cap.status == "exceeded":
             raise capacity_exceeded(cap)
         return cap

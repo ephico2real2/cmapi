@@ -4785,7 +4785,7 @@ export interface operations {
                      * @example {
                      *       "paused": true,
                      *       "reason": "incident 1234",
-                     *       "setAt": "2026-11-26T14:58:42.761867+00:00",
+                     *       "setAt": "2026-11-26T17:12:22.618821+00:00",
                      *       "setBy": "ada"
                      *     }
                      */
@@ -4917,7 +4917,7 @@ export interface operations {
                      * @example {
                      *       "paused": false,
                      *       "reason": "incident 1234 closed",
-                     *       "setAt": "2026-11-26T14:58:42.678182+00:00",
+                     *       "setAt": "2026-11-26T17:12:22.583590+00:00",
                      *       "setBy": "ada"
                      *     }
                      */
@@ -5249,18 +5249,18 @@ export interface operations {
                      *           "cpuThrottledPeriods": null,
                      *           "cpuThrottledSeconds": null,
                      *           "cpuUsageSeconds": null,
-                     *           "measuredAt": 1795705118.0435,
+                     *           "measuredAt": 1795713137.4401941,
                      *           "memoryBytes": null,
                      *           "memoryLimitBytes": null
                      *         }
                      *       ],
                      *       "database": {
-                     *         "connections": 9,
+                     *         "connections": 11,
                      *         "connectionsMax": 100,
-                     *         "oldestTransactionSeconds": 0,
+                     *         "oldestTransactionSeconds": 0.043964,
                      *         "poolInUse": 0,
                      *         "poolSize": 5,
-                     *         "sizeBytes": 9370647,
+                     *         "sizeBytes": 10198039,
                      *         "walBytes": 83886080
                      *       },
                      *       "instance": "nonprod",
@@ -5272,7 +5272,7 @@ export interface operations {
                      *           "target": "under 10 min",
                      *           "targetStatus": "proposed",
                      *           "unit": "seconds",
-                     *           "value": 0.25723
+                     *           "value": 0.315757
                      *         },
                      *         {
                      *           "id": "lead-time-approved-p90",
@@ -5586,7 +5586,7 @@ export interface operations {
                      *       "approval": {
                      *         "approvals": [
                      *           {
-                     *             "at": "2026-11-26T14:58:46.577707Z",
+                     *             "at": "2026-11-26T17:12:26.999477Z",
                      *             "comment": "",
                      *             "relayedBy": null,
                      *             "sub": "sub-amy",
@@ -5613,74 +5613,74 @@ export interface operations {
                      *       "baseSha": "f2384f006831a8a6663be5efae93955878f7cae8",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:46.488342Z",
+                     *       "createdAt": "2026-11-26T17:12:26.903389Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:46.500231Z",
+                     *           "at": "2026-11-26T17:12:26.918356Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:46.605839Z",
+                     *           "at": "2026-11-26T17:12:27.021822Z",
                      *           "by": "amy",
                      *           "event": "approval",
                      *           "note": "",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:46.625842Z",
+                     *           "at": "2026-11-26T17:12:27.039874Z",
                      *           "by": "amy",
                      *           "event": "approved",
                      *           "note": "approval count met",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:46.840364Z",
+                     *           "at": "2026-11-26T17:12:27.206143Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261126-0008 at 89561eb2 on f2384f00 (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:46.966678Z",
+                     *           "at": "2026-11-26T17:12:27.371594Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261126-0008 #7",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:47.054761Z",
+                     *           "at": "2026-11-26T17:12:27.486584Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:47.139825Z",
+                     *           "at": "2026-11-26T17:12:27.587901Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged 89561eb2; the folder at it is the plan's",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:47.150578Z",
+                     *           "at": "2026-11-26T17:12:27.602627Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged 89561eb2",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:47.255726Z",
+                     *           "at": "2026-11-26T17:12:27.732782Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "prune_pending",
                      *           "note": "Prune=confirm: waiting for an operator to confirm the prune",
                      *           "status": "awaiting_prune"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:47.712679Z",
+                     *           "at": "2026-11-26T17:12:28.282028Z",
                      *           "by": "opal",
                      *           "event": "prune_confirm",
                      *           "note": "operator confirmed the prune",
@@ -5730,7 +5730,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "awaiting_prune",
-                     *       "updatedAt": "2026-11-26T14:58:47.540886Z"
+                     *       "updatedAt": "2026-11-26T17:12:28.154897Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -5879,7 +5879,7 @@ export interface operations {
                      * @example {
                      *       "clusters": [
                      *         {
-                     *           "asOf": "2026-11-26T14:58:00Z",
+                     *           "asOf": "2026-11-26T17:12:00Z",
                      *           "basis": "simulated",
                      *           "boundBy": "cpu",
                      *           "clusterId": "CRC",
@@ -6151,7 +6151,7 @@ export interface operations {
                      * @example {
                      *       "items": [
                      *         {
-                     *           "checkedAt": "2026-11-26T14:58:35.693866Z",
+                     *           "checkedAt": "2026-11-26T17:12:15.023703Z",
                      *           "clusterId": "CRC",
                      *           "environment": "dev",
                      *           "findingDetails": [],
@@ -6160,11 +6160,11 @@ export interface operations {
                      *           "labels": {
                      *             "region": "us-central"
                      *           },
-                     *           "lastProbeAt": "2026-11-26T14:58:35.693866Z",
+                     *           "lastProbeAt": "2026-11-26T17:12:15.023703Z",
                      *           "secretName": "cmapi-cluster-crc",
                      *           "serverVersion": "v1.35.6-fake",
                      *           "status": "connected",
-                     *           "statusSince": "2026-11-26T14:58:35.693866Z",
+                     *           "statusSince": "2026-11-26T17:12:15.023703Z",
                      *           "tokenExpiresAt": null,
                      *           "trust": {
                      *             "downgrade": false,
@@ -6584,11 +6584,11 @@ export interface operations {
                      *       "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:37.060899Z",
+                     *       "createdAt": "2026-11-26T17:12:16.361979Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:37.114479Z",
+                     *           "at": "2026-11-26T17:12:16.416695Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
@@ -6632,7 +6632,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T14:58:36.940323Z"
+                     *       "updatedAt": "2026-11-26T17:12:16.287060Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -7156,11 +7156,11 @@ export interface operations {
                      *       "baseSha": "f2384f006831a8a6663be5efae93955878f7cae8",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:46.488342Z",
+                     *       "createdAt": "2026-11-26T17:12:26.903389Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:46.500231Z",
+                     *           "at": "2026-11-26T17:12:26.918356Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -7204,7 +7204,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-26T14:58:46.330650Z"
+                     *       "updatedAt": "2026-11-26T17:12:26.793781Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -7410,12 +7410,12 @@ export interface operations {
                      *       "capacity": {
                      *         "bindingResource": "cpu",
                      *         "clusterId": "CRC",
-                     *         "cpu": 0.312,
+                     *         "cpu": 0.125,
                      *         "fresh": true,
-                     *         "memory": 0.25,
+                     *         "memory": 0.1,
                      *         "reserved": {
-                     *           "cpu": 24,
-                     *           "memory": 51539607552
+                     *           "cpu": 0,
+                     *           "memory": 0
                      *         },
                      *         "source": "simulated",
                      *         "status": "fits"
@@ -7539,11 +7539,11 @@ export interface operations {
                      *       "baseSha": "cb5c898bb9e87c673d2f8ea2db640d276b35b5a0",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:38.475474Z",
+                     *       "createdAt": "2026-11-26T17:12:17.793984Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:38.549049Z",
+                     *           "at": "2026-11-26T17:12:17.879440Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -7587,7 +7587,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-26T14:58:38.378009Z"
+                     *       "updatedAt": "2026-11-26T17:12:17.752255Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -7883,11 +7883,11 @@ export interface operations {
                      *       "baseSha": "22a35f4793b3c001e8c8f0e6264753ea45b75be6",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:41.144533Z",
+                     *       "createdAt": "2026-11-26T17:12:20.790955Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:41.216069Z",
+                     *           "at": "2026-11-26T17:12:20.868961Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "none-required",
@@ -7931,7 +7931,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T14:58:41.046104Z"
+                     *       "updatedAt": "2026-11-26T17:12:20.744000Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -8250,11 +8250,11 @@ export interface operations {
                      *       "baseSha": "a40cef6e6fff67dfaba8587d441c897bd3af523d",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:52.525713Z",
+                     *       "createdAt": "2026-11-26T17:12:35.223650Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:52.595133Z",
+                     *           "at": "2026-11-26T17:12:35.317741Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -8298,7 +8298,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-26T14:58:52.424298Z"
+                     *       "updatedAt": "2026-11-26T17:12:35.192497Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -8594,11 +8594,11 @@ export interface operations {
                      *       "baseSha": "f13f28fcafc43bb4f6cbc2d6a90c4972cc5d64c5",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:51.653418Z",
+                     *       "createdAt": "2026-11-26T17:12:33.863323Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:51.722031Z",
+                     *           "at": "2026-11-26T17:12:33.961833Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "none-required",
@@ -8642,7 +8642,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T14:58:51.552606Z"
+                     *       "updatedAt": "2026-11-26T17:12:33.837078Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -8830,7 +8830,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "checkedAt": "2026-11-26T14:58:36.134822Z",
+                     *       "checkedAt": "2026-11-26T17:12:15.459233Z",
                      *       "clusterId": "CRC",
                      *       "environment": "dev",
                      *       "findingDetails": [],
@@ -8839,11 +8839,11 @@ export interface operations {
                      *       "labels": {
                      *         "region": "us-central"
                      *       },
-                     *       "lastProbeAt": "2026-11-26T14:58:36.134822Z",
+                     *       "lastProbeAt": "2026-11-26T17:12:15.459233Z",
                      *       "secretName": "cmapi-cluster-crc",
                      *       "serverVersion": "v1.35.6-fake",
                      *       "status": "connected",
-                     *       "statusSince": "2026-11-26T14:58:35.693866Z",
+                     *       "statusSince": "2026-11-26T17:12:15.023703Z",
                      *       "tokenExpiresAt": null,
                      *       "trust": {
                      *         "downgrade": false,
@@ -9909,7 +9909,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "from": "2026-11-19T14:58:52.790568Z",
+                     *       "from": "2026-11-19T17:12:35.470382Z",
                      *       "items": [
                      *         {
                      *           "action": "create",
@@ -9928,9 +9928,9 @@ export interface operations {
                      *               "source": "cmapi"
                      *             }
                      *           ],
-                     *           "firstAt": "2026-11-26T14:58:50.174893Z",
+                     *           "firstAt": "2026-11-26T17:12:31.544282Z",
                      *           "id": "rej-2",
-                     *           "lastAt": "2026-11-26T14:58:50.174893Z",
+                     *           "lastAt": "2026-11-26T17:12:31.544282Z",
                      *           "namespace": "kube-tools",
                      *           "outcome": "refused",
                      *           "plugin": "namespaces",
@@ -9956,9 +9956,9 @@ export interface operations {
                      *               "source": "cmapi"
                      *             }
                      *           ],
-                     *           "firstAt": "2026-11-26T14:58:44.224022Z",
+                     *           "firstAt": "2026-11-26T17:12:24.218759Z",
                      *           "id": "rej-1",
-                     *           "lastAt": "2026-11-26T14:58:44.224022Z",
+                     *           "lastAt": "2026-11-26T17:12:24.218759Z",
                      *           "namespace": "search-dev",
                      *           "outcome": "refused",
                      *           "plugin": "namespaces",
@@ -10107,7 +10107,7 @@ export interface operations {
                      * @example {
                      *       "clusters": [
                      *         {
-                     *           "asOf": "2026-11-26T14:58:52.670886Z",
+                     *           "asOf": "2026-11-26T17:12:35.335823Z",
                      *           "bundle": {
                      *             "actionsDiffer": [],
                      *             "actionsDifferTotal": 0,
@@ -11401,11 +11401,11 @@ export interface operations {
                      *           "baseSha": "cb5c898bb9e87c673d2f8ea2db640d276b35b5a0",
                      *           "beyondTier": null,
                      *           "clusterId": "CRC",
-                     *           "createdAt": "2026-11-26T14:58:38.475474Z",
+                     *           "createdAt": "2026-11-26T17:12:17.793984Z",
                      *           "env": "dev",
                      *           "events": [
                      *             {
-                     *               "at": "2026-11-26T14:58:38.549049Z",
+                     *               "at": "2026-11-26T17:12:17.879440Z",
                      *               "by": "ola",
                      *               "event": "plan_needs_approval",
                      *               "note": "waiting for [('approver-platform', 1)]",
@@ -11449,7 +11449,7 @@ export interface operations {
                      *             "submittedByClient": null
                      *           },
                      *           "status": "pending_approval",
-                     *           "updatedAt": "2026-11-26T14:58:38.378009Z"
+                     *           "updatedAt": "2026-11-26T17:12:17.752255Z"
                      *         }
                      *       ],
                      *       "letters": {
@@ -11590,67 +11590,67 @@ export interface operations {
                      *       "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:37.060899Z",
+                     *       "createdAt": "2026-11-26T17:12:16.361979Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:37.114479Z",
+                     *           "at": "2026-11-26T17:12:16.416695Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.212942Z",
+                     *           "at": "2026-11-26T17:12:16.509760Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261126-0001 at cb5c898b on aaaaaaaa (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.266355Z",
+                     *           "at": "2026-11-26T17:12:16.564875Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261126-0001 #1",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.309915Z",
+                     *           "at": "2026-11-26T17:12:16.607864Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.391794Z",
+                     *           "at": "2026-11-26T17:12:16.689757Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "apply_started",
                      *           "note": "applying cb5c898b before the merge",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.430623Z",
+                     *           "at": "2026-11-26T17:12:16.731847Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "applied",
                      *           "note": "5 objects from cmapi/CRC/req-20261126-0001 at cb5c898b, before the merge, confirmed by a read: quota matches the plan",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.469850Z",
+                     *           "at": "2026-11-26T17:12:16.779641Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged cb5c898b; the folder at it is the plan's",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.481787Z",
+                     *           "at": "2026-11-26T17:12:16.794503Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged cb5c898b",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.494994Z",
+                     *           "at": "2026-11-26T17:12:16.812917Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "synced",
                      *           "note": "applied and confirmed by a read before the merge",
@@ -11700,7 +11700,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "synced",
-                     *       "updatedAt": "2026-11-26T14:58:37.323930Z"
+                     *       "updatedAt": "2026-11-26T17:12:16.685627Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -11925,63 +11925,63 @@ export interface operations {
                      * @example {
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:37.114479Z",
+                     *           "at": "2026-11-26T17:12:16.416695Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.212942Z",
+                     *           "at": "2026-11-26T17:12:16.509760Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261126-0001 at cb5c898b on aaaaaaaa (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.266355Z",
+                     *           "at": "2026-11-26T17:12:16.564875Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261126-0001 #1",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.309915Z",
+                     *           "at": "2026-11-26T17:12:16.607864Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.391794Z",
+                     *           "at": "2026-11-26T17:12:16.689757Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "apply_started",
                      *           "note": "applying cb5c898b before the merge",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.430623Z",
+                     *           "at": "2026-11-26T17:12:16.731847Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "applied",
                      *           "note": "5 objects from cmapi/CRC/req-20261126-0001 at cb5c898b, before the merge, confirmed by a read: quota matches the plan",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.469850Z",
+                     *           "at": "2026-11-26T17:12:16.779641Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged cb5c898b; the folder at it is the plan's",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.481787Z",
+                     *           "at": "2026-11-26T17:12:16.794503Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged cb5c898b",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:37.494994Z",
+                     *           "at": "2026-11-26T17:12:16.812917Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "synced",
                      *           "note": "applied and confirmed by a read before the merge",
@@ -12112,7 +12112,7 @@ export interface operations {
                      *       "approval": {
                      *         "approvals": [
                      *           {
-                     *             "at": "2026-11-26T14:58:38.716920Z",
+                     *             "at": "2026-11-26T17:12:18.059306Z",
                      *             "comment": "sizing reviewed",
                      *             "relayedBy": null,
                      *             "sub": "sub-amy",
@@ -12140,25 +12140,25 @@ export interface operations {
                      *       "baseSha": "cb5c898bb9e87c673d2f8ea2db640d276b35b5a0",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:38.475474Z",
+                     *       "createdAt": "2026-11-26T17:12:17.793984Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:38.549049Z",
+                     *           "at": "2026-11-26T17:12:17.879440Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:38.742950Z",
+                     *           "at": "2026-11-26T17:12:18.083462Z",
                      *           "by": "amy",
                      *           "event": "approval",
                      *           "note": "sizing reviewed",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:38.754384Z",
+                     *           "at": "2026-11-26T17:12:18.105075Z",
                      *           "by": "amy",
                      *           "event": "approved",
                      *           "note": "approval count met",
@@ -12202,7 +12202,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T14:58:38.585112Z"
+                     *       "updatedAt": "2026-11-26T17:12:17.977315Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -12379,18 +12379,18 @@ export interface operations {
                      *       "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:42.322488Z",
+                     *       "createdAt": "2026-11-26T17:12:22.122616Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:42.350919Z",
+                     *           "at": "2026-11-26T17:12:22.154348Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:42.688799Z",
+                     *           "at": "2026-11-26T17:12:22.536275Z",
                      *           "by": "ola",
                      *           "event": "cancel",
                      *           "note": "",
@@ -12434,7 +12434,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "cancelled",
-                     *       "updatedAt": "2026-11-26T14:58:42.517496Z"
+                     *       "updatedAt": "2026-11-26T17:12:22.409351Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -12607,18 +12607,18 @@ export interface operations {
                      *       "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:42.472376Z",
+                     *       "createdAt": "2026-11-26T17:12:22.283649Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:42.500994Z",
+                     *           "at": "2026-11-26T17:12:22.320695Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:42.599538Z",
+                     *           "at": "2026-11-26T17:12:22.428757Z",
                      *           "by": "amy",
                      *           "event": "rejected",
                      *           "note": "Use the medium tier",
@@ -12662,7 +12662,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "rejected",
-                     *       "updatedAt": "2026-11-26T14:58:42.427101Z"
+                     *       "updatedAt": "2026-11-26T17:12:22.301492Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -12829,67 +12829,67 @@ export interface operations {
                      *       "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:43.867373Z",
+                     *       "createdAt": "2026-11-26T17:12:23.815258Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:43.895745Z",
+                     *           "at": "2026-11-26T17:12:23.848673Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:43.995974Z",
+                     *           "at": "2026-11-26T17:12:23.962491Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261126-0007 at f2384f00 on 89561eb2 (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:44.080146Z",
+                     *           "at": "2026-11-26T17:12:24.064285Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261126-0007 #5",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:44.232601Z",
+                     *           "at": "2026-11-26T17:12:24.227630Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: fail",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:44.258541Z",
+                     *           "at": "2026-11-26T17:12:24.247134Z",
                      *           "by": "ci",
                      *           "event": "head_moved",
                      *           "note": "PR head moved from f2384f00 to ec4de521 after approval",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:44.274377Z",
+                     *           "at": "2026-11-26T17:12:24.261577Z",
                      *           "by": "ci",
                      *           "event": "pr_failed",
                      *           "note": "checks failed",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:44.274422Z",
+                     *           "at": "2026-11-26T17:12:24.261630Z",
                      *           "by": "worker",
                      *           "event": "pr_closed",
                      *           "note": "#5: its checks failed; the request is failed and may be retried",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:44.354638Z",
+                     *           "at": "2026-11-26T17:12:24.356561Z",
                      *           "by": "worker",
                      *           "event": "branch_deleted",
                      *           "note": "cmapi/CRC/req-20261126-0007 at ec4de521",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:45.203468Z",
+                     *           "at": "2026-11-26T17:12:25.325775Z",
                      *           "by": "opal",
                      *           "event": "retry",
                      *           "note": "retry requested",
@@ -12939,7 +12939,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T14:58:45.033973Z"
+                     *       "updatedAt": "2026-11-26T17:12:25.201200Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -13093,60 +13093,60 @@ export interface operations {
                      *       "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T14:58:48.786855Z",
+                     *       "createdAt": "2026-11-26T17:12:29.555529Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T14:58:48.815102Z",
+                     *           "at": "2026-11-26T17:12:29.593699Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:48.938021Z",
+                     *           "at": "2026-11-26T17:12:29.707846Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261126-0009 at 88a27e68 on 89561eb2 (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:48.982068Z",
+                     *           "at": "2026-11-26T17:12:29.766654Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261126-0009 #8",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:49.021786Z",
+                     *           "at": "2026-11-26T17:12:29.822312Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:49.058533Z",
+                     *           "at": "2026-11-26T17:12:29.889039Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged 88a27e68; the folder at it is the plan's",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:49.071473Z",
+                     *           "at": "2026-11-26T17:12:29.909476Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged 88a27e68",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:49.126961Z",
+                     *           "at": "2026-11-26T17:12:29.986071Z",
                      *           "by": "worker",
                      *           "event": "sync_timeout",
                      *           "note": "orders-dev exists on the cluster and cmapi does not manage it; nothing applied",
                      *           "status": "sync_failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T14:58:49.294948Z",
+                     *           "at": "2026-11-26T17:12:30.232354Z",
                      *           "by": "opal",
                      *           "event": "revert_requested",
                      *           "note": "",
@@ -13196,7 +13196,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "sync_failed",
-                     *       "updatedAt": "2026-11-26T14:58:49.122757Z"
+                     *       "updatedAt": "2026-11-26T17:12:30.098117Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];

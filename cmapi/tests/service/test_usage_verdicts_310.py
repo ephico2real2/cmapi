@@ -256,7 +256,7 @@ def test_usage_follows_the_change_to_the_stored_quota(test_config, keys, monkeyp
         who = Identity("sub-ola", "ola", "user", "cmapi-portal", "ola@example.test", employee_id="E1",
                        roles=frozenset(OLA["roles"]), groups=frozenset(OLA["groups"]))
         monkeypatch.setattr(ctx.pipeline, "auto_paused", lambda session: False)
-        monkeypatch.setattr(ctx.pipeline.capacity, "check", lambda *args: CapacityResult("fits", True, None, {}))
+        monkeypatch.setattr(ctx.pipeline.capacity, "check", lambda *args, **kw: CapacityResult("fits", True, None, {}))
         created = ctx.pipeline.plan_namespace(who, "CRC", NS, action="create")
         files = dict(created.files)
         path = next(p for p, value in files.items() if yaml.safe_load(value)["kind"] == "ResourceQuota")
