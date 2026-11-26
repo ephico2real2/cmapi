@@ -267,10 +267,46 @@ def test_crc_has_exactly_one_more_image_placeholder_and_it_is_the_realm_sync():
     assert [i for d in crc_docs() for i in images(d) if i != PLACEHOLDER] == []
 
 
-@pytest.mark.parametrize("name", ["approval-rules.yaml", "authz-roles.yaml", "tiers.yaml", "expiration.yaml", "capacity.yaml"])
+@pytest.mark.parametrize("name", ["approval-rules.yaml", "authz-roles.yaml", "tiers.yaml", "expiration.yaml"])
 def test_crc_policy_files_are_the_kind_files(name):
     # CRC uses the company metadata keys from #479 section 3.1; kind keeps its demo keys.
     assert config_file("crc", name) == config_file("kind", name)
+
+
+def test_crc_reads_usage_from_thanos_and_kind_reads_none():
+    """The owner turned CRC's monitoring back on (2026-11-26): CRC reads its Thanos Querier by the Route, with no thanosUrl, and
+    kind, with no OpenShift monitoring, reads nothing. usage is the one key of capacity.yaml where they differ."""
+    crc_capacity, kind_capacity = (yaml.safe_load(config_file(env, "capacity.yaml")) for env in ("crc", "kind"))
+    assert crc_capacity.pop("usage") == {"source": "thanos"}
+    assert kind_capacity.pop("usage") == {"source": "none"}
+    assert crc_capacity == kind_capacity
+    clusters = yaml.safe_load(config_file("crc", "clusters.yaml"))["clusters"]
+    assert "thanosUrl" not in clusters["CRC"]
+
+
+def test_crc_reader_may_query_thanos_through_the_namespaced_monitoring_role_alone():
+    """Least privilege for usage.source thanos (#310, Part of #22). The Route's kube-rbac-proxy asks for get on prometheuses/api
+    "k8s" in openshift-monitoring, which the platform's Role cluster-monitoring-metrics-api grants (OpenShift 4.22); the reader
+    reads the Route by name (capacity/thanos.py). Both in openshift-monitoring only, and no cluster-wide cluster-monitoring-view."""
+    from cmapi.capacity.thanos import ROUTE_PATH
+
+    reader = list(crc_docs("reader/*.yaml"))
+    subject = [{"kind": "ServiceAccount", "name": "cmapi-reader", "namespace": "cmapi-system"}]
+    in_monitoring = [d for d in reader if d["metadata"].get("namespace") == "openshift-monitoring"]
+    assert sorted((d["kind"], d["metadata"]["name"]) for d in in_monitoring) == [
+        ("Role", "cmapi-reader-thanos-route"), ("RoleBinding", "cmapi-reader-metrics-api"), ("RoleBinding", "cmapi-reader-thanos-route")]
+    route_role = crc("Role", "cmapi-reader-thanos-route")
+    _, _, group, _, _, namespace, plural, name = ROUTE_PATH.split("/")
+    assert route_role["metadata"]["namespace"] == namespace
+    assert route_role["rules"] == [{"apiGroups": [group], "resources": [plural], "resourceNames": [name], "verbs": ["get"]}]
+    bindings = {d["metadata"]["name"]: d for d in in_monitoring if d["kind"] == "RoleBinding"}
+    assert bindings["cmapi-reader-thanos-route"]["roleRef"] == {
+        "apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "cmapi-reader-thanos-route"}
+    assert bindings["cmapi-reader-metrics-api"]["roleRef"] == {
+        "apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "cluster-monitoring-metrics-api"}
+    assert all(b["subjects"] == subject for b in bindings.values())
+    cluster_wide = [d for d in crc_docs() if d["kind"] == "ClusterRoleBinding"]
+    assert not [d["metadata"]["name"] for d in cluster_wide if d["roleRef"]["name"].startswith("cluster-monitoring")]
 
 
 def test_crc_writes_through_github_and_apply_delivery():
