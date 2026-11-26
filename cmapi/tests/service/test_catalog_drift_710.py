@@ -79,14 +79,25 @@ def stored_facts(world, request_id: str) -> dict:
 
 
 def capacity_deltas(world, monkeypatch) -> list[tuple[float, float]]:
-    """The (cpu, memory) deltas that each plan hands the capacity check, in cores and bytes."""
+    """The (cpu, memory) deltas that each plan hands the capacity check, in cores and bytes. Submit checks the plan's hold again
+    under the cluster's lock (`reserve_check`, #62): that check is not a plan's, so it is not recorded."""
     client, ctx, git, kube, validator, keys = world
-    asked, check = [], ctx.pipeline.capacity.check
+    capacity = ctx.pipeline.capacity
+    asked, check, recheck, in_submit = [], capacity.check, capacity.reserve_check, []
 
-    def recording(cluster_id, environment, cpu_delta, memory_delta):
-        asked.append((cpu_delta, memory_delta))
-        return check(cluster_id, environment, cpu_delta, memory_delta)
-    monkeypatch.setattr(ctx.pipeline.capacity, "check", recording)
+    def recording(cluster_id, environment, cpu_delta, memory_delta, **kw):
+        if not in_submit:
+            asked.append((cpu_delta, memory_delta))
+        return check(cluster_id, environment, cpu_delta, memory_delta, **kw)
+
+    def rechecking(*args, **kw):
+        in_submit.append(True)
+        try:
+            return recheck(*args, **kw)
+        finally:
+            in_submit.pop()
+    monkeypatch.setattr(capacity, "check", recording)
+    monkeypatch.setattr(capacity, "reserve_check", rechecking)
     return asked
 
 

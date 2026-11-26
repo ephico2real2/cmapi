@@ -165,7 +165,7 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
                                                   settings.validator_wait_seconds, on_wait=VALIDATOR_WAIT.observe))
     for env, mode in cfg.policy.modes(cfg.allowed_environments).items():
         POLICY_MODE.labels(env, mode).set(1)
-    capacity = SimulatedCapacity(registry, capacity_settings)
+    capacity = SimulatedCapacity(registry, capacity_settings, db)   # db: the holds of open requests (#62)
     usage = usage_source(capacity_cfg, registry)
 
     directory = None

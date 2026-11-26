@@ -256,7 +256,7 @@ def test_usage_follows_the_change_to_the_stored_quota(test_config, keys, monkeyp
         who = Identity("sub-ola", "ola", "user", "cmapi-portal", "ola@example.test", employee_id="E1",
                        roles=frozenset(OLA["roles"]), groups=frozenset(OLA["groups"]))
         monkeypatch.setattr(ctx.pipeline, "auto_paused", lambda session: False)
-        monkeypatch.setattr(ctx.pipeline.capacity, "check", lambda *args: CapacityResult("fits", True, None, {}))
+        monkeypatch.setattr(ctx.pipeline.capacity, "check", lambda *args, **kw: CapacityResult("fits", True, None, {}))
         created = ctx.pipeline.plan_namespace(who, "CRC", NS, action="create")
         files = dict(created.files)
         path = next(p for p, value in files.items() if yaml.safe_load(value)["kind"] == "ResourceQuota")
@@ -323,6 +323,7 @@ def test_a_database_at_0009_is_behind_this_code(monkeypatch):
     db = Database(conftest.DB_URL)
     monkeypatch.setattr(db, "schema_version", lambda: "0009")
     try:
-        assert db.schema_status() == "behind: at 0009, needs 0010"
+        # Since #62 the code needs 0011 (capacity_reservations); a 0009 schema is still behind, now by two.
+        assert db.schema_status() == "behind: at 0009, needs 0011"
     finally:
         db.engine.dispose()
