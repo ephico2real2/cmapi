@@ -9,7 +9,7 @@ listquery, render, identity checks) need none of these and are tested without th
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal, Mapping, Protocol, runtime_checkable
 
 from cmapi.core.identity.claims import Identity
@@ -136,11 +136,18 @@ class Validator(Protocol):
 
 @runtime_checkable
 class CapacityBackend(Protocol):
-    """remote (cmapi-capacity over HTTP, default) or embedded (the worker runs the jobs)."""
-    def check(self, cluster_id: str, environment: str, cpu_delta: float, memory_delta: float) -> CapacityResult: ...
+    """remote (cmapi-capacity over HTTP, default) or embedded (the worker runs the jobs).
+
+    The holds of open requests live in the cmapi schema, so `reserve_check`, `reserve`, `confirm` and `release` take the
+    caller's transaction: "Placement, the capacity check inside every plan [...] stay in the API, because they write requests
+    or reservations" (docs/01). The hold is core/capacity_backend.py's CapacityHold."""
+    def check(self, cluster_id: str, environment: str, cpu_delta: float, memory_delta: float, *, session: Any = None,
+              exclude: str | None = None) -> CapacityResult: ...
     def place(self, environment: str, team: str, tier: str, constraints: Mapping[str, Any]) -> dict[str, Any]: ...
-    def reserve(self, request_id: str, cluster_id: str, cpu: float, memory: float) -> None: ...
-    def release(self, request_id: str) -> None: ...
+    def reserve_check(self, session: Any, cluster_id: str, environment: str, hold: Any) -> CapacityResult: ...
+    def reserve(self, session: Any, request_id: str, cluster_id: str, hold: Any, term: timedelta) -> None: ...
+    def confirm(self, session: Any, request_id: str, cluster_id: str, environment: str) -> CapacityResult | None: ...
+    def release(self, session: Any, request_id: str, why: str) -> int: ...
 
 
 @runtime_checkable

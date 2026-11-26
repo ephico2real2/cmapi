@@ -19,11 +19,11 @@ from sqlalchemy.orm import Session, defer
 
 from cmapi.core.approvals import ApprovalLedger, Requirement, Slot
 from cmapi.core.authz import LEGACY_GROUP_PATH
-from cmapi.core.db.models import (ApprovalRow, AuditEventRow, ChangeRequestRow, JobRow, JwksRow, OPEN_STATES,
-                                  RequestEventRow, SwitchRow)
+from cmapi.core.db.models import (ApprovalRow, AuditEventRow, CapacityReservationRow, ChangeRequestRow, JobRow, JwksRow,
+                                  OPEN_STATES, RequestEventRow, SwitchRow)
 from cmapi.core.errors import Problem
 from cmapi.core.identity.claims import Identity
-from cmapi.core.lifecycle import Event as E, State as S, transition
+from cmapi.core.lifecycle import Event as E, State as S, holds_reservation, transition
 
 
 def utcnow() -> datetime:
@@ -220,6 +220,14 @@ class RequestRepo:
         except IntegrityError as exc:
             self.s.rollback()
             raise Problem.conflict("change-pending", f"another request holds {row.namespace}") from exc
+        # The capacity hold follows the lifecycle's Reservation column (docs/01), in the same transaction as the state.
+        holds = ReservationRepo(self.s)
+        if t.releases_reservation:
+            holds.release(row.request_id, t.after.value)
+        elif t.acquires_reservation:
+            holds.reacquire(row.request_id, hold_term(row.requirement))
+        elif holds_reservation(t.after):
+            holds.rearm(row.request_id, hold_term(row.requirement))
         self.event(row, event.value, by, note)
         return t.after
 
@@ -381,3 +389,93 @@ def oldest_open_ages(session: Session) -> list[tuple[str, str, float]]:
         .where(ChangeRequestRow.status.in_(OPEN_STATES)).group_by(ChangeRequestRow.status, ChangeRequestRow.env)
     now = utcnow()
     return [(st, env, (now - created).total_seconds()) for st, env, created in session.execute(q)]
+
+
+# How long a hold lasts past a request's last step: its approval timeout (docs/02: "the approval timeout once submitted"), plus
+# the hour that jobs/approval_timeout.py may take to see a request past it, so a pending request never outlives its hold.
+HOLD_GRACE = timedelta(hours=1)
+
+
+def hold_term(requirement: Mapping[str, Any] | None) -> timedelta:
+    return timedelta(hours=(requirement or {}).get("timeoutHours", 24)) + HOLD_GRACE
+
+
+class ReservationRepo:
+    """capacity_reservations (migration 0011; docs/02, Placement, "Reservations"). A hold is active while it is not released and
+    its `expires_at` is ahead. The lifecycle decides when a request holds one (holds_reservation, core/lifecycle.py):
+    RequestRepo.move releases it as the request leaves those states, takes it again when a :retry re-enters them, and moves
+    its expiry on at each step in between. The capacity check that reads the holds is core/capacity_backend.py's."""
+
+    def __init__(self, session: Session):
+        self.s = session
+
+    def lock_cluster(self, cluster_id: str) -> None:
+        """Serialize every check-and-hold on one cluster until this transaction ends. docs/02: "Placement takes a reservation
+        inside the same transaction as the capacity check, under a per-cluster advisory lock, so concurrent requests see each
+        other." Taken after any request row lock and the day's lock (next_id), never before them, so no two writers wait on
+        each other in opposite orders."""
+        digest = hashlib.sha256(f"cmapi-capacity:{cluster_id}".encode()).digest()
+        self.s.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": int.from_bytes(digest[:8], "big", signed=True)})
+
+    @staticmethod
+    def _active(now: datetime) -> Any:
+        return and_(CapacityReservationRow.released_at.is_(None), CapacityReservationRow.expires_at > now)
+
+    def active(self, cluster_id: str, *, exclude: str | None = None) -> list[CapacityReservationRow]:
+        """The cluster's active holds; `exclude`: leave out this request's own, to check it again on its own terms."""
+        q = select(CapacityReservationRow).where(CapacityReservationRow.cluster_id == cluster_id, self._active(utcnow()))
+        if exclude is not None:
+            q = q.where(or_(CapacityReservationRow.request_id.is_(None), CapacityReservationRow.request_id != exclude))
+        return list(self.s.scalars(q))
+
+    def of(self, request_id: str) -> CapacityReservationRow | None:
+        """The request's active hold, or None: it has none (no increase, a delete), or it ended."""
+        return self.s.scalars(select(CapacityReservationRow).where(
+            CapacityReservationRow.request_id == request_id, self._active(utcnow()))).first()
+
+    def hold(self, row: CapacityReservationRow) -> CapacityReservationRow:
+        self.s.add(row)
+        self.s.flush()
+        return row
+
+    def release(self, request_id: str, why: str) -> int:
+        """End the request's holds, naming why: the state it moved to (synced, rejected, cancelled, timeout, ...)."""
+        return self.s.execute(update(CapacityReservationRow).where(
+            CapacityReservationRow.request_id == request_id, CapacityReservationRow.released_at.is_(None)
+        ).values(released_at=utcnow(), released_why=why)).rowcount
+
+    def rearm(self, request_id: str, term: timedelta) -> None:
+        """Move the expiry of the request's active hold to one term from now: a request that keeps moving keeps its hold, and
+        one that stops (a lost worker, a crash) lets it go one term after its last step. Without this, a request approved
+        near the end of its approval window lost its hold while its PR was still open."""
+        now = utcnow()
+        self.s.execute(update(CapacityReservationRow).where(
+            CapacityReservationRow.request_id == request_id, self._active(now)).values(expires_at=now + term))
+
+    def reacquire(self, request_id: str, term: timedelta) -> CapacityReservationRow | None:
+        """A :retry that re-enters a holding state (failed to approved) holds the request's last amounts again, for a new
+        term. The caller checks that they still fit (SimulatedCapacity.confirm)."""
+        last = self.s.scalars(select(CapacityReservationRow).where(CapacityReservationRow.request_id == request_id)
+                              .order_by(CapacityReservationRow.created_at.desc())).first()
+        if last is None:
+            return None
+        now = utcnow()
+        if last.released_at is None and last.expires_at > now:
+            last.expires_at = now + term
+            return last
+        return self.hold(CapacityReservationRow(
+            request_id=request_id, cluster_id=last.cluster_id, namespace=last.namespace, zone=last.zone, cpu=last.cpu,
+            memory=last.memory, pods=last.pods, target_cpu=last.target_cpu, target_memory=last.target_memory,
+            created_at=now, expires_at=now + term))
+
+    def reclaim(self, cluster_id: str, observed: Iterable[Any]) -> None:
+        """Mark what no longer counts as released: the cluster's expired holds, and the holds whose quota the ledger shows."""
+        now = utcnow()
+        self.s.execute(update(CapacityReservationRow).where(
+            CapacityReservationRow.cluster_id == cluster_id, CapacityReservationRow.released_at.is_(None),
+            CapacityReservationRow.expires_at <= now).values(released_at=now, released_why="expired"))
+        ids = list(observed)
+        if ids:
+            self.s.execute(update(CapacityReservationRow).where(
+                CapacityReservationRow.reservation_id.in_(ids), CapacityReservationRow.released_at.is_(None)
+            ).values(released_at=now, released_why="observed"))

@@ -21,12 +21,12 @@ import yaml
 from cmapi.capacity.usage import NoUsage, UsageSource, plan_usage
 from cmapi.core import kube_yaml
 from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, Requirement
-from cmapi.core.capacity_backend import SimulatedCapacity
+from cmapi.core.capacity_backend import CapacityHold, SimulatedCapacity, capacity_exceeded
 from cmapi.core.capacity_ledger import binding_hard, quota_facts, totals_of
 from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeError
 from cmapi.core.config import InstanceConfig, environment_not_served
 from cmapi.core.db.models import ChangeRequestRow
-from cmapi.core.db.repo import JobRepo, RequestRepo, fingerprint, requirement_to_json
+from cmapi.core.db.repo import JobRepo, RequestRepo, fingerprint, hold_term, requirement_to_json
 from cmapi.core.errors import Problem
 from cmapi.core.etag import if_match_tags
 from cmapi.core.git.base import GitUnavailable, HostGitProvider, NotUtf8
@@ -74,6 +74,7 @@ class Plan:
     metadata: dict[str, Any] | None = None         # a create's final labels and annotations, each with its source (#479)
     metadata_diff: dict[str, Any] | None = None    # a change's effective label and annotation changes, with sources (#481)
     usage: dict[str, Any] | None = None            # a quota change's live 14-day usage (#310); None when nothing was read
+    hold: CapacityHold | None = None               # the increase that submit holds on the cluster (#62); None: no increase
 
     @property
     def hash(self) -> str:
@@ -428,12 +429,16 @@ class Pipeline:
         # Git; a custom value that Git holds was approved, so no bound is checked again (#214). A short name (`cpu`, `memory`)
         # is the same resource as its long one, and the smaller binds (binding_hard, #393).
         old_hard = binding_hard(old_quota) if action != "create" and not quotas_held else {}
-        cpu_delta = float(qty(hard.get("requests.cpu", "0")) - qty(old_hard.get("requests.cpu", "0")))
-        mem_delta = float(qty(hard.get("requests.memory", "0")) - qty(old_hard.get("requests.memory", "0")))
+        deltas = {k: qty(hard.get(f"requests.{k}", "0")) - qty(old_hard.get(f"requests.{k}", "0")) for k in ("cpu", "memory")}
+        cpu_delta, mem_delta = float(deltas["cpu"]), float(deltas["memory"])
         cap = self.capacity.check(cluster_id, env, max(cpu_delta, 0), max(mem_delta, 0))
         if cap.status == "exceeded":
-            raise Problem.unprocessable("capacity-exceeded", f"{cap.binding_resource} would exceed the cluster",
-                                        capacity=dict(cap.detail))
+            raise capacity_exceeded(cap)
+        # What submit holds until the quota is live (#62): the increase just checked, and the binding quota it leads to.
+        target = binding_hard(hard)
+        hold = CapacityHold.of(ns, {**deltas, "pods": qty(hard.get("pods", "0")) - qty(old_hard.get("pods", "0"))},
+                               {k: qty(target[f"requests.{k}"]) if f"requests.{k}" in target else None
+                                for k in ("cpu", "memory")})
         # A quota change on an existing namespace reads its live 14-day usage (docs/01, "Quota changes on existing namespaces");
         # nothing else does: "Never queried while creating a namespace or setting its first quota" (docs/01, Thanos on onboarding).
         usage_view, usage_facts = None, {}
@@ -468,7 +473,7 @@ class Pipeline:
         beyond_view = self.beyond_view(facts, beyond)
         return Plan(cluster_id, ns, env, action, "namespaces", spec, files, prev_files, changes, requirement, cap, facts,
                     requester, findings, base_sha, reason=reason, etag=etag, warnings=[f.message for f in findings],
-                    beyond_tier=beyond_view, metadata=metadata_view, metadata_diff=metadata_diff, usage=usage_view)
+                    beyond_tier=beyond_view, metadata=metadata_view, metadata_diff=metadata_diff, usage=usage_view, hold=hold)
 
     def _kept_metadata(self, prev_ns: Mapping[str, Any] | None, kind: str) -> dict[str, str]:
         """The keys of one kind that Git holds and a change merges its patch over: every key but a system one, which the
@@ -607,11 +612,21 @@ class Pipeline:
     def submit(self, who: Identity, plan: Plan, repo: RequestRepo, jobs: JobRepo, *, idempotency_key: str | None,
                body_fingerprint: str, justification: str | None) -> ChangeRequestRow:
         rid = repo.next_id()              # takes the day's advisory lock: submits are serial from here to the commit
-        if plan.action != "delete" and plan.facts.get("team"):
+        decide_again = plan.action != "delete" and bool(plan.facts.get("team"))
+        if plan.hold is not None:
+            # The cluster as it is now, under its lock, with every hold taken since the plan (#62): what the rules decide on.
+            # A request that no longer fits is refused here and nothing is recorded.
+            cap = self.capacity.reserve_check(repo.s, plan.cluster_id, plan.env, plan.hold)
+            moved = (cap.status, cap.fresh) != (plan.capacity.status, plan.capacity.fresh)
+            plan.capacity = cap
+            plan.facts.update(capacity=cap.status, capacityFresh=cap.fresh)
+            decide_again = decide_again or moved
+        if decide_again:
             # the daily allowance is counted at submit, under that lock, against the rows already recorded
             # The switch is read in this transaction: a second pooled session here would wait for a connection that the
             # submits queued behind the advisory lock hold, and time out (the #695 review's pool starvation).
-            plan.requirement = self._decide(plan.facts, team_auto_today=repo.auto_approvals_today(plan.facts["team"]),
+            team = plan.facts.get("team")
+            plan.requirement = self._decide(plan.facts, team_auto_today=repo.auto_approvals_today(team) if team else 0,
                                             session=repo.s)
         files = plan.files
         if plan.spec is not None:
@@ -631,6 +646,9 @@ class Pipeline:
         auto = req.approved_at_plan
         note = req.auto or f"waiting for {[(s.group, s.count) for s in req.slots]}"
         repo.insert(row, E.PLAN_AUTO_APPROVED if auto else E.PLAN_NEEDS_APPROVAL, who.username, note)
+        if plan.hold is not None:
+            # In the transaction that checked it, still under the cluster's lock: the next submit on the cluster counts it.
+            self.capacity.reserve(repo.s, rid, plan.cluster_id, plan.hold, hold_term(row.requirement))
         CHANGE_REQUESTS.labels(plan.plugin, plan.action, plan.env, row.status).inc()
         if auto:
             if req.auto and req.auto.startswith("auto:"):
@@ -641,14 +659,16 @@ class Pipeline:
         return row
 
     def restore_facts(self, cluster_id: str, env: str, ns: str, current: Mapping[str, str | None],
-                      restored: Mapping[str, str | None]
-                      ) -> tuple[CapacityResult, dict[str, Any], dict[str, Any] | None, dict[str, dict[str, str | None]]]:
+                      restored: Mapping[str, str | None], *, session: Any = None
+                      ) -> tuple[CapacityResult, dict[str, Any], dict[str, Any] | None, dict[str, dict[str, str | None]],
+                                 CapacityHold | None]:
         """The approval facts of a revert, which writes back the folder that Git held before a plan: "the revert is a new
         request through the same approval rules" (docs/01, the state reverted). Taken as _plan_namespace takes them for a
         change, from what Git holds now (#710) to what is restored: the capacity check, quotaIncreasePct and tierChange,
         networkExposure, beyondTier, the live usage of a quota that Git holds, and the metadata facts (sensitiveKeyChanged).
-        Returns the check, the facts, the usage view and the values beyond the tier (beyond_view). Raises capacity-exceeded
-        as a plan does."""
+        Returns the check, the facts, the usage view, the values beyond the tier (beyond_view) and what the revert holds on
+        the cluster (#62). Raises capacity-exceeded as a plan does. `session`: the caller's transaction, which the check reads
+        the cluster's holds in (#696)."""
         (old_rq, old_lrs), (new_rq, new_lrs) = ((own_quota(objects_of(f, "ResourceQuota"), ns),
                                                  [d for d in objects_of(f, "LimitRange") if own_limit_range(d, ns)])
                                                 for f in (current, restored))
@@ -658,11 +678,12 @@ class Pipeline:
         # lowering whose sync did not finish counted the quota still live twice (#718, reviewer 1's H1).
         committed = totals_of(f for q in objects_of(restored, "ResourceQuota") if (f := quota_facts(q)) is not None).committed
         live = self._live_committed(cluster_id, ns, current)
-        cap = self.capacity.check(cluster_id, env, max(float(committed["cpu"] - live["cpu"]), 0),
-                                  max(float(committed["memory"] - live["memory"]), 0))
+        deltas = {k: committed[k] - live[k] for k in ("cpu", "memory")}
+        cap = self.capacity.check(cluster_id, env, max(float(deltas["cpu"]), 0), max(float(deltas["memory"]), 0),
+                                  session=session)
         if cap.status == "exceeded":
-            raise Problem.unprocessable("capacity-exceeded", f"{cap.binding_resource} would exceed the cluster",
-                                        capacity=dict(cap.detail))
+            raise capacity_exceeded(cap)
+        hold = CapacityHold.of(ns, deltas, {k: committed[k] if committed[k] > 0 else None for k in ("cpu", "memory")})
         before, after = (metadata_of(namespace_doc(f)) for f in (current, restored))
         old_tier, tier = before["label"].get("cmapi.net/tier"), after["label"].get("cmapi.net/tier")
         # Beyond the tier as a plan judges it: each restored value that today's tier does not give (TierCatalog.beyond). An
@@ -706,7 +727,7 @@ class Pipeline:
                 held=date.fromisoformat(held_expiry) if held_expiry else None, existing=existing)
             if expiry:
                 facts.update(expiry.facts())
-        return cap, facts, usage_view, beyond
+        return cap, facts, usage_view, beyond, hold
 
     def _live_committed(self, cluster_id: str, ns: str, current: Mapping[str, str | None]) -> dict[str, Decimal]:
         """What the namespace adds to the cluster's commitment now (CapacityLedger), or, with no ledger to read, what Git's
