@@ -21,16 +21,21 @@ Each run, for each connected cluster that takes writes, in an environment this i
 4. After grace, the delete is the normal delete request (`Pipeline.plan_expiry_delete`, then `submit`): the approval rules
    decide it (the expired-namespace policy, or the environment's delete rule with approvers), a bot PR removes the folder, and
    Argo CD waits for an operator's prune confirmation (awaiting_prune). Nothing here deletes anything on a cluster. The row
-   that records it has threshold -1 and the request's ID.
+   that records it has threshold -1 and the request's ID: one delete request per expiry date. A request that people reject
+   or cancel, or that fails, is not opened again for the same date; the namespace stays listed (pending_delete) for action,
+   and a new date (an extension) starts a new cycle. A namespace extended in the last 24 hours, by the clock and not by
+   the day, is held, as is one whose live object does not carry Prune=confirm (Pipeline.plan_expiry_delete).
 
 Each action has its own transaction, fenced by this job's lease (JobRepo.fence): a worker whose lease was taken over sends
 nothing and records nothing, and while one action runs nobody can claim the job. The jobs table holds at most one pending
 expire_check (uq_jobs_pending) and SKIP LOCKED gives it to one worker, so several replicas give one result. Each action also
-takes a transaction lock on its namespace (pg_advisory_xact_lock) and then reads its row again, so two runs at once, a run
-that stopped half way, or a second run the same day send no notice twice; a second delete is refused by the one open request
-per namespace (uq_cr_open_namespace). A
-namespace that fails is logged and counted and does not stop the others; the next run comes in EXPIRE_CHECK_RETRY seconds
-instead of a day when any part of the run could not be done.
+takes a transaction lock on its namespace (pg_advisory_xact_lock) and then reads its row again, so two runs at once or a
+second run the same day send no notice twice. A notice is delivered at least once, not exactly once: the row is committed
+after the relay accepts the message, so a worker lost between the two sends it again on the next run. That is the
+transactional outbox's guarantee, and RFC 5321's (section 4.5.3.2.6: a lost reply "would typically result in delivery of
+multiple copies"); a second email is the cheaper failure than a notice never sent or never counted. A namespace that
+fails is logged and counted and does not stop the others; the next run comes in EXPIRE_CHECK_RETRY seconds instead of a day
+when any part of the run could not be done.
 """
 from __future__ import annotations
 
@@ -44,7 +49,7 @@ from sqlalchemy.orm import Session
 from cmapi.core.channels import EmailNotifier, notifier_for
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import ChangeRequestRow, ExpirationNoticeRow, JobRow
-from cmapi.core.db.repo import JobRepo, RequestRepo, utcnow
+from cmapi.core.db.repo import JobRepo, LeaseLost, RequestRepo, utcnow
 from cmapi.core.errors import Problem
 from cmapi.core.observability import EXPIRY_ACTIONS, log
 from cmapi.core.pipeline import EXPIRY_REQUESTER
@@ -115,6 +120,8 @@ def _check_cluster(ctx: AppContext, lease: Any, notifier: EmailNotifier | None, 
         nonlocal complete
         try:
             complete = fn(*args) and complete
+        except LeaseLost:
+            raise                                                   # another worker runs the job now: stop, record nothing
         except Exception as exc:                                    # noqa: BLE001 - one namespace never stops the others
             complete = False
             EXPIRY_ACTIONS.labels("error", env).inc()
@@ -190,6 +197,15 @@ def _open_delete(ctx: AppContext, lease: Any, cluster_id: str, env: str, name: s
         with ctx.db.session() as s:
             _fence(s, lease)
             _lock_namespace(s, cluster_id, name)
+            # Read again under the lock, as the notices are: the scan's snapshot can be minutes old by now.
+            if _is_recorded(s, cluster_id, name, expires, DELETE):
+                raise Problem.conflict("expiry-delete-already-opened",
+                                       f"A delete request was opened for the expiry {expires.isoformat()} of {name}")
+            last = _last_extensions(s, cluster_id, name).get(name)
+            if last is not None and utcnow() - last < timedelta(hours=24):
+                # docs/01: "no extension in the last 24 hours". By the clock: the reference check counts whole UTC days, so
+                # an extension asked at 23:30 passes it at 00:30.
+                raise Problem.conflict("noExtensionInLast24h", f"An extension of {name} was asked at {last.isoformat()}")
             key = f"expired:{cluster_id}/{name}@{expires.isoformat()}"
             row = ctx.pipeline.submit(EXPIRY_REQUESTER, plan, RequestRepo(s), JobRepo(s), idempotency_key=None,
                                       body_fingerprint=hashlib.sha256(key.encode()).hexdigest(),
@@ -252,11 +268,13 @@ def _recorded_thresholds(s: Session, cluster_id: str) -> dict[tuple[str, str], s
     return out
 
 
-def _last_extensions(s: Session, cluster_id: str) -> dict[str, datetime]:
+def _last_extensions(s: Session, cluster_id: str, namespace: str | None = None) -> dict[str, datetime]:
     """namespace -> when its last :extend or :set was asked, whatever became of it: a recent try holds the delete a day."""
     q = select(ChangeRequestRow.namespace, func.max(ChangeRequestRow.created_at)) \
         .where(ChangeRequestRow.cluster_id == cluster_id, ChangeRequestRow.reason.in_(EXTENSION_REASONS)) \
         .group_by(ChangeRequestRow.namespace)
+    if namespace is not None:
+        q = q.where(ChangeRequestRow.namespace == namespace)
     return {ns: at.astimezone(timezone.utc) for ns, at in s.execute(q)}
 
 

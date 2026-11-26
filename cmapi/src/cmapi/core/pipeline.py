@@ -28,7 +28,7 @@ from cmapi.core.errors import Problem
 from cmapi.core.etag import if_match_tags
 from cmapi.core.git.base import GitUnavailable, HostGitProvider, NotUtf8
 from cmapi.core.identity.checks import Requester, resolve_requester
-from cmapi.core.identity.claims import Identity, label_value_of
+from cmapi.core.identity.claims import EXPIRY_NAME, Identity, label_value_of
 from cmapi.core.identity.directory import CachedDirectory
 from cmapi.core.lifecycle import Event as E
 from cmapi.core.naming import check_name, check_not_unmanaged, is_label
@@ -43,7 +43,7 @@ from cmapi.plugins.expiration.rules import ExpiryInfo, utc_day, utc_today
 
 SYSTEM_PREFIX = "cmapi.net/"
 # The requester of the delete that expire_check opens after an expiry's grace: cmapi itself, never a person's identity.
-EXPIRY_REQUESTER = Identity(sub="cmapi-expire-check", username="cmapi-expire-check", kind="service", client_id="cmapi-worker")
+EXPIRY_REQUESTER = Identity(sub=EXPIRY_NAME, username=EXPIRY_NAME, kind="service", client_id="cmapi-worker")
 
 
 @dataclass
@@ -557,7 +557,10 @@ class Pipeline:
         try:
             live = self.registry.cache(cluster_id).namespace(ns)
         except Problem:
-            pass
+            if expires_at is not None:
+                raise                     # the expiry delete must read the live prune option below: unknown is tried again
+        if expires_at is not None:
+            check_prune_confirm(live, ns)
         created = created_day(live)
         age_days = (utc_today() - created).days if created else 0
         pods, pvcs = self.workload_counts(cluster_id, ns)
@@ -666,6 +669,20 @@ def namespace_doc(files: Mapping[str, str | None]) -> dict[str, Any] | None:
     """The Namespace object of a folder's namespace.yaml, from any document of it (#250), or None when the folder has none."""
     text = next((t for p, t in files.items() if p.endswith("/namespace.yaml") and t), None)
     return next((d for d in kube_yaml.load_all(text) if d.get("kind") == "Namespace"), None)
+
+
+def check_prune_confirm(live: Mapping[str, Any] | None, ns: str) -> None:
+    """The expiry delete is opened by a timer, and the operator's prune confirmation is its last human step: docs/01, "so data
+    and PVCs are never removed by a timer alone". Argo CD reads Prune=confirm from the live object when it prunes, since the
+    object is no longer in Git (gitops-engine pkg/sync/sync_context.go: `HasAnnotationOption(task.liveObj,
+    common.AnnotationSyncOptions, common.SyncOptionPruneRequireConfirm)`). So the live Namespace must be cmapi's and carry the
+    option; otherwise 409, and expire_check holds the delete, logs it and tries the next day."""
+    meta = (live or {}).get("metadata") or {}
+    options = {o.strip() for o in ((meta.get("annotations") or {}).get("argocd.argoproj.io/sync-options") or "").split(",")}
+    if (meta.get("labels") or {}).get("cmapi.net/managed") != "true" or "Prune=confirm" not in options:
+        raise Problem.conflict("prune-confirmation-missing",
+                               f"The live namespace {ns} is not a cmapi namespace whose argocd.argoproj.io/sync-options holds "
+                               "Prune=confirm, so Argo CD would prune it without an operator: the expiry delete is held")
 
 
 def metadata_of(doc: Mapping[str, Any] | None) -> dict[str, dict[str, str]]:

@@ -48,9 +48,9 @@ def utc_day(stamp: Any) -> date | None:
         return None
     try:
         moment = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
-    except ValueError:
+        return (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).date()
+    except (ValueError, OverflowError):                 # OverflowError: an offset that moves the day past year 1 or 9999
         return None
-    return (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).date()
 
 
 @dataclass(frozen=True)

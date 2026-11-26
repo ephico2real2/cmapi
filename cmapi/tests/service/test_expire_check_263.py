@@ -363,3 +363,143 @@ def test_two_workers_at_once_give_one_result(world, monkeypatch, mail):
         t.join(60)
     assert errors == []
     assert [t for _, t, _ in notices(ctx, "third-dev")] == [7] and len(expiry_deletes(ctx)) == 1
+
+
+# ---- PR #699 review (reviewer 2): each fails on 9539685 and passes with the fix
+ADMIN = dict(roles=["cmapi-admin"], groups=["/cmapi/app-cmapi-rbac-admin"])
+
+
+def _pause_auto_approval(client, keys) -> None:
+    assert client.post("/api/v1/admin/auto-approval:pause", json={"reason": "test"},
+                       headers=auth(keys, "root", **ADMIN)).status_code == 200
+
+
+def test_a_live_namespace_without_prune_confirm_holds_the_expiry_delete(world, monkeypatch, mail):
+    """Argo CD reads Prune=confirm from the live object when it prunes (gitops-engine sync_context.go, task.liveObj). Without
+    it, the auto-approved expiry delete would be pruned at merge with no operator: removed by a timer alone."""
+    client, ctx, git, kube, validator, keys = world
+    d = _expiring_namespace(world, monkeypatch)
+    annotations = kube.objects[("Namespace", "", NAME)]["metadata"]["annotations"]
+    kept = annotations.pop("argocd.argoproj.io/sync-options")
+    assert "Prune=confirm" in kept
+    ctx.registry.cache("CRC")._list("Namespace")
+    run_check(ctx, monkeypatch, d + timedelta(days=7))
+    assert expiry_deletes(ctx) == []
+    annotations["argocd.argoproj.io/sync-options"] = kept           # the drift is repaired: the next run opens it
+    ctx.registry.cache("CRC")._list("Namespace")
+    run_check(ctx, monkeypatch, d + timedelta(days=8))
+    assert [(r.status, r.requirement["auto"]) for r in expiry_deletes(ctx)] == [("awaiting_prune", "auto:expired-namespace")]
+
+
+def test_an_extension_asked_before_utc_midnight_holds_the_delete_for_24_hours(world, monkeypatch, mail):
+    """docs/01: "no extension in the last 24 hours". An extension asked at 23:30 UTC and cancelled: at 00:30 the reference
+    check (whole days) passes it, and head opened a delete for people to approve."""
+    from test_expirations import write
+    client, ctx, git, kube, validator, keys = world
+    d = _expiring_namespace(world, monkeypatch)
+    etag = client.get(f"/api/v1/clusters/CRC/namespaces/{NAME}", headers=auth(keys, "ola", **OLA)).json()["etag"]
+    r = write(client, keys, "extend", {"days": 1, "justification": "keep"}, etag)
+    assert r.status_code == 202, r.text
+    rid = r.json()["requestId"]
+    assert client.post(f"/api/v1/requests/{rid}:cancel", json={}, headers=auth(keys, "ola", **OLA)).status_code == 200
+    run_day = d + timedelta(days=7)
+    now = datetime.combine(run_day, datetime.min.time(), timezone.utc) + timedelta(minutes=30)
+    with ctx.db.session() as s:
+        s.get(ChangeRequestRow, rid).created_at = now - timedelta(hours=1)
+    job_mod = importlib.import_module("cmapi.jobs.expire_check")
+    monkeypatch.setattr(job_mod, "utcnow", lambda: now)
+    run_check(ctx, monkeypatch, run_day)
+    assert expiry_deletes(ctx) == []
+    monkeypatch.setattr(job_mod, "utcnow", lambda: now + timedelta(hours=24))
+    run_check(ctx, monkeypatch, run_day + timedelta(days=1))
+    assert len(expiry_deletes(ctx)) == 1
+
+
+def test_a_rejected_expiry_delete_is_not_opened_again_for_its_date(world, monkeypatch, mail):
+    client, ctx, git, kube, validator, keys = world
+    d = _expiring_namespace(world, monkeypatch)
+    _pause_auto_approval(client, keys)
+    run_check(ctx, monkeypatch, d + timedelta(days=7))
+    [row] = expiry_deletes(ctx)
+    r = client.post(f"/api/v1/requests/{row.request_id}:reject", json={"comment": "keep it"}, headers=auth(keys, "amy", **AMY))
+    assert r.json()["status"] == "rejected"
+    for n in (8, 9):
+        run_check(ctx, monkeypatch, d + timedelta(days=n), f"w{n}")
+    assert [r.request_id for r in expiry_deletes(ctx)] == [row.request_id]
+    assert [t for _, t, _ in notices(ctx)].count(-1) == 1
+
+
+@pytest.mark.parametrize("username,sub", [("service-account-cmapi-expire-check", None), ("cmapi-expire-check", None),
+                                          ("CMAPI-Expire-Check", None), ("someone", "cmapi-expire-check")])
+def test_no_token_can_be_the_expiry_worker(world, monkeypatch, mail, username, sub):
+    """Head let a client or person of that name cancel the worker's delete as its requester (routers/requests.py compares
+    usernames), recorded in the audit trail under the worker's name."""
+    client, ctx, git, kube, validator, keys = world
+    d = _expiring_namespace(world, monkeypatch)
+    _pause_auto_approval(client, keys)
+    run_check(ctx, monkeypatch, d + timedelta(days=7))
+    [row] = expiry_deletes(ctx)
+    look_alike = auth(keys, username, sub=sub, roles=["cmapi-onboarding"], employee_id=None, client="cmapi-expire-check")
+    r = client.post(f"/api/v1/requests/{row.request_id}:cancel", json={}, headers=look_alike)
+    assert r.status_code == 401, r.text
+    assert expiry_deletes(ctx)[0].status == "pending_approval"
+
+
+def test_a_notice_is_delivered_at_least_once(world, monkeypatch):
+    """The documented guarantee: a worker lost after the relay accepted the message sends it again, and it is recorded once."""
+    client, ctx, git, kube, validator, keys = world
+    job_mod = importlib.import_module("cmapi.jobs.expire_check")
+    d = date(2027, 3, 20)
+    dated(kube, ctx, d)
+
+    class WorkerLost(BaseException):
+        pass
+
+    accepted: list[str] = []
+
+    class Relay:
+        lose = True
+
+        def send(self, to, subject, body, links=None):
+            accepted.append(subject)
+            if Relay.lose:
+                Relay.lose = False
+                raise WorkerLost()
+
+    monkeypatch.setattr(job_mod, "notifier_for", lambda ctx: Relay())
+    with pytest.raises(WorkerLost):
+        job_mod.check(ctx, d - timedelta(days=7))
+    assert job_mod.check(ctx, d - timedelta(days=7))
+    assert len(accepted) == 2 and notices(ctx) == [(d.isoformat(), 7, True)]
+
+
+def test_a_lease_taken_over_stops_the_run_at_once(world, monkeypatch, mail):
+    """LeaseLost is not one namespace's error: the run stops, and the counter of errors is not raised for each namespace."""
+    _, ctx, _, kube, _, _ = world
+    from cmapi.core.db.repo import LeaseLost
+    from cmapi.core.observability import EXPIRY_ACTIONS
+    job_mod = importlib.import_module("cmapi.jobs.expire_check")
+    d = date(2027, 3, 20)
+    for name in ("first-dev", "second-dev"):
+        dated(kube, ctx, d, name=name)
+    with ctx.db.session() as s:
+        repo = JobRepo(s)
+        repo.enqueue("expire_check")
+        row = repo.claim("old")
+        lease = (row.job_id, "old", row.lease_generation)
+    original = job_mod._notice
+
+    def notice(*args):
+        result = original(*args)
+        with ctx.db.session() as s:                              # another worker claims the job after the first notice
+            s.get(JobRow, lease[0]).locked_until = utcnow() - timedelta(seconds=1)
+        with ctx.db.session() as s:
+            assert JobRepo(s).claim("new").job_id == lease[0]
+        return result
+
+    errors = EXPIRY_ACTIONS.labels("error", "dev")._value.get()
+    monkeypatch.setattr(job_mod, "notifier_for", lambda ctx: mail)
+    monkeypatch.setattr(job_mod, "_notice", notice)
+    with pytest.raises(LeaseLost):
+        job_mod.check(ctx, d - timedelta(days=7), lease=lease)
+    assert len(mail.sent) == 1 and EXPIRY_ACTIONS.labels("error", "dev")._value.get() == errors
