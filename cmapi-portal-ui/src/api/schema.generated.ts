@@ -272,6 +272,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/clusters/{cluster_id}/adoption/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the namespaces that can be adopted
+         * @description The candidates of the adoption design's D1, read now from the cluster: not a built-in or configured exclusion (adoption.yaml),
+         *     not Terminating, not managed (`cmapi.net/managed`, or a folder in Git), not tracked by another Argo CD Application, and
+         *     labelled `cmapi.net/adopt: "true"`. `recognised` lists the adoptionLabels of metadata-keys.yaml that a namespace carries:
+         *     a mark of another tool, which never selects a namespace by itself.
+         *
+         *     **Requires** `adoption:write`.
+         */
+        get: operations["adoption_candidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clusters/{cluster_id}/adoption/skipped": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the labelled namespaces that a rule skips
+         * @description The namespaces that carry the opt-in label and are not candidates: `rule` is `excluded`, `terminating`, `managed`
+         *     (already adopted: the label stays and is ignored) or `tracked-elsewhere` (with the Application in `application`).
+         *
+         *     **Requires** `adoption:write`.
+         */
+        get: operations["adoption_skipped"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/clusters/{cluster_id}/capacity": {
         parameters: {
             query?: never;
@@ -514,6 +562,42 @@ export interface paths {
          *     **Requires** `namespaces:write`.
          */
         post: operations["namespaces_set_expiry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clusters/{cluster_id}/namespaces/{ns}:adopt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Adopt an existing namespace
+         * @description Plans the adoption of a namespace that exists on the cluster and that cmapi does not manage, and submits it as a change
+         *     request (plugin `adoption`, action `adopt`). The namespace must carry `cmapi.net/adopt: "true"`; any other is 409
+         *     `namespace-not-adoptable`, whose `rule` says why.
+         *
+         *     cmapi reads the live Namespace and each of its ResourceQuotas and LimitRanges, and writes them to the namespace's folder
+         *     as they are: only what the API server sets is dropped, and each key under a skip prefix of adoption.yaml only when that
+         *     changes nothing on the cluster. It adds its own system keys and the tier `custom`; each ResourceQuota and LimitRange keeps
+         *     its name, in its own file. Each difference from the instance's rules is a finding of the plan, never a change: a wrong or
+         *     missing key, a value beyond the custom bounds, a policy failure that the namespace already holds (`policy-ratcheted`).
+         *
+         *     The request needs one approver of approver-platform, and one more when the plan has findings; no automatic approval covers
+         *     it. After approval the bot opens the pull request. cmapi reads the objects again before it pushes the branch and in the pull
+         *     request's check: a change since the plan fails the request (`adoption-plan-stale`), and the label removed cancels it.
+         *
+         *     `dryRun=true` answers 200 with the plan, its files, findings and approval, and opens no request.
+         *
+         *     **Requires** `adoption:write`.
+         */
+        post: operations["adoption_adopt"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1057,6 +1141,147 @@ export interface components {
              * @description Each held role with its permissions and environments
              */
             roles: components["schemas"]["RoleAccess"][];
+        };
+        /** AdoptBody */
+        AdoptBody: {
+            /**
+             * Justification
+             * @description Why the namespace is adopted, which the approvers read
+             * @example Bring the team's namespace under cmapi
+             */
+            justification?: string | null;
+        };
+        /** AdoptedObject */
+        AdoptedObject: {
+            /**
+             * Kind
+             * @description The object's kind
+             * @example ResourceQuota
+             * @enum {string}
+             */
+            kind: "Namespace" | "ResourceQuota" | "LimitRange";
+            /**
+             * Name
+             * @description The object's name
+             * @example abc-rnd-quota
+             */
+            name: string;
+            /**
+             * Resourceversion
+             * @description Its resourceVersion as the plan read it: any change after the plan fails the request with adoption-plan-stale
+             * @example 48211
+             */
+            resourceVersion: string;
+            /**
+             * Uid
+             * @description The object's uid as the plan read it: a namespace made again has another, and the request then fails with adoption-plan-stale
+             * @example 0f3c2b1a-7d6e-4c5b-9a8f-1e2d3c4b5a69
+             */
+            uid: string;
+        };
+        /** AdoptionKey */
+        AdoptionKey: {
+            /**
+             * Kept
+             * @description True: written to Git as it is, because leaving it out could remove it from the cluster on the first sync. False: left out of Git, which changes nothing on the cluster
+             * @example false
+             */
+            kept: boolean;
+            /**
+             * Key
+             * @description A key under a skip prefix of adoption.yaml
+             * @example pod-security.kubernetes.io/enforce
+             */
+            key: string;
+            /**
+             * Kind
+             * @description Whether the key is a label or an annotation
+             * @example label
+             * @enum {string}
+             */
+            kind: "label" | "annotation";
+            /**
+             * Managers
+             * @description The field managers that own it on the live object (metadata.managedFields)
+             * @example [
+             *       "pod-security-admission-label-synchronization-controller"
+             *     ]
+             */
+            managers: string[];
+            /**
+             * Why
+             * @description Why it is kept or left out, in words
+             * @example only server components own it
+             */
+            why: string;
+        };
+        /** AdoptionList */
+        AdoptionList: {
+            /**
+             * Items
+             * @description The namespaces, by name
+             */
+            items: components["schemas"]["AdoptionStanding"][];
+            /**
+             * Label
+             * @description The opt-in label that a namespace carries to be adopted, with the value "true"
+             * @example cmapi.net/adopt
+             */
+            label: string;
+            /**
+             * Total
+             * @description How many items there are
+             * @example 1
+             */
+            total: number;
+        };
+        /** AdoptionStanding */
+        AdoptionStanding: {
+            /**
+             * Application
+             * @description The Argo CD Application that tracks it, when another one does
+             * @example null
+             */
+            application: string | null;
+            /**
+             * Detail
+             * @description The rule in words, empty for a candidate
+             * @example
+             */
+            detail: string;
+            /**
+             * Labelled
+             * @description Whether it carries the opt-in label of adoption.yaml (cmapi.net/adopt: "true")
+             * @example true
+             */
+            labelled: boolean;
+            /**
+             * Name
+             * @description The namespace
+             * @example abc-rnd
+             */
+            name: string;
+            /**
+             * Recognised
+             * @description Each adoptionLabels key and value it carries: made by another tool
+             * @example [
+             *       "company.net/provisioner=cluster-configs"
+             *     ]
+             */
+            recognised: string[];
+            /**
+             * Rule
+             * @description What stops it: excluded, terminating, managed, tracked-elsewhere or not-labelled; null for a candidate
+             * @example null
+             */
+            rule: string | null;
+            /**
+             * State
+             * @description candidate: it can be adopted. skipped: it carries the opt-in label and a rule stops it. managed, excluded, unlabelled: never adopted
+             * @example candidate
+             * @enum {string}
+             */
+            state: "candidate" | "skipped" | "managed" | "excluded" | "unlabelled";
         };
         /** ApprovalEntry */
         ApprovalEntry: {
@@ -3689,6 +3914,50 @@ export interface components {
             /** @description What was asked, sized from the tier */
             request: components["schemas"]["PlacementAsk"];
         };
+        /** PlanAdoption */
+        PlanAdoption: {
+            /**
+             * Keys
+             * @description Each label and annotation under a skip prefix, and whether it is kept
+             */
+            keys: components["schemas"]["AdoptionKey"][];
+            /**
+             * Label
+             * @description The opt-in label. It stays on the namespace after the adoption and is then ignored; removing it before the merge cancels the request
+             * @example cmapi.net/adopt
+             */
+            label: string;
+            /**
+             * Notadopted
+             * @description How many objects of the other kinds the namespace has, which stay unmanaged; null when they could not be counted
+             * @example {
+             *       "RoleBinding": 1,
+             *       "ServiceAccount": 2
+             *     }
+             */
+            notAdopted: {
+                [key: string]: number | null;
+            };
+            /**
+             * Objects
+             * @description Each object that the plan read and adopts: the Namespace, each ResourceQuota and each LimitRange. cmapi reads them again when the request is approved, when the bot opens the pull request and in its check; a difference fails the request
+             */
+            objects: components["schemas"]["AdoptedObject"][];
+            /**
+             * Recognised
+             * @description Each adoptionLabels key and value of metadata-keys.yaml that the namespace carries: made by another tool
+             * @example [
+             *       "company.net/provisioner=cluster-configs"
+             *     ]
+             */
+            recognised: string[];
+            /**
+             * Snapshothash
+             * @description SHA-256 of the objects as read: the base of the policy checks at plan time and in the pull request's check, which never take it from the pull request
+             * @example 5d1f0c9e2b7a4c3d8e6f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d
+             */
+            snapshotHash: string;
+        };
         /** PlanMetadata */
         PlanMetadata: {
             /**
@@ -3809,6 +4078,8 @@ export interface components {
         };
         /** PlanView */
         PlanView: {
+            /** @description On an adoption: the objects it read, the keys under a skip prefix, and what stays unmanaged (story #26). Null on other writes */
+            adoption?: components["schemas"]["PlanAdoption"] | null;
             /** @description The approval that would apply */
             approval: components["schemas"]["ApprovalView"];
             /** @description The values beyond the tier and the approvals they add; null when the request has none */
@@ -5332,7 +5603,7 @@ export interface operations {
                      * @example {
                      *       "paused": true,
                      *       "reason": "incident 1234",
-                     *       "setAt": "2026-11-26T21:02:56.156995+00:00",
+                     *       "setAt": "2026-11-26T21:29:19.819711+00:00",
                      *       "setBy": "ada"
                      *     }
                      */
@@ -5464,7 +5735,7 @@ export interface operations {
                      * @example {
                      *       "paused": false,
                      *       "reason": "incident 1234 closed",
-                     *       "setAt": "2026-11-26T21:02:56.190210+00:00",
+                     *       "setAt": "2026-11-26T21:29:19.829731+00:00",
                      *       "setBy": "ada"
                      *     }
                      */
@@ -5796,18 +6067,18 @@ export interface operations {
                      *           "cpuThrottledPeriods": null,
                      *           "cpuThrottledSeconds": null,
                      *           "cpuUsageSeconds": null,
-                     *           "measuredAt": 1795726970.992254,
+                     *           "measuredAt": 1795728550.649558,
                      *           "memoryBytes": null,
                      *           "memoryLimitBytes": null
                      *         }
                      *       ],
                      *       "database": {
-                     *         "connections": 11,
+                     *         "connections": 12,
                      *         "connectionsMax": 100,
                      *         "oldestTransactionSeconds": 0,
                      *         "poolInUse": 0,
                      *         "poolSize": 5,
-                     *         "sizeBytes": 9952279,
+                     *         "sizeBytes": 9976855,
                      *         "walBytes": 83886080
                      *       },
                      *       "instance": "nonprod",
@@ -5819,7 +6090,7 @@ export interface operations {
                      *           "target": "under 10 min",
                      *           "targetStatus": "proposed",
                      *           "unit": "seconds",
-                     *           "value": 0.422319
+                     *           "value": 0.508825
                      *         },
                      *         {
                      *           "id": "lead-time-approved-p90",
@@ -5993,6 +6264,13 @@ export interface operations {
                      *           "core": false,
                      *           "disabledEnvironments": [],
                      *           "enabled": true,
+                     *           "name": "adoption",
+                     *           "version": "0.2.0"
+                     *         },
+                     *         {
+                     *           "core": false,
+                     *           "disabledEnvironments": [],
+                     *           "enabled": true,
                      *           "name": "capacity",
                      *           "version": "0.2.0"
                      *         },
@@ -6133,7 +6411,7 @@ export interface operations {
                      *       "approval": {
                      *         "approvals": [
                      *           {
-                     *             "at": "2026-11-26T21:03:00.198271Z",
+                     *             "at": "2026-11-26T21:29:27.483037Z",
                      *             "comment": "",
                      *             "relayedBy": null,
                      *             "sub": "sub-amy",
@@ -6160,74 +6438,74 @@ export interface operations {
                      *       "baseSha": "f2384f006831a8a6663be5efae93955878f7cae8",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:03:00.111753Z",
+                     *       "createdAt": "2026-11-26T21:29:27.340680Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:03:00.122751Z",
+                     *           "at": "2026-11-26T21:29:27.361637Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:00.216824Z",
+                     *           "at": "2026-11-26T21:29:27.506122Z",
                      *           "by": "amy",
                      *           "event": "approval",
                      *           "note": "",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:00.229879Z",
+                     *           "at": "2026-11-26T21:29:27.529881Z",
                      *           "by": "amy",
                      *           "event": "approved",
                      *           "note": "approval count met",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:00.355655Z",
+                     *           "at": "2026-11-26T21:29:27.723576Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261126-0008 at 89561eb2 on f2384f00 (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:00.485066Z",
+                     *           "at": "2026-11-26T21:29:27.935135Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261126-0008 #7",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:00.577013Z",
+                     *           "at": "2026-11-26T21:29:28.112503Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:00.662998Z",
+                     *           "at": "2026-11-26T21:29:28.323531Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged 89561eb2; the folder at it is the plan's",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:00.675901Z",
+                     *           "at": "2026-11-26T21:29:28.342302Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged 89561eb2",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:00.778452Z",
+                     *           "at": "2026-11-26T21:29:28.537793Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "prune_pending",
                      *           "note": "Prune=confirm: waiting for an operator to confirm the prune",
                      *           "status": "awaiting_prune"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:01.242102Z",
+                     *           "at": "2026-11-26T21:29:29.397031Z",
                      *           "by": "opal",
                      *           "event": "prune_confirm",
                      *           "note": "operator confirmed the prune",
@@ -6277,7 +6555,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "awaiting_prune",
-                     *       "updatedAt": "2026-11-26T21:03:01.184792Z"
+                     *       "updatedAt": "2026-11-26T21:29:29.266005Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -6426,7 +6704,7 @@ export interface operations {
                      * @example {
                      *       "clusters": [
                      *         {
-                     *           "asOf": "2026-11-26T21:03:00Z",
+                     *           "asOf": "2026-11-26T21:29:00Z",
                      *           "basis": "simulated",
                      *           "boundBy": "cpu",
                      *           "clusterId": "CRC",
@@ -6721,7 +6999,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "asOf": "2026-11-26T21:03:07Z",
+                     *       "asOf": "2026-11-26T21:29:38Z",
                      *       "clusterId": null,
                      *       "excluded": [],
                      *       "expiresAt": null,
@@ -6783,11 +7061,11 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "asOf": "2026-11-26T21:03:07Z",
+                     *       "asOf": "2026-11-26T21:29:38Z",
                      *       "clusterId": "CRC",
                      *       "excluded": [],
-                     *       "expiresAt": "2026-11-26T21:18:07.244866Z",
-                     *       "placementId": "pl-20261126-fd779dc4",
+                     *       "expiresAt": "2026-11-26T21:44:38.342666Z",
+                     *       "placementId": "pl-20261126-e4546b12",
                      *       "ranked": [
                      *         {
                      *           "basis": "simulated",
@@ -6940,7 +7218,7 @@ export interface operations {
                      * @example {
                      *       "items": [
                      *         {
-                     *           "checkedAt": "2026-11-26T21:02:48.484861Z",
+                     *           "checkedAt": "2026-11-26T21:29:06.728312Z",
                      *           "clusterId": "CRC",
                      *           "environment": "dev",
                      *           "findingDetails": [],
@@ -6949,11 +7227,11 @@ export interface operations {
                      *           "labels": {
                      *             "region": "us-central"
                      *           },
-                     *           "lastProbeAt": "2026-11-26T21:02:48.484861Z",
+                     *           "lastProbeAt": "2026-11-26T21:29:06.728312Z",
                      *           "secretName": "cmapi-cluster-crc",
                      *           "serverVersion": "v1.35.6-fake",
                      *           "status": "connected",
-                     *           "statusSince": "2026-11-26T21:02:48.484861Z",
+                     *           "statusSince": "2026-11-26T21:29:06.728312Z",
                      *           "tokenExpiresAt": null,
                      *           "trust": {
                      *             "downgrade": false,
@@ -7013,6 +7291,278 @@ export interface operations {
              * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
              *
              *     Codes: `idp-unavailable`.
+             */
+            503: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    adoption_candidates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
+                cluster_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Each namespace of the cluster that carries the opt-in label, is not excluded, is not managed and is not tracked by another Argo CD Application, by name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "application": null,
+                     *           "detail": "",
+                     *           "labelled": true,
+                     *           "name": "abc-rnd",
+                     *           "recognised": [
+                     *             "company.net/provisioner=cluster-configs"
+                     *           ],
+                     *           "rule": null,
+                     *           "state": "candidate"
+                     *         }
+                     *       ],
+                     *       "label": "cmapi.net/adopt",
+                     *       "total": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdoptionList"];
+                };
+            };
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `environment-forbidden`.
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The Git host failed.
+             *
+             *     Codes: `git-unavailable`.
+             */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `cluster-unreachable`, `idp-unavailable`.
+             */
+            503: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    adoption_skipped: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
+                cluster_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Each namespace that carries the opt-in label and is not a candidate, with the rule that stops it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "application": "legacy-tools",
+                     *           "detail": "The Argo CD Application legacy-tools tracks legacy-tools",
+                     *           "labelled": true,
+                     *           "name": "legacy-tools",
+                     *           "recognised": [],
+                     *           "rule": "tracked-elsewhere",
+                     *           "state": "skipped"
+                     *         }
+                     *       ],
+                     *       "label": "cmapi.net/adopt",
+                     *       "total": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AdoptionList"];
+                };
+            };
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `environment-forbidden`.
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `validation-failed`.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The Git host failed.
+             *
+             *     Codes: `git-unavailable`.
+             */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `cluster-unreachable`, `idp-unavailable`.
              */
             503: {
                 headers: {
@@ -7493,6 +8043,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
+                     *       "adoption": null,
                      *       "approval": {
                      *         "approvals": [],
                      *         "auto": null,
@@ -7652,11 +8203,11 @@ export interface operations {
                      *       "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:02:49.797724Z",
+                     *       "createdAt": "2026-11-26T21:29:08.957546Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:02:49.861156Z",
+                     *           "at": "2026-11-26T21:29:09.025795Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
@@ -7700,7 +8251,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T21:02:49.798426Z"
+                     *       "updatedAt": "2026-11-26T21:29:08.891177Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -8122,6 +8673,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
+                     *       "adoption": null,
                      *       "approval": {
                      *         "approvals": [],
                      *         "auto": null,
@@ -8224,11 +8776,11 @@ export interface operations {
                      *       "baseSha": "f2384f006831a8a6663be5efae93955878f7cae8",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:03:00.111753Z",
+                     *       "createdAt": "2026-11-26T21:29:27.340680Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:03:00.122751Z",
+                     *           "at": "2026-11-26T21:29:27.361637Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -8272,7 +8824,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-26T21:03:00.067954Z"
+                     *       "updatedAt": "2026-11-26T21:29:27.231566Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -8461,6 +9013,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
+                     *       "adoption": null,
                      *       "approval": {
                      *         "approvals": [],
                      *         "auto": "none-required",
@@ -8607,11 +9160,11 @@ export interface operations {
                      *       "baseSha": "cb5c898bb9e87c673d2f8ea2db640d276b35b5a0",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:02:51.325842Z",
+                     *       "createdAt": "2026-11-26T21:29:11.158795Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:02:51.402905Z",
+                     *           "at": "2026-11-26T21:29:11.310506Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -8655,7 +9208,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-26T21:02:51.345449Z"
+                     *       "updatedAt": "2026-11-26T21:29:11.177782Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -8863,6 +9416,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
+                     *       "adoption": null,
                      *       "approval": {
                      *         "approvals": [],
                      *         "auto": "none-required",
@@ -8951,11 +9505,11 @@ export interface operations {
                      *       "baseSha": "22a35f4793b3c001e8c8f0e6264753ea45b75be6",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:02:54.307756Z",
+                     *       "createdAt": "2026-11-26T21:29:16.622636Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:02:54.380373Z",
+                     *           "at": "2026-11-26T21:29:16.765615Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "none-required",
@@ -8999,7 +9553,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T21:02:54.324429Z"
+                     *       "updatedAt": "2026-11-26T21:29:16.632147Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -9206,6 +9760,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
+                     *       "adoption": null,
                      *       "approval": {
                      *         "approvals": [],
                      *         "auto": null,
@@ -9318,11 +9873,11 @@ export interface operations {
                      *       "baseSha": "a40cef6e6fff67dfaba8587d441c897bd3af523d",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:03:06.337656Z",
+                     *       "createdAt": "2026-11-26T21:29:37.204017Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:03:06.406601Z",
+                     *           "at": "2026-11-26T21:29:37.293914Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -9366,7 +9921,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-26T21:03:06.350439Z"
+                     *       "updatedAt": "2026-11-26T21:29:37.165519Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -9574,6 +10129,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
+                     *       "adoption": null,
                      *       "approval": {
                      *         "approvals": [],
                      *         "auto": "none-required",
@@ -9662,11 +10218,11 @@ export interface operations {
                      *       "baseSha": "f13f28fcafc43bb4f6cbc2d6a90c4972cc5d64c5",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:03:05.441186Z",
+                     *       "createdAt": "2026-11-26T21:29:35.980080Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:03:05.509322Z",
+                     *           "at": "2026-11-26T21:29:36.079631Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "none-required",
@@ -9710,7 +10266,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T21:03:05.454199Z"
+                     *       "updatedAt": "2026-11-26T21:29:35.950662Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -9878,6 +10434,560 @@ export interface operations {
             };
         };
     };
+    adoption_adopt: {
+        parameters: {
+            query?: {
+                /** @description With `true`, the call returns the plan with status 200 and needs no Idempotency-Key. It opens no change request, takes no lock or reservation and opens no pull request. Send it at most once: a repeated `dryRun` is 422 `validation-failed`. */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description A new random value for each new request, such as a UUID, of at most 100 characters. Required, except with `dryRun=true`. For 24 hours, the same caller retrying the same request with the same key gets the original request in its current state. The caller is the token's subject: a service that sends `onBehalfOf` holds its key, and the person cannot replay it: the person's own use of that key is a request of their own. The same key with another request is 409 `idempotency-replay`. The expiry writes do not compare `justification`: a retry that changes only it gets the original request. */
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                /** @description The cluster's ID, as `GET /api/v1/clusters` returns it. */
+                cluster_id: string;
+                /** @description The name of the namespace on that cluster. */
+                ns: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                /**
+                 * @example {
+                 *       "justification": "Bring abc-rnd under cmapi"
+                 *     }
+                 */
+                "application/json": components["schemas"]["AdoptBody"] | null;
+            };
+        };
+        responses: {
+            /** @description Dry run (`?dryRun=true`): the plan. The call opens no change request, takes no lock or reservation, queues no job and opens no pull request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "adoption": {
+                     *         "keys": [
+                     *           {
+                     *             "kept": false,
+                     *             "key": "kubernetes.io/metadata.name",
+                     *             "kind": "label",
+                     *             "managers": [
+                     *               "kube-apiserver"
+                     *             ],
+                     *             "why": "only server components own it"
+                     *           },
+                     *           {
+                     *             "kept": false,
+                     *             "key": "pod-security.kubernetes.io/audit",
+                     *             "kind": "label",
+                     *             "managers": [
+                     *               "pod-security-admission-label-synchronization-controller"
+                     *             ],
+                     *             "why": "only server components own it"
+                     *           }
+                     *         ],
+                     *         "label": "cmapi.net/adopt",
+                     *         "notAdopted": {
+                     *           "RoleBinding": 0,
+                     *           "ServiceAccount": 0
+                     *         },
+                     *         "objects": [
+                     *           {
+                     *             "kind": "Namespace",
+                     *             "name": "abc-rnd",
+                     *             "resourceVersion": "100",
+                     *             "uid": "uid-ns-1"
+                     *           },
+                     *           {
+                     *             "kind": "ResourceQuota",
+                     *             "name": "abc-rnd-quota",
+                     *             "resourceVersion": "101",
+                     *             "uid": "uid-rq-1"
+                     *           },
+                     *           {
+                     *             "kind": "LimitRange",
+                     *             "name": "abc-rnd-limits-cpu",
+                     *             "resourceVersion": "102",
+                     *             "uid": "uid-lr-cpu"
+                     *           },
+                     *           {
+                     *             "kind": "LimitRange",
+                     *             "name": "abc-rnd-limits-memory",
+                     *             "resourceVersion": "102",
+                     *             "uid": "uid-lr-memory"
+                     *           }
+                     *         ],
+                     *         "recognised": [
+                     *           "company.net/provisioner=cluster-configs"
+                     *         ],
+                     *         "snapshotHash": "4faf2e011429cbd08f98b6a27fd293c9bb220471dc4084f383d8e48d4dcc9435"
+                     *       },
+                     *       "approval": {
+                     *         "approvals": [],
+                     *         "auto": null,
+                     *         "autoFallback": null,
+                     *         "reasons": [
+                     *           "dev change: 0 from approver-platform",
+                     *           "threshold beyondTier: +1 approver-platform",
+                     *           "threshold plugin == \"adoption\": +1 approver-platform",
+                     *           "threshold plugin == \"adoption\" and findingCount > 0: +1 approver-platform"
+                     *         ],
+                     *         "remaining": [
+                     *           {
+                     *             "group": "approver-platform",
+                     *             "needed": 3
+                     *           }
+                     *         ],
+                     *         "rule": "dev-change",
+                     *         "selfApproval": true,
+                     *         "slots": [
+                     *           {
+                     *             "count": 3,
+                     *             "group": "approver-platform",
+                     *             "reason": "Value beyond the tier; Adoption of an existing namespace; Adoption with findings"
+                     *           }
+                     *         ],
+                     *         "timeoutHours": 8
+                     *       },
+                     *       "beyondTier": {
+                     *         "approvals": [
+                     *           {
+                     *             "count": 1,
+                     *             "group": "approver-platform",
+                     *             "reason": "Value beyond the tier"
+                     *           }
+                     *         ],
+                     *         "keys": [
+                     *           {
+                     *             "key": "requests.cpu",
+                     *             "requested": "40",
+                     *             "tier": "32"
+                     *           }
+                     *         ]
+                     *       },
+                     *       "capacity": {
+                     *         "bindingResource": null,
+                     *         "fresh": true,
+                     *         "source": "adoption",
+                     *         "status": "fits"
+                     *       },
+                     *       "changes": {
+                     *         "clusters/CRC/namespaces/abc-rnd/limitrange-abc-rnd-limits-cpu.yaml": "added",
+                     *         "clusters/CRC/namespaces/abc-rnd/limitrange-abc-rnd-limits-memory.yaml": "added",
+                     *         "clusters/CRC/namespaces/abc-rnd/namespace.yaml": "added",
+                     *         "clusters/CRC/namespaces/abc-rnd/resourcequota-abc-rnd-quota.yaml": "added"
+                     *       },
+                     *       "etag": "0",
+                     *       "files": {
+                     *         "clusters/CRC/namespaces/abc-rnd/limitrange-abc-rnd-limits-cpu.yaml": "apiVersion: v1\nkind: LimitRange\nmetadata:\n  name: abc-rnd-limits-cpu\n  namespace: abc-rnd\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: custom\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\nspec:\n  limits:\n  - type: Container\n    defaultRequest:\n      cpu: 100m\n    max:\n      cpu: '2'\n",
+                     *         "clusters/CRC/namespaces/abc-rnd/limitrange-abc-rnd-limits-memory.yaml": "apiVersion: v1\nkind: LimitRange\nmetadata:\n  name: abc-rnd-limits-memory\n  namespace: abc-rnd\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: custom\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\nspec:\n  limits:\n  - type: Container\n    defaultRequest:\n      memory: 128Mi\n    max:\n      memory: 4Gi\n",
+                     *         "clusters/CRC/namespaces/abc-rnd/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: abc-rnd\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: opal\n    cmapi.net/tier: custom\n    company.net/provisioner: cluster-configs\n    cmapi.net/adopt: 'true'\n    company.net/app-environment: rnd\n    company.net/cl: '1'\n    company.net/lob: amgsst\n    company.net/mnemonic: abc\n    company.net/mnemonic-confluence: ''\n    company.net/mnemonic-group-contact: ''\n    name: aao-rnd\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: opal@ephico2real.com\n    company.net/app-environment: rnd\n",
+                     *         "clusters/CRC/namespaces/abc-rnd/resourcequota-abc-rnd-quota.yaml": "apiVersion: v1\nkind: ResourceQuota\nmetadata:\n  name: abc-rnd-quota\n  namespace: abc-rnd\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: custom\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\nspec:\n  hard:\n    requests.cpu: '40'\n    requests.memory: 64Gi\n    pods: '100'\n  scopes:\n  - NotTerminating\n"
+                     *       },
+                     *       "findings": [
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "label company.net/app-environment: no rule of this instance admits the label company.net/app-environment: kept; a request may remove it, never set it",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/namespace.yaml",
+                     *           "rule": "unknown-key",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "label company.net/cl: no rule of this instance admits the label company.net/cl: kept; a request may remove it, never set it",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/namespace.yaml",
+                     *           "rule": "unknown-key",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "label company.net/lob: no rule of this instance admits the label company.net/lob: kept; a request may remove it, never set it",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/namespace.yaml",
+                     *           "rule": "unknown-key",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "label company.net/mnemonic: no rule of this instance admits the label company.net/mnemonic: kept; a request may remove it, never set it",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/namespace.yaml",
+                     *           "rule": "unknown-key",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "label company.net/mnemonic-confluence: no rule of this instance admits the label company.net/mnemonic-confluence: kept; a request may remove it, never set it",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/namespace.yaml",
+                     *           "rule": "unknown-key",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "label company.net/mnemonic-group-contact: no rule of this instance admits the label company.net/mnemonic-group-contact: kept; a request may remove it, never set it",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/namespace.yaml",
+                     *           "rule": "unknown-key",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "label company.net/provisioner: company.net/provisioner=cluster-configs marks a namespace that another tool made (recognised): kept as it is",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/namespace.yaml",
+                     *           "rule": "adoption-label",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "annotation company.net/app-environment: no rule of this instance admits the annotation company.net/app-environment: kept; a request may remove it, never set it",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/namespace.yaml",
+                     *           "rule": "unknown-key",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "label cmapi.net/team: the required label cmapi.net/team is missing: never forced; each plan lists it until a request sets it",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/namespace.yaml",
+                     *           "rule": "missing-required-key",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "annotation cmapi.net/team-dl: the required annotation cmapi.net/team-dl is missing: never forced; each plan lists it until a request sets it",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/namespace.yaml",
+                     *           "rule": "missing-required-key",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "label kubernetes.io/metadata.name: left out of Git, only server components own it (managers: kube-apiserver)",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/namespace.yaml",
+                     *           "rule": "skipped-key",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "label pod-security.kubernetes.io/audit: left out of Git, only server components own it (managers: pod-security-admission-label-synchronization-controller)",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/namespace.yaml",
+                     *           "rule": "skipped-key",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "abc-rnd-quota: requests.cpu is 40, above the custom maximum 32: adopted as it is; a later change of it is checked and approved as usual",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/resourcequota-abc-rnd-quota.yaml",
+                     *           "rule": "beyond-custom-bounds",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "Only the scoped quotas abc-rnd-quota hold pods: its figure for the namespace is not known",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/",
+                     *           "rule": "scoped-only",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "Only the scoped quotas abc-rnd-quota hold requests.cpu: its figure for the namespace is not known",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/",
+                     *           "rule": "scoped-only",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         },
+                     *         {
+                     *           "kyvernoRule": null,
+                     *           "message": "Only the scoped quotas abc-rnd-quota hold requests.memory: its figure for the namespace is not known",
+                     *           "path": "clusters/CRC/namespaces/abc-rnd/",
+                     *           "rule": "scoped-only",
+                     *           "severity": "warning",
+                     *           "source": "cmapi"
+                     *         }
+                     *       ],
+                     *       "metadata": null,
+                     *       "metadataDiff": null,
+                     *       "planHash": "2b7901cfa4d0ac4b22f7ef8ffae9ca74033d01008cca24d412d96e2e8c47abf1",
+                     *       "requester": {
+                     *         "automated": false,
+                     *         "requester": {
+                     *           "clientId": "cmapi-portal",
+                     *           "email": "opal@ephico2real.com",
+                     *           "employeeId": "1001",
+                     *           "familyName": "Doe",
+                     *           "givenName": "Opal",
+                     *           "kind": "user",
+                     *           "middleName": null,
+                     *           "sub": "sub-opal",
+                     *           "username": "opal"
+                     *         },
+                     *         "submittedBy": null,
+                     *         "submittedByClient": null
+                     *       },
+                     *       "usage": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PlanView"];
+                };
+            };
+            /** @description The request is created. It waits for approval unless a policy approves it at once: `status` and `approval` say which, and `links.events` follows it. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "action": "adopt",
+                     *       "approval": {
+                     *         "approvals": [],
+                     *         "auto": null,
+                     *         "autoFallback": null,
+                     *         "reasons": [
+                     *           "dev change: 0 from approver-platform",
+                     *           "threshold beyondTier: +1 approver-platform",
+                     *           "threshold plugin == \"adoption\": +1 approver-platform",
+                     *           "threshold plugin == \"adoption\" and findingCount > 0: +1 approver-platform"
+                     *         ],
+                     *         "remaining": [
+                     *           {
+                     *             "group": "approver-platform",
+                     *             "needed": 3
+                     *           }
+                     *         ],
+                     *         "rule": "dev-change",
+                     *         "selfApproval": true,
+                     *         "slots": [
+                     *           {
+                     *             "count": 3,
+                     *             "group": "approver-platform",
+                     *             "reason": "Value beyond the tier; Adoption of an existing namespace; Adoption with findings"
+                     *           }
+                     *         ],
+                     *         "timeoutHours": 8
+                     *       },
+                     *       "baseSha": "42f0f8d3f42ed2cc82afe4ecccd5e1a18910cf1c",
+                     *       "beyondTier": {
+                     *         "approvals": [
+                     *           {
+                     *             "count": 1,
+                     *             "group": "approver-platform",
+                     *             "reason": "Value beyond the tier"
+                     *           }
+                     *         ],
+                     *         "keys": [
+                     *           {
+                     *             "key": "requests.cpu",
+                     *             "requested": "40",
+                     *             "tier": "32"
+                     *           }
+                     *         ]
+                     *       },
+                     *       "clusterId": "CRC",
+                     *       "createdAt": "2026-11-26T21:29:43.082073Z",
+                     *       "env": "dev",
+                     *       "events": [
+                     *         {
+                     *           "at": "2026-11-26T21:29:43.107987Z",
+                     *           "by": "opal",
+                     *           "event": "plan_needs_approval",
+                     *           "note": "waiting for [('approver-platform', 3)]",
+                     *           "status": "pending_approval"
+                     *         }
+                     *       ],
+                     *       "files": {
+                     *         "clusters/CRC/namespaces/abc-rnd/limitrange-abc-rnd-limits-cpu.yaml": "added",
+                     *         "clusters/CRC/namespaces/abc-rnd/limitrange-abc-rnd-limits-memory.yaml": "added",
+                     *         "clusters/CRC/namespaces/abc-rnd/namespace.yaml": "added",
+                     *         "clusters/CRC/namespaces/abc-rnd/resourcequota-abc-rnd-quota.yaml": "added"
+                     *       },
+                     *       "instance": "nonprod",
+                     *       "justification": "Bring abc-rnd under cmapi",
+                     *       "links": {
+                     *         "events": "/api/v1/requests/req-20261126-0016/events",
+                     *         "self": "/api/v1/requests/req-20261126-0016"
+                     *       },
+                     *       "mergeSha": null,
+                     *       "namespace": "abc-rnd",
+                     *       "planHash": "2731cccb7ab865896338f90b001d02c4cf317d9180249b9a7fed31f460a1952d",
+                     *       "plugin": "adoption",
+                     *       "pr": null,
+                     *       "reason": null,
+                     *       "requestId": "req-20261126-0016",
+                     *       "requester": {
+                     *         "automated": false,
+                     *         "requester": {
+                     *           "clientId": "cmapi-portal",
+                     *           "email": "opal@ephico2real.com",
+                     *           "employeeId": "1001",
+                     *           "familyName": "Doe",
+                     *           "givenName": "Opal",
+                     *           "kind": "user",
+                     *           "middleName": null,
+                     *           "sub": "sub-opal",
+                     *           "username": "opal"
+                     *         },
+                     *         "submittedBy": null,
+                     *         "submittedByClient": null
+                     *       },
+                     *       "status": "pending_approval",
+                     *       "updatedAt": "2026-11-26T21:29:42.977996Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ChangeRequest"];
+                };
+            };
+            /**
+             * @description A header or a parameter that cmapi reads first is missing or not valid.
+             *
+             *     Codes: `idempotency-key-required`.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description No token, or the token is not valid.
+             *
+             *     Codes: `unauthenticated`.
+             */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The caller may not do this, or not in this environment.
+             *
+             *     Codes: `forbidden`, `environment-forbidden`.
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description What the path names is not known.
+             *
+             *     Codes: `cluster-not-found`, `object-not-found`.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description It conflicts with the current state of the object, of an open request or of the Idempotency-Key.
+             *
+             *     Codes: `change-pending`, `idempotency-replay`, `folder-not-utf8`, `folder-not-yaml`, `namespace-not-adoptable`.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The request content is larger than this instance reads; `maxBytes` says how many bytes it reads. Nothing was done.
+             *
+             *     Codes: `content-too-large`.
+             */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
+             *
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `policy-violation`.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description Too many calls by this caller in the bucket that `x-cmapi-rate-limit` names, or too many new requests for the team. Wait for the seconds in `Retry-After`, which `retryAfter` repeats. Nothing was done.
+             *
+             *     Codes: `rate-limited`.
+             */
+            429: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description The Git host failed.
+             *
+             *     Codes: `git-unavailable`.
+             */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /**
+             * @description A service that cmapi depends on is not answering. Try again later; `retryAfter`, when present, says when.
+             *
+             *     Codes: `cluster-unreachable`, `validator-unavailable`, `validator-busy`, `idp-unavailable`.
+             */
+            503: {
+                headers: {
+                    /** @description The seconds to wait before the next call: the same number as `retryAfter`. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     core_probe: {
         parameters: {
             query?: never;
@@ -9898,7 +11008,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "checkedAt": "2026-11-26T21:02:48.949901Z",
+                     *       "checkedAt": "2026-11-26T21:29:07.578004Z",
                      *       "clusterId": "CRC",
                      *       "environment": "dev",
                      *       "findingDetails": [],
@@ -9907,11 +11017,11 @@ export interface operations {
                      *       "labels": {
                      *         "region": "us-central"
                      *       },
-                     *       "lastProbeAt": "2026-11-26T21:02:48.949901Z",
+                     *       "lastProbeAt": "2026-11-26T21:29:07.578004Z",
                      *       "secretName": "cmapi-cluster-crc",
                      *       "serverVersion": "v1.35.6-fake",
                      *       "status": "connected",
-                     *       "statusSince": "2026-11-26T21:02:48.484861Z",
+                     *       "statusSince": "2026-11-26T21:29:06.728312Z",
                      *       "tokenExpiresAt": null,
                      *       "trust": {
                      *         "downgrade": false,
@@ -10977,7 +12087,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "from": "2026-11-19T21:03:06.585852Z",
+                     *       "from": "2026-11-19T21:29:37.484885Z",
                      *       "items": [
                      *         {
                      *           "action": "create",
@@ -10996,9 +12106,9 @@ export interface operations {
                      *               "source": "cmapi"
                      *             }
                      *           ],
-                     *           "firstAt": "2026-11-26T21:03:03.961808Z",
+                     *           "firstAt": "2026-11-26T21:29:33.525797Z",
                      *           "id": "rej-2",
-                     *           "lastAt": "2026-11-26T21:03:03.961808Z",
+                     *           "lastAt": "2026-11-26T21:29:33.525797Z",
                      *           "namespace": "kube-tools",
                      *           "outcome": "refused",
                      *           "plugin": "namespaces",
@@ -11024,9 +12134,9 @@ export interface operations {
                      *               "source": "cmapi"
                      *             }
                      *           ],
-                     *           "firstAt": "2026-11-26T21:02:57.702357Z",
+                     *           "firstAt": "2026-11-26T21:29:22.698142Z",
                      *           "id": "rej-1",
-                     *           "lastAt": "2026-11-26T21:02:57.702357Z",
+                     *           "lastAt": "2026-11-26T21:29:22.698142Z",
                      *           "namespace": "search-dev",
                      *           "outcome": "refused",
                      *           "plugin": "namespaces",
@@ -11175,7 +12285,7 @@ export interface operations {
                      * @example {
                      *       "clusters": [
                      *         {
-                     *           "asOf": "2026-11-26T21:03:06.462064Z",
+                     *           "asOf": "2026-11-26T21:29:37.316589Z",
                      *           "bundle": {
                      *             "actionsDiffer": [],
                      *             "actionsDifferTotal": 0,
@@ -12469,11 +13579,11 @@ export interface operations {
                      *           "baseSha": "cb5c898bb9e87c673d2f8ea2db640d276b35b5a0",
                      *           "beyondTier": null,
                      *           "clusterId": "CRC",
-                     *           "createdAt": "2026-11-26T21:02:51.325842Z",
+                     *           "createdAt": "2026-11-26T21:29:11.158795Z",
                      *           "env": "dev",
                      *           "events": [
                      *             {
-                     *               "at": "2026-11-26T21:02:51.402905Z",
+                     *               "at": "2026-11-26T21:29:11.310506Z",
                      *               "by": "ola",
                      *               "event": "plan_needs_approval",
                      *               "note": "waiting for [('approver-platform', 1)]",
@@ -12517,7 +13627,7 @@ export interface operations {
                      *             "submittedByClient": null
                      *           },
                      *           "status": "pending_approval",
-                     *           "updatedAt": "2026-11-26T21:02:51.345449Z"
+                     *           "updatedAt": "2026-11-26T21:29:11.177782Z"
                      *         }
                      *       ],
                      *       "letters": {
@@ -12658,67 +13768,67 @@ export interface operations {
                      *       "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:02:49.797724Z",
+                     *       "createdAt": "2026-11-26T21:29:08.957546Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:02:49.861156Z",
+                     *           "at": "2026-11-26T21:29:09.025795Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:49.975150Z",
+                     *           "at": "2026-11-26T21:29:09.160896Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261126-0001 at cb5c898b on aaaaaaaa (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.027897Z",
+                     *           "at": "2026-11-26T21:29:09.245134Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261126-0001 #1",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.072209Z",
+                     *           "at": "2026-11-26T21:29:09.302793Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.158675Z",
+                     *           "at": "2026-11-26T21:29:09.422145Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "apply_started",
                      *           "note": "applying cb5c898b before the merge",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.204738Z",
+                     *           "at": "2026-11-26T21:29:09.488499Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "applied",
                      *           "note": "5 objects from cmapi/CRC/req-20261126-0001 at cb5c898b, before the merge, confirmed by a read: quota matches the plan",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.255241Z",
+                     *           "at": "2026-11-26T21:29:09.564401Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged cb5c898b; the folder at it is the plan's",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.268836Z",
+                     *           "at": "2026-11-26T21:29:09.584626Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged cb5c898b",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.284327Z",
+                     *           "at": "2026-11-26T21:29:09.613506Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "synced",
                      *           "note": "applied and confirmed by a read before the merge",
@@ -12768,7 +13878,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "synced",
-                     *       "updatedAt": "2026-11-26T21:02:50.226688Z"
+                     *       "updatedAt": "2026-11-26T21:29:09.478435Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -12993,63 +14103,63 @@ export interface operations {
                      * @example {
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:02:49.861156Z",
+                     *           "at": "2026-11-26T21:29:09.025795Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:49.975150Z",
+                     *           "at": "2026-11-26T21:29:09.160896Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261126-0001 at cb5c898b on aaaaaaaa (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.027897Z",
+                     *           "at": "2026-11-26T21:29:09.245134Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261126-0001 #1",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.072209Z",
+                     *           "at": "2026-11-26T21:29:09.302793Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.158675Z",
+                     *           "at": "2026-11-26T21:29:09.422145Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "apply_started",
                      *           "note": "applying cb5c898b before the merge",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.204738Z",
+                     *           "at": "2026-11-26T21:29:09.488499Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "applied",
                      *           "note": "5 objects from cmapi/CRC/req-20261126-0001 at cb5c898b, before the merge, confirmed by a read: quota matches the plan",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.255241Z",
+                     *           "at": "2026-11-26T21:29:09.564401Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged cb5c898b; the folder at it is the plan's",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.268836Z",
+                     *           "at": "2026-11-26T21:29:09.584626Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged cb5c898b",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:50.284327Z",
+                     *           "at": "2026-11-26T21:29:09.613506Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "synced",
                      *           "note": "applied and confirmed by a read before the merge",
@@ -13180,7 +14290,7 @@ export interface operations {
                      *       "approval": {
                      *         "approvals": [
                      *           {
-                     *             "at": "2026-11-26T21:02:51.583131Z",
+                     *             "at": "2026-11-26T21:29:11.597444Z",
                      *             "comment": "sizing reviewed",
                      *             "relayedBy": null,
                      *             "sub": "sub-amy",
@@ -13208,25 +14318,25 @@ export interface operations {
                      *       "baseSha": "cb5c898bb9e87c673d2f8ea2db640d276b35b5a0",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:02:51.325842Z",
+                     *       "createdAt": "2026-11-26T21:29:11.158795Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:02:51.402905Z",
+                     *           "at": "2026-11-26T21:29:11.310506Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:51.610064Z",
+                     *           "at": "2026-11-26T21:29:11.632823Z",
                      *           "by": "amy",
                      *           "event": "approval",
                      *           "note": "sizing reviewed",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:51.631632Z",
+                     *           "at": "2026-11-26T21:29:11.660991Z",
                      *           "by": "amy",
                      *           "event": "approved",
                      *           "note": "approval count met",
@@ -13270,7 +14380,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T21:02:51.572401Z"
+                     *       "updatedAt": "2026-11-26T21:29:11.525570Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -13447,18 +14557,18 @@ export interface operations {
                      *       "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:02:55.682073Z",
+                     *       "createdAt": "2026-11-26T21:29:19.060471Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:02:55.714463Z",
+                     *           "at": "2026-11-26T21:29:19.111568Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:56.079648Z",
+                     *           "at": "2026-11-26T21:29:19.696015Z",
                      *           "by": "ola",
                      *           "event": "cancel",
                      *           "note": "",
@@ -13502,7 +14612,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "cancelled",
-                     *       "updatedAt": "2026-11-26T21:02:56.021413Z"
+                     *       "updatedAt": "2026-11-26T21:29:19.562380Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -13675,18 +14785,18 @@ export interface operations {
                      *       "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:02:55.841385Z",
+                     *       "createdAt": "2026-11-26T21:29:19.337036Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:02:55.873676Z",
+                     *           "at": "2026-11-26T21:29:19.387942Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:55.982192Z",
+                     *           "at": "2026-11-26T21:29:19.543765Z",
                      *           "by": "amy",
                      *           "event": "rejected",
                      *           "note": "Use the medium tier",
@@ -13730,7 +14840,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "rejected",
-                     *       "updatedAt": "2026-11-26T21:02:55.922642Z"
+                     *       "updatedAt": "2026-11-26T21:29:19.409489Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -13897,67 +15007,67 @@ export interface operations {
                      *       "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:02:57.310591Z",
+                     *       "createdAt": "2026-11-26T21:29:22.047809Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:02:57.338504Z",
+                     *           "at": "2026-11-26T21:29:22.098757Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:57.449028Z",
+                     *           "at": "2026-11-26T21:29:22.292124Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261126-0007 at f2384f00 on 89561eb2 (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:57.538005Z",
+                     *           "at": "2026-11-26T21:29:22.452921Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261126-0007 #5",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:57.711433Z",
+                     *           "at": "2026-11-26T21:29:22.712574Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: fail",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:57.736677Z",
+                     *           "at": "2026-11-26T21:29:22.744943Z",
                      *           "by": "ci",
                      *           "event": "head_moved",
                      *           "note": "PR head moved from f2384f00 to ec4de521 after approval",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:57.755027Z",
+                     *           "at": "2026-11-26T21:29:22.777710Z",
                      *           "by": "ci",
                      *           "event": "pr_failed",
                      *           "note": "checks failed",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:57.755118Z",
+                     *           "at": "2026-11-26T21:29:22.777799Z",
                      *           "by": "worker",
                      *           "event": "pr_closed",
                      *           "note": "#5: its checks failed; the request is failed and may be retried",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:57.858591Z",
+                     *           "at": "2026-11-26T21:29:22.959694Z",
                      *           "by": "worker",
                      *           "event": "branch_deleted",
                      *           "note": "cmapi/CRC/req-20261126-0007 at ec4de521",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:02:58.766345Z",
+                     *           "at": "2026-11-26T21:29:24.739104Z",
                      *           "by": "opal",
                      *           "event": "retry",
                      *           "note": "retry requested",
@@ -14007,7 +15117,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T21:02:58.711220Z"
+                     *       "updatedAt": "2026-11-26T21:29:24.609786Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -14161,60 +15271,60 @@ export interface operations {
                      *       "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:03:02.389887Z",
+                     *       "createdAt": "2026-11-26T21:29:31.329822Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:03:02.419541Z",
+                     *           "at": "2026-11-26T21:29:31.379458Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:02.525762Z",
+                     *           "at": "2026-11-26T21:29:31.563139Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
                      *           "note": "cmapi/CRC/req-20261126-0009 at 88a27e68 on 89561eb2 (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:02.588451Z",
+                     *           "at": "2026-11-26T21:29:31.639120Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
                      *           "note": "cmapi/CRC/req-20261126-0009 #8",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:02.643763Z",
+                     *           "at": "2026-11-26T21:29:31.720184Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:02.692887Z",
+                     *           "at": "2026-11-26T21:29:31.792680Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
                      *           "note": "merged 88a27e68; the folder at it is the plan's",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:02.707746Z",
+                     *           "at": "2026-11-26T21:29:31.810758Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
                      *           "note": "merged 88a27e68",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:02.782679Z",
+                     *           "at": "2026-11-26T21:29:31.907313Z",
                      *           "by": "worker",
                      *           "event": "sync_timeout",
                      *           "note": "orders-dev exists on the cluster and cmapi does not manage it; nothing applied",
                      *           "status": "sync_failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:03:02.995394Z",
+                     *           "at": "2026-11-26T21:29:32.154505Z",
                      *           "by": "opal",
                      *           "event": "revert_requested",
                      *           "note": "",
@@ -14264,7 +15374,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "sync_failed",
-                     *       "updatedAt": "2026-11-26T21:03:02.936316Z"
+                     *       "updatedAt": "2026-11-26T21:29:32.021570Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
