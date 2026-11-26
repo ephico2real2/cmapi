@@ -59,6 +59,9 @@ data:
     snapshotInterval: 30m
     overcommit: {"dev":{"cpu":2,"memory":1.25},"rnd":{"cpu":2,"memory":1.25}}
     targets: {"dev":{"commitment":{"critical":0.95,"warn":0.85},"utilisation":{"critical":0.9,"warn":0.75}},"rnd":{"commitment":{"critical":0.95,"warn":0.85},"utilisation":{"critical":0.9,"warn":0.75}}}
+    # Live 14-day usage and the daily verdicts (#310): none, so every plan and row says insufficient data. CRC runs with
+    # openshift-monitoring off (#489), and the reader has no cluster-monitoring-view grant here.
+    usage: {"source":"none"}
   approval-rules.yaml: |
     # examples/instances/nonprod/approval-rules.yaml: deployed as config/approval-rules.yaml on the nonprod instance
     # allowedEnvironments: ['rnd', 'dev']. Generated from examples/config/approval-rules.yaml.
@@ -97,6 +100,10 @@ data:
     - when: requestToPeakRatio > 3
       add: 1
       reason: Possible over-provisioning
+    - when: usage == "unavailable"   # Thanos did not answer the live 14-day usage read of a quota change (#310)
+      add: 1
+      group: approver-platform
+      reason: Live usage unavailable
     - when: capacity == "warn"
       add: 1
     - when: quotaBelowRequested

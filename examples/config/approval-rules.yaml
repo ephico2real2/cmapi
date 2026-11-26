@@ -30,6 +30,10 @@ thresholds:                     # facts come from the planner and cmapi-capacity
   - when: requestToPeakRatio > 3   # namespace peak over 14 days, read live when the change is planned
     add: 1
     reason: Possible over-provisioning
+  - when: usage == "unavailable"   # Thanos did not answer the live 14-day usage read of a quota change (#310)
+    add: 1
+    group: approver-platform
+    reason: Live usage unavailable
   - when: capacity == "warn"
     add: 1
   - when: quotaBelowRequested       # a decrease below what pods already request

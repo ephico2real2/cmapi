@@ -10,6 +10,8 @@ from typing import Any, Callable
 import httpx
 import yaml
 
+from cmapi.capacity.usage import NoUsage, UsageSource, usage_source
+from cmapi.capacity.verdicts import AnalysisSettings
 from cmapi.core.auth import Authenticator, Jwks
 from cmapi.core.capacity import CapacitySettings
 from cmapi.core.capacity_backend import SimulatedCapacity
@@ -54,6 +56,8 @@ class AppContext:
     bundle: PolicyBundle | None = None                      # the policies of the bundle, by environment (#302)
     deliverer_factory: Callable[[str], Any] | None = None   # tests inject a fake cluster write client
     limiter: RateLimiter = field(default_factory=RateLimiter)   # instance.yaml http.rateLimits, this process's buckets (#689)
+    usage: UsageSource = field(default_factory=NoUsage)         # capacity.yaml usage.source: live 14-day usage (#310)
+    analysis: AnalysisSettings = field(default_factory=lambda: AnalysisSettings(None, set()))   # analysis.yaml thresholds
 
     def auto_paused(self, session: Any = None) -> bool:
         """Whether an admin paused auto-approval. With `session`, read in the caller's transaction: pipeline.submit holds a
@@ -117,6 +121,7 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
 
     capacity_cfg = _yaml(settings.config_dir / "capacity.yaml")
     capacity_settings = CapacitySettings(capacity_cfg)
+    analysis = AnalysisSettings(_yaml(settings.config_dir / "analysis.yaml"), cfg.allowed_environments)
 
     def nodes_for(st: ClusterState, client: KubeClient) -> NodeCache:
         """The nodes of every connected cluster, for its allocatable (#302): a cluster without the grant answers 403, which
@@ -159,6 +164,7 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
     for env, mode in cfg.policy.modes(cfg.allowed_environments).items():
         POLICY_MODE.labels(env, mode).set(1)
     capacity = SimulatedCapacity(registry, capacity_settings)
+    usage = usage_source(capacity_cfg, registry)
 
     directory = None
     ident = inst.get("identity") or {}
@@ -173,11 +179,12 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
     ctx = AppContext(settings=settings, cfg=cfg, db=db, auth=auth, registry=registry, git=git,
                      pipeline=None, directory=directory,  # type: ignore[arg-type]
                      lister=Lister(settings.cursor_key.encode() or b"unset-cursor-key",
-                                   Sorts({"used": lambda r: r["used"], "severity": lambda r: severity(r["used"]),
+                                   Sorts({"used": lambda r: r["used"], "severity": lambda r: severity(r["used"], r.get("verdict")),
                                           "newest": lambda r: r.get("_created", 0.0)})),
                      delivery=DeliveryConfig.from_integrations(integrations), integrations=integrations,
                      capacity_cfg=capacity_cfg, capacity=capacity_settings, issuer=issuer, audience=audience, bundle=policy_bundle,
-                     limiter=RateLimiter(limits=dict(cfg.rate_limits)))
+                     limiter=RateLimiter(limits=dict(cfg.rate_limits)), usage=usage, analysis=analysis)
     reserved = (inst.get("namespaces") or {}).get("reservedPatterns") or []
-    ctx.pipeline = Pipeline(cfg, registry, git, validator, capacity, directory, reserved, auto_paused=ctx.auto_paused)
+    ctx.pipeline = Pipeline(cfg, registry, git, validator, capacity, directory, reserved, auto_paused=ctx.auto_paused,
+                            usage=usage)
     return ctx

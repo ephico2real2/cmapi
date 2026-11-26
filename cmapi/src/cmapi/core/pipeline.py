@@ -17,6 +17,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from cmapi.capacity.usage import NoUsage, UsageSource, plan_usage
 from cmapi.core import kube_yaml
 from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, Requirement
 from cmapi.core.capacity_backend import SimulatedCapacity
@@ -70,6 +71,7 @@ class Plan:
     beyond_tier: dict[str, Any] | None = None      # the new beyond-tier keys of this request and the approvals they add
     metadata: dict[str, Any] | None = None         # a create's final labels and annotations, each with its source (#479)
     metadata_diff: dict[str, Any] | None = None    # a change's effective label and annotation changes, with sources (#481)
+    usage: dict[str, Any] | None = None            # a quota change's live 14-day usage (#310); None when nothing was read
 
     @property
     def hash(self) -> str:
@@ -84,7 +86,7 @@ class Plan:
                 "approval": approval_view(r, None),
                 "files": {k: v for k, v in self.files.items() if k in self.changes and v is not None},
                 "findings": [f.view() for f in self.findings], "beyondTier": self.beyond_tier, "metadata": self.metadata,
-                "metadataDiff": self.metadata_diff}
+                "metadataDiff": self.metadata_diff, "usage": self.usage}
 
     def stored(self) -> dict[str, Any]:
         """What change_requests.plan holds: enough for the worker to render and verify."""
@@ -166,8 +168,9 @@ def approval_view(req: Requirement | None, ledger: ApprovalLedger | None) -> dic
 class Pipeline:
     def __init__(self, cfg: InstanceConfig, registry: ClusterRegistry, git: HostGitProvider, validator: Validator,
                  capacity: CapacityBackend | SimulatedCapacity, directory: CachedDirectory | None,
-                 reserved_patterns: list[str], auto_paused: Any = lambda session=None: False):
+                 reserved_patterns: list[str], auto_paused: Any = lambda session=None: False, usage: UsageSource | None = None):
         self.cfg, self.registry, self.git, self.validator = cfg, registry, git, validator
+        self.usage: UsageSource = usage or NoUsage()
         self.capacity, self.directory, self.reserved = capacity, directory, reserved_patterns
         self.renderer = ManifestRenderer(cfg.tiers, cfg.metadata)
         self.auto_paused = auto_paused
@@ -425,11 +428,21 @@ class Pipeline:
         if cap.status == "exceeded":
             raise Problem.unprocessable("capacity-exceeded", f"{cap.binding_resource} would exceed the cluster",
                                         capacity=dict(cap.detail))
+        # A quota change on an existing namespace reads its live 14-day usage (docs/01, "Quota changes on existing namespaces");
+        # a create never does ("Thanos on onboarding: Never queried"), nor a change that leaves the quota as it is.
+        usage_view, usage_facts = None, {}
+        if action != "create" and not quotas_held:
+            # Compare the hard limits in Git with what will be rendered. The tier catalog can change
+            # between requests, and a change can move only pods, limits, or another quota resource.
+            previous = old_quota or {}
+            if previous.keys() != hard.keys() or any(qty(previous[k]) != qty(hard[k]) for k in hard):
+                usage_view, usage_facts = plan_usage(self.usage.namespace(cluster_id, ns), previous, hard)
         facts = {"plugin": "namespaces", "action": action, "environment": env, "namespace": ns, "clusterId": cluster_id,
                  "team": labels.get("cmapi.net/team"), "tier": tier, "capacity": cap.status, "capacityFresh": cap.fresh,
                  "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,
                  "clusterLabels": dict(st.policy.labels), "warnings": [f.message for f in findings], "reason": reason,
-                 **exp_facts, **self.cfg.metadata.change_facts(cur_l, labels, cur_a, anns, existing=prev_ns is not None)}
+                 **exp_facts, **usage_facts,
+                 **self.cfg.metadata.change_facts(cur_l, labels, cur_a, anns, existing=prev_ns is not None)}
         if quotas_held:
             # The tier is the one Git holds (a move is refused above) and no quota changes.
             facts.update(QuotaChange("custom" if resolved.custom else "same", {}, {}).facts())
@@ -452,7 +465,7 @@ class Pipeline:
                            "approvals": [{"group": s.group, "count": s.count, "reason": s.reason} for s in added]}
         return Plan(cluster_id, ns, env, action, "namespaces", spec, files, prev_files, changes, requirement, cap, facts,
                     requester, findings, base_sha, reason=reason, etag=etag, warnings=[f.message for f in findings],
-                    beyond_tier=beyond_view, metadata=metadata_view, metadata_diff=metadata_diff)
+                    beyond_tier=beyond_view, metadata=metadata_view, metadata_diff=metadata_diff, usage=usage_view)
 
     def _kept_metadata(self, prev_ns: Mapping[str, Any] | None, kind: str) -> dict[str, str]:
         """The keys of one kind that Git holds and a change merges its patch over: every key but a system one, which the

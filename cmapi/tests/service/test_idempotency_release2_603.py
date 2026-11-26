@@ -14,7 +14,7 @@ from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
 
 import conftest
-from cmapi.core.db import Database, REQUIRED_REVISION, older_than_required
+from cmapi.core.db import Database, REQUIRED_REVISION, older_than_required, script_directory
 from cmapi.core.db.repo import RequestRepo
 from test_flow import NS
 from test_idempotency_caller_592 import (CALLER_INDEX, OTHER, REQUESTER_INDEX, SVC_SUB, URL, _directory, _insert, _keys_of,
@@ -58,9 +58,9 @@ def test_the_upgrade_fills_each_keyed_row_with_its_caller_and_keeps_only_the_cal
         _insert(c, "g-release-1-caller-only", requester_sub="sub-amy", key="k5", sub="sub-svc2", with_sub=True,
                 requester={"requester": {"sub": "sub-amy"}, "automated": True, "submittedBy": "svc2"})
 
-        _run(empty_schema, "head")
+        _run(empty_schema, "0009")
         rows, indexes, version = _state(c)
-        assert version == "0009" == REQUIRED_REVISION, version
+        assert version == "0009", version
         assert indexes == {"uq_cr_idempotency_caller": CALLER_INDEX}, indexes
         assert indexes["uq_cr_idempotency_caller"].startswith("CREATE UNIQUE INDEX "), indexes
         assert _check(c) == {"ck_cr_idempotency_caller": CHECK}
@@ -88,12 +88,12 @@ def test_the_upgrade_refuses_a_live_delegated_row_without_its_caller_and_changes
         before = _everything(c)
         assert before["version"] == "0008" and before["count"] == 3
 
-        out = _refused(empty_schema, "head")
+        out = _refused(empty_schema, "0009")
         assert "0009 refused, nothing changed: the live delegated requests x-delegated hold an Idempotency-Key" in out, out[-800:]
         assert _everything(c) == before
 
         c.execute("UPDATE change_requests SET created_at = now() - interval '25 hours' WHERE request_id = 'x-delegated'")
-        _run(empty_schema, "head")
+        _run(empty_schema, "0009")
         rows, _indexes, version = _state(c)
         assert version == "0009" and rows == {"x-delegated": (None, None, None), "y-0007-own": ("k7", "fp-y-0007-own", "sub-amy"),
                                               "z-expired": (None, None, None)}, rows
@@ -109,7 +109,7 @@ def test_the_upgrade_refuses_each_shape_of_an_unknown_caller_and_changes_nothing
         _insert(c, "z-invalid", requester_sub="sub-ola", key="k8", hours_ago=1,
                 requester={"requester": {"sub": "sub-ola"}, "submittedBy": "svc", "submittedBySub": subject})
         before = _everything(c)
-        out = _refused(empty_schema, "head")
+        out = _refused(empty_schema, "0009")
         assert "0009 refused, nothing changed: the live delegated requests z-invalid hold an Idempotency-Key" in out, out[-800:]
         assert _everything(c) == before
 
@@ -127,14 +127,14 @@ def test_the_upgrade_refuses_a_live_collision_under_the_caller_and_changes_nothi
                 with_sub=True)
         before = _everything(c)
 
-        out = _refused(empty_schema, "head")
+        out = _refused(empty_schema, "0009")
         assert ("0009 refused, nothing changed: live requests share one caller's Idempotency-Key (a-0007-for-ola, "
                 "b-0007-for-amy; c-0007-for-ola, d-release-1-for-amy)") in out, out[-800:]
         assert _everything(c) == before
 
         c.execute("UPDATE change_requests SET created_at = now() - interval '25 hours' "
                   "WHERE request_id IN ('a-0007-for-ola', 'c-0007-for-ola')")
-        _run(empty_schema, "head")
+        _run(empty_schema, "0009")
         rows, indexes, version = _state(c)
         assert version == "0009" and indexes == {"uq_cr_idempotency_caller": CALLER_INDEX}, indexes
         assert rows == {
@@ -149,7 +149,7 @@ def test_the_downgrade_restores_release_1_and_keeps_every_live_key(empty_schema)
     """0009 can be downgraded: back to release 1's two unique indexes and no check, every live key and its caller kept,
     so release 1's code finds them. An expired key is cleared, as the lookup would clear it, so that it cannot block the
     requester's index. Then up again. Before (cb59e19): there is no 0009 to downgrade."""
-    _run(empty_schema, "head")
+    _run(empty_schema, "0009")
     with psycopg.connect(empty_schema, autocommit=True) as c:
         _insert(c, "a-own", requester_sub="sub-ola", key="k1", hours_ago=2, sub="sub-ola", with_sub=True)
         _insert(c, "b-svc-for-ola", requester_sub="sub-ola", key="k2", submitted_by="sub-svc", sub="sub-svc", with_sub=True)
@@ -164,7 +164,7 @@ def test_the_downgrade_restores_release_1_and_keeps_every_live_key(empty_schema)
         assert rows == {"a-own": ("k1", "fp-a-own", "sub-ola"), "b-svc-for-ola": ("k2", "fp-b-svc-for-ola", "sub-svc"),
                         "c-expired-svc-for-ola": (None, None, None)}, rows
 
-        _run(empty_schema, "head")
+        _run(empty_schema, "0009")
         assert _state(c)[1:] == ({"uq_cr_idempotency_caller": CALLER_INDEX}, "0009") and _state(c)[0] == rows
 
 
@@ -172,7 +172,7 @@ def test_the_downgrade_refuses_a_live_pair_of_one_requester_and_changes_nothing(
     """Since 0009 the person and a service writing for her may hold the same key (the inverted window test). Release 1's
     requester index cannot hold that pair, so the downgrade refuses while both are live, and succeeds once one is over
     24 hours old. Before (cb59e19): no 0009."""
-    _run(empty_schema, "head")
+    _run(empty_schema, "0009")
     with psycopg.connect(empty_schema, autocommit=True) as c:
         _insert(c, "a-own", requester_sub="sub-ola", key="k1", hours_ago=2, sub="sub-ola", with_sub=True)
         _insert(c, "b-svc-for-ola", requester_sub="sub-ola", key="k1", submitted_by="sub-svc", sub="sub-svc", with_sub=True)
@@ -289,13 +289,14 @@ def test_the_lookup_and_its_expiry_find_the_key_by_its_caller_through_the_caller
 
 def test_a_database_at_release_1_is_behind_this_code(monkeypatch):
     """This code drops the requester's index and reads `idempotency_sub` alone, so release 1's schema is not ready for it:
-    /readyz is 503 until the migrate initContainer has run 0009. Before (cb59e19): REQUIRED_REVISION was 0008."""
-    assert REQUIRED_REVISION == "0009"
-    assert older_than_required("0008") and not older_than_required("0009")
+    /readyz is 503 until the migrate initContainer has run 0009, or a later revision that needs it. Before (cb59e19):
+    REQUIRED_REVISION was 0008."""
+    assert "0009" in {r.revision for r in script_directory().iterate_revisions(REQUIRED_REVISION, "base")}
+    assert older_than_required("0008")
     db = Database(conftest.DB_URL)
     monkeypatch.setattr(db, "schema_version", lambda: "0008")
     try:
-        assert db.schema_status() == "behind: at 0008, needs 0009"
+        assert db.schema_status() == f"behind: at 0008, needs {REQUIRED_REVISION}"
     finally:
         db.engine.dispose()
 

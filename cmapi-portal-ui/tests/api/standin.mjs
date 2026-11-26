@@ -210,8 +210,24 @@ const APPS = ["api", "worker", "batch", "web", "events"];
 const SHARES = [0.1, 0.45, 0.82, 0.97, 0.3, 0.6, 0.05, 0.88];
 const HARD = { small: [8, 16, 50], medium: [16, 32, 100], large: [32, 64, 200] };
 
+/**
+ * The usage verdicts of the rows (#310): a cycle over the API's verdicts, each with its resources and its sentence, as
+ * cmapi/src/cmapi/capacity/verdicts.py writes them. `verdicts: false` keeps the recorded row's (insufficient data, no source).
+ */
+export const VERDICT_CYCLE = [
+  ["quota-tight", "risk", ["cpu"], "Over 14 days requests were at 95% or more of the CPU quota in 31% of hours; dev's ceiling is 95% for 10% of hours."],
+  ["right-sized", "ok", ["cpu", "memory"], "Quota, requests and real usage agree within the dev thresholds."],
+  ["idle", "waste", ["cpu", "memory"], "CPU p95 0.020 cores and memory p95 70 MiB over dev's idle period of 7 days, under 0.05 cores and 128 MiB."],
+  ["quota-oversized", "waste", ["cpu", "memory"], "Requests use 12% of the CPU quota at their p95 over 14 days, below dev's floor of 30%."],
+  ["right-sized", "ok", ["cpu", "memory"], "Quota, requests and real usage agree within the dev thresholds."],
+  ["requests-oversized", "waste", ["cpu"], "Pods request 4.80 cores of CPU and use 0.30 cores at p95 over 14 days: 6%, below dev's floor of 20%."],
+  ["insufficient-data", "info", ["cpu", "memory"], "Pods were seen in 30% of the 14-day window's 4,032 five-minute steps; 80% are needed."],
+  ["quota-tight", "risk", ["memory"], "Over 14 days the memory quota was exhausted; dev's ceiling is 95% for 10% of hours."],
+  ["right-sized", "ok", ["cpu", "memory"], "Quota, requests and real usage agree within the dev thresholds."]
+];
+
 /** `count` quota rows, each a copy of the recorded row with its own name, cluster, environment, tier and use. In name order of creation, not sorted. */
-export function quotasFrom(count, { clusters = ["CRC"], envs = ["dev", "rnd"] } = {}) {
+export function quotasFrom(count, { clusters = ["CRC"], envs = ["dev", "rnd"], verdicts = true } = {}) {
   return Array.from({ length: count }, (_, i) => {
     const team = TEAMS[i % TEAMS.length], app = APPS[Math.floor(i / TEAMS.length) % APPS.length], env = envs[i % envs.length];
     const tier = ["small", "medium", "large"][i % 3], [cpu, mem, pods] = HARD[tier], share = SHARES[i % SHARES.length];
@@ -220,13 +236,22 @@ export function quotasFrom(count, { clusters = ["CRC"], envs = ["dev", "rnd"] } 
     return { ...QUOTA_SAMPLE, name: `${team}-${app}-${env}`, team, app, env, tier, clusterId: clusters[i % clusters.length],
       cpu: [`${Math.round(used.cpu * 1000)}m`, String(cpu)], memory: [`${Math.round(used.mem * 1024)}Mi`, `${mem}Gi`], pods: [String(used.pods), String(pods)],
       used: Math.max(Math.round(used.cpu * 1000) / 1000 / cpu, Math.round(used.mem * 1024) / 1024 / mem, used.pods / pods),
-      tierOutdated: i % 7 === 3, openRequest: i % 11 === 5 ? `req-20261115-${String(5000 + i)}` : null, expiresAt: null };
+      tierOutdated: i % 7 === 3, openRequest: i % 11 === 5 ? `req-20261115-${String(5000 + i)}` : null, expiresAt: null,
+      ...(verdicts ? verdictOf(i) : {}) };
   });
 }
+function verdictOf(i) {
+  const [verdict, verdictKind, verdictResources, verdictReason] = VERDICT_CYCLE[i % VERDICT_CYCLE.length];
+  return { verdict, verdictKind, verdictResources, verdictReason, verdictDay: "2026-11-25" };
+}
 
-const QUOTA_FACETS = { "near-limit": (r) => r.used >= 0.8, "tier-outdated": (r) => r.tierOutdated, "open-request": (r) => Boolean(r.openRequest) };
-const severityOf = (used) => (used >= 0.95 ? 3 : used >= 0.8 ? 2 : 0);
-const QUOTA_SORTS = { name: (r) => ["", r.name, r.clusterId], used: (r) => [-r.used, r.name, r.clusterId], severity: (r) => [-severityOf(r.used), r.name, r.clusterId] };
+// cmapi/src/cmapi/core/listquery.py severity: quota-tight or 95% used 3, 80% used 2, idle or oversized 1.
+const severityOf = (r) => (r.used >= 0.95 || r.verdict === "quota-tight" ? 3 : r.used >= 0.8 ? 2 : ["idle", "quota-oversized", "requests-oversized"].includes(r.verdict) ? 1 : 0);
+const QUOTA_FACETS = { "quota-tight": (r) => r.verdict === "quota-tight", "near-limit": (r) => r.used >= 0.8,
+  oversized: (r) => r.verdict === "quota-oversized" || r.verdict === "requests-oversized", idle: (r) => r.verdict === "idle",
+  "tier-outdated": (r) => r.tierOutdated, "open-request": (r) => Boolean(r.openRequest), "needs-attention": (r) => severityOf(r) > 0 };
+const QUOTA_VERDICTS = ["quota-tight", "idle", "quota-oversized", "requests-oversized", "right-sized", "insufficient-data"];
+const QUOTA_SORTS = { name: (r) => ["", r.name, r.clusterId], used: (r) => [-r.used, r.name, r.clusterId], severity: (r) => [-severityOf(r), r.name, r.clusterId] };
 const compareKeys = (a, b) => { for (let i = 0; i < a.length; i++) { if (a[i] < b[i]) return -1; if (a[i] > b[i]) return 1; } return 0; };
 function matchRank(r, text) {
   const t = text.toLowerCase(), name = r.name.toLowerCase();
@@ -242,18 +267,19 @@ function matchRank(r, text) {
 function quotaOrder(rows, q) {
   const key = QUOTA_SORTS[q.sort];
   if (!key) return null;
-  const filters = [["env", q.env], ["clusterId", q.clusterId], ["team", q.team], ["tier", q.tier]].filter(([, v]) => v);
+  const filters = [["env", q.env], ["clusterId", q.clusterId], ["team", q.team], ["tier", q.tier], ["verdict", q.verdict]].filter(([, v]) => v);
   return rows.filter((r) => filters.every(([k, v]) => String(r[k]) === v) && (!q.q || matchRank(r, q.q))).sort((a, b) => compareKeys(key(a), key(b)));
 }
 export function quotaQueryOf(params) {
   const get = (k) => params.get(k) || "";
-  return { q: get("q"), env: get("env"), clusterId: get("clusterId"), team: get("team"), tier: get("tier"), state: get("state"), sort: get("sort") || "name",
+  return { q: get("q"), env: get("env"), clusterId: get("clusterId"), team: get("team"), tier: get("tier"), state: get("state"), verdict: get("verdict"), sort: get("sort") || "name",
     limit: Number(params.get("limit") ?? 50), cursor: params.get("cursor"), startsWith: params.get("startsWith") };
 }
-const quotaHash = (q) => JSON.stringify([q.q.toLowerCase(), q.env, q.clusterId, q.team, q.tier, q.state, q.sort]);
+const quotaHash = (q) => JSON.stringify([q.q.toLowerCase(), q.env, q.clusterId, q.team, q.tier, q.verdict, q.state, q.sort]);
 /** GET /api/v1/quotas: a page, or a problem as [status, code, detail]. */
 export function quotaPage(rows, q) {
   if (q.state && !QUOTA_FACETS[q.state]) return [422, "validation-failed", `state is one of ${Object.keys(QUOTA_FACETS).sort()}, not ${q.state}`];
+  if (q.verdict && !QUOTA_VERDICTS.includes(q.verdict)) return [422, "validation-failed", `verdict is one of ${QUOTA_VERDICTS}, not ${q.verdict}`];
   if (![25, 50, 100].includes(q.limit) && !(q.limit > 0 && q.limit <= 200)) return [400, "invalid-limit", "limit is one of (25, 50, 100), at most 200"];
   const others = quotaOrder(rows, q);
   if (!others) return [400, "invalid-sort", `Unknown sort ${q.sort}`];
@@ -285,7 +311,7 @@ export function quotaSuggest(rows, text) {
   return rows.flatMap((r) => { const m = matchRank(r, text.trim()); return m ? [[m[0], r.name, r.clusterId, m[1]]] : []; })
     .sort((a, b) => compareKeys(a, b)).slice(0, 10).map(([, name, clusterId, why]) => ({ name, clusterId, why }));
 }
-const QUOTA_COLUMNS = ["name", "clusterId", "env", "team", "tier", "cpuUsed", "cpuHard", "memoryUsed", "memoryHard", "podsUsed", "podsHard", "used", "expiresAt", "tierOutdated"];
+const QUOTA_COLUMNS = ["name", "clusterId", "env", "team", "tier", "cpuUsed", "cpuHard", "memoryUsed", "memoryHard", "podsUsed", "podsHard", "used", "expiresAt", "tierOutdated", "verdict"];
 /** GET /api/v1/quotas:export: the CSV of Python's csv module, with its \r\n and its True and False. */
 export function quotaCsv(rows, q) {
   const others = quotaOrder(rows, q) ?? [];
@@ -883,6 +909,8 @@ export function apiHandler({ issuer, portalOrigin }) {
     created: 0,
     /** The namespaces of GET /api/v1/quotas, each with the etag of its folder in Git. */
     quotas: SAMPLES.operations.quotas_quotas.response.body.items,
+    /** The `usage` of a quota change's dry run (#310): undefined keeps the recorded one; else an answer, or a function of (body, row). */
+    usage: undefined,
     etags: new Map(),
     kpi: SAMPLES.operations.admin_kpi.response.body,
     planUpdate: SAMPLES.operations["namespaces_update_namespace:dryRun"].response.body,
@@ -1338,7 +1366,9 @@ export function apiHandler({ issuer, portalOrigin }) {
       const approval = unprotect ? UNPROTECT_APPROVAL : newCpu > hardCpu ? state.updated.approval : state.planUpdate.approval;
       if (dry) {
         const changes = Object.fromEntries(Object.entries(state.planUpdate.changes).map(([path, what]) => [path.replace(/namespaces\/[^/]+\//, `namespaces/${ns}/`).replaceAll("payments-dev", ns).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`), what]));
-        return ok({ ...state.planUpdate, etag, changes, approval, capacity: { ...state.planUpdate.capacity, clusterId } });
+        // The live usage of the plan (#310): the recorded dry run's, or the test's `usage` (a function of the body, or an answer).
+        const usage = state.usage === undefined ? state.planUpdate.usage ?? null : typeof state.usage === "function" ? state.usage(body, row) : state.usage;
+        return ok({ ...state.planUpdate, etag, changes, approval, capacity: { ...state.planUpdate.capacity, clusterId }, usage });
       }
       // cmapi/src/cmapi/core/db/repo.py: one open request for each namespace.
       if (row.openRequest) return problem(res, refuse(409, "change-pending", `${row.openRequest} holds ${ns}`), cors);

@@ -28,8 +28,34 @@ importlib.import_module(sys.argv[2])
 
 
 # cmapi.core.validate (#708): tests/core imports it in that job, so its slots report their wait through a callback, not a metric.
+# The usage reader, the verdicts and the list severity are tested here (test_usage_verdicts_310.py, usage_fake.py, #310); the
+# Thanos client, the sweep and the plan are the service's and are tested in tests/service (test_usage_review_707.py).
 @pytest.mark.parametrize("module", ["cmapi.core.config", "cmapi.core.http_settings", "cmapi.core.ratelimit", "cmapi.core.docs",
-                                    "cmapi.core.validate"])
+                                    "cmapi.core.validate", "cmapi.capacity.usage", "cmapi.capacity.verdicts",
+                                    "cmapi.core.listquery"])
 def test_imports_without_service_packages(module: str) -> None:
     r = subprocess.run([sys.executable, "-c", CHILD, str(SRC), module], capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+
+
+# An import at call time escapes the test above: PR #707's usage reader imported its deadlines from thanos.py inside
+# PromUsage.namespace and .cluster, so it imported cleanly and then failed on its first read (#310).
+READER = CHILD + """from datetime import datetime, timezone
+usage = sys.modules["cmapi.capacity.usage"]
+
+
+class Empty:
+    def query(self, cluster_id, promql, at=None):
+        return []
+
+
+reader = usage.PromUsage(Empty())
+assert reader.namespace("c", "ns").state == "insufficient-data"
+assert reader.cluster("c", idle_days=14, ceiling=0.85, at=datetime.now(timezone.utc)) == {}
+"""
+
+
+def test_the_usage_reader_reads_without_service_packages() -> None:
+    r = subprocess.run([sys.executable, "-c", READER, str(SRC), "cmapi.capacity.usage"], capture_output=True, text=True,
+                       timeout=120)
     assert r.returncode == 0, r.stderr

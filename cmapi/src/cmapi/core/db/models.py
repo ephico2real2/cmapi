@@ -221,3 +221,37 @@ Index("idx_expiration_notices_ns", ExpirationNoticeRow.cluster_id, ExpirationNot
 Index("uq_rej_fingerprint_day", PolicyRejectionRow.fingerprint, PolicyRejectionRow.day, unique=True)
 Index("idx_rej_env_first", PolicyRejectionRow.env, PolicyRejectionRow.first_at, PolicyRejectionRow.id)
 Index("idx_rej_last", PolicyRejectionRow.last_at)
+
+
+class AnalysisSweepRow(Base):
+    """One usage sweep of one cluster on one UTC day (#310, migration 0010; docs/03, "Data model and API"). `evaluated_at` is
+    the single instant every query of the sweep used. `failed` means no query answered cleanly: its namespaces got
+    insufficient-data for the day, never a zero."""
+    __tablename__ = "analysis_sweeps"
+    __table_args__ = (CheckConstraint("status IN ('complete', 'partial', 'failed')", name="ck_sweep_status"),)
+    cluster_id: Mapped[str] = mapped_column(String(63), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(10), nullable=False)
+    step: Mapped[str] = mapped_column(String(5), nullable=False)
+    namespaces: Mapped[int | None] = mapped_column(Integer)
+    detail: Mapped[str | None] = mapped_column(Text)
+
+
+class NamespaceVerdictRow(Base):
+    """A verdict of one namespace's resource on one day, with the numbers and the threshold behind it (`evidence`, which also
+    holds the sentence a person reads). Kept 13 months (capacity/sweep.py)."""
+    __tablename__ = "namespace_verdicts"
+    __table_args__ = (
+        CheckConstraint("kind IN ('ok', 'info', 'waste', 'risk')", name="ck_verdict_kind"),
+        CheckConstraint("resource IN ('cpu', 'memory', 'pods')", name="ck_verdict_resource"),
+        Index("idx_verdicts_cluster_day", "cluster_id", "day"),
+        Index("idx_verdicts_day", "day"),
+    )
+    cluster_id: Mapped[str] = mapped_column(String(63), primary_key=True)
+    namespace: Mapped[str] = mapped_column(String(63), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    resource: Mapped[str] = mapped_column(String(10), primary_key=True)
+    verdict: Mapped[str] = mapped_column(String(30), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)

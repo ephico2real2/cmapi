@@ -3,7 +3,7 @@
 // (mockups/portal/Main.dc.html, isQuotas and quotaView()). MOCKUP-CONTRACT.md lists what differs, and why.
 import {
   ActionGroup, Alert, AlertActionLink, Button, EmptyState, EmptyStateBody, Flex, Form, FormGroup, Grid, GridItem, Label, Menu, MenuContent, MenuItem,
-  MenuList, Modal, ModalBody, ModalFooter, ModalHeader, Skeleton, Stack, TextArea, TextInput, TextInputGroup, TextInputGroupMain
+  MenuList, Modal, ModalBody, ModalFooter, ModalHeader, Skeleton, Stack, TextArea, TextInput, TextInputGroup, TextInputGroupMain, Title
 } from "@patternfly/react-core";
 import { LockIcon } from "@patternfly/react-icons";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,8 +23,18 @@ const SORTS = [["name", "Name A–Z", "A–Z"], ["used", "% used", "most used fi
 type Sort = (typeof SORTS)[number][0];
 const LIMITS = [25, 50, 100] as const;
 const DEFAULT_LIMIT = 50;
-/** The attention counts of the API (`facets` of QuotaPage, `state` of GET /api/v1/quotas), with the mockup's words where it has them. */
-const ATTENTION = [["near-limit", "Near limit ≥ 80%", "warn"], ["open-request", "Open request", ""], ["tier-outdated", "Tier outdated", "warn"]] as const;
+/**
+ * The attention counts of the API (`facets` of QuotaPage, `state` of GET /api/v1/quotas), in the mockup's order and words (ATTN).
+ * The mockup's "Recommendation" is docs/03's phase 6 and not built (#310); "Tier outdated" is the API's own.
+ */
+const ATTENTION = [["quota-tight", "Quota tight", "bad"], ["near-limit", "Near limit ≥ 80%", "warn"], ["oversized", "Oversized", "warn"], ["idle", "Idle", ""],
+  ["open-request", "Open request", ""], ["tier-outdated", "Tier outdated", "warn"]] as const;
+/** The mockup's tone of each verdict's pill (HAND_QUOTAS, genRow()); insufficient data is a plain word. */
+const VERDICT_TONE: Record<QuotaRow["verdict"], string> = { "quota-tight": "bad", idle: "info", "quota-oversized": "warn", "requests-oversized": "warn",
+  "right-sized": "ok", "insufficient-data": "" };
+/** "quota-tight · memory" when the verdict holds for one resource, as the mockup writes a memory-bound namespace. */
+const verdictText = (r: QuotaRow): string => (r.verdictResources.length === 1 ? `${r.verdict} · ${r.verdictResources[0]}` : r.verdict);
+const VerdictPill = ({ row }: { row: QuotaRow }) => <Pill tone={VERDICT_TONE[row.verdict]}>{verdictText(row)}</Pill>;
 type State = (typeof ATTENTION)[number][0];
 const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
 const SEARCH_DELAY_MS = 300;
@@ -141,8 +151,8 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
   const head = (
     <Head
       title="Quotas"
-      lede={`The ResourceQuota of every namespace in the environments your roles cover on the ${config.instance} instance, read live from cmapi's watch cache of each cluster. Used is what pods have requested, not what they consume.`}
-      pill={scope.state === "ok" ? <Pill>{`${inScope} namespaces in scope · ${scope.data.facets["near-limit"] ?? 0} near the limit`}</Pill> : undefined}
+      lede={`The ResourceQuota of every namespace in the environments your roles cover on the ${config.instance} instance, read live from cmapi's watch cache of each cluster. Used is what pods have requested, not what they consume; real usage is read from Thanos only when you plan a change.`}
+      pill={scope.state === "ok" ? <Pill>{`${inScope} namespaces in scope · ${scope.data.facets["needs-attention"] ?? 0} need attention`}</Pill> : undefined}
     />
   );
   if (result.state === "forbidden") {
@@ -257,7 +267,7 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
             {pager(range)}
             <DataTable
               label="Quotas"
-              cols={["Namespace", "Cluster", "Env", "Tier", "CPU requests", "Memory requests", "Pods", "Attention", ""]}
+              cols={["Namespace", "Cluster", "Env", "Tier", "CPU requests", "Memory requests", "Pods", "Verdict", ""]}
               rows={items}
               busy={busy}
               selected={(r) => shown !== null && keyOf(r) === keyOf(shown)}
@@ -269,7 +279,7 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
                   r.name, r.clusterId, r.env ?? "—", r.tier ?? "—",
                   <Meter ariaLabel="CPU requests of quota" value={c?.pct ?? 0} bar={c?.bar} label={`${usedText(s.cpu, "")} cores`} />,
                   <Meter ariaLabel="Memory requests of quota" value={m?.pct ?? 0} bar={m?.bar} label={`${usedText(s.memory, "")} Gi`} />,
-                  usedText(s.pods, ""), <Attention row={r} />,
+                  usedText(s.pods, ""), <VerdictPill row={r} />,
                   <Button variant="secondary" size="sm" onClick={() => setParams({ ...view, sort: sort === "name" ? "" : sort, limit: limit === DEFAULT_LIMIT ? "" : String(limit), ns: keyOf(r) })}>{sel ? "Selected" : "Manage"}</Button>
                 ];
               }}
@@ -278,7 +288,7 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
             {pager(`GET /api/v1/quotas?${sent.toString()}`)}
           </>
         )}
-        <Small>Quota status from the watch cache; no Thanos call. Pages follow a cursor on the sort key, so namespaces created or deleted between pages never cause a skip or a repeat. Bars turn amber at 80% and red at 95% of the hard limit.</Small>
+        <Small>Quota status from the watch cache, verdicts from the daily usage sweep; no Thanos call. Pages follow a cursor on the sort key, so namespaces created or deleted between pages never cause a skip or a repeat. Bars turn amber at 80% and red at 95% of the hard limit.</Small>
       </Panel>
 
       {shown && (
@@ -294,12 +304,6 @@ export function QuotasTab({ config, params, setParams, open }: TabProps) {
       )}
     </Stack>
   );
-}
-
-/** The API's attention counts that hold for one row: the same tests as `facets` (cmapi/src/cmapi/plugins/quotas). */
-function Attention({ row }: { row: QuotaRow }) {
-  const marks = [row.used >= 0.8 && <Pill key="n" tone="warn">near-limit</Pill>, row.openRequest && <Pill key="o">open-request</Pill>, row.tierOutdated && <Pill key="t" tone="warn">tier-outdated</Pill>].filter(Boolean);
-  return marks.length ? <Flex gap={{ default: "gapXs" }}>{marks}</Flex> : <>—</>;
 }
 
 /** The mockup's type-ahead: GET /api/v1/quotas:suggest as the person types, with the keyboard of a combobox (ARIA APG). */
@@ -424,12 +428,13 @@ function Detail({ row, config, catalog, canChange, canProtect, onOpen }: DetailP
   return (
     <Grid hasGutter>
       <GridItem md={12} lg={6}>
-        <Panel title={`${row.name} on ${row.clusterId}`} pill={view?.protected || row.tierOutdated ? (
+        <Panel title={`${row.name} on ${row.clusterId}`} pill={(
           <Flex gap={{ default: "gapXs" }}>
+            <VerdictPill row={row} />
             {view?.protected && <Label isCompact color="orange" icon={<LockIcon />}>Protected</Label>}
             {row.tierOutdated && <Pill tone="warn">tier-outdated</Pill>}
           </Flex>
-        ) : undefined}>
+        )}>
           <Small>{`${row.env ?? "—"} · tier ${row.tier ?? "—"} · ResourceQuota ${row.name}-quota · read from the watch cache, current to the second`}</Small>
           <DataTable
             label="ResourceQuota"
@@ -442,6 +447,9 @@ function Detail({ row, config, catalog, canChange, canProtect, onOpen }: DetailP
                 <Meter ariaLabel={`${k} used of hard`} value={b?.pct ?? 0} bar={b?.bar} label={b ? `${b.pct}%` : "—"} />];
             }}
           />
+          <Title headingLevel="h3" size="md">Usage verdict</Title>
+          <Small>{row.verdictReason}</Small>
+          {row.verdictDay && <Small>{`From the usage sweep of ${row.verdictDay}.`}</Small>}
           {ns.state === "error" && <Callout tone="bad" title="The namespace did not load.">{ns.cause}</Callout>}
           {view?.protected && <Small>{protectionLine(view)}</Small>}
           {canProtect && view && !row.openRequest && <ProtectControl view={view} reread={ns.reload} onOpen={onOpen} />}
@@ -468,6 +476,48 @@ function Detail({ row, config, catalog, canChange, canProtect, onOpen }: DetailP
       )}
     </Grid>
   );
+}
+
+type Usage = NonNullable<Plan["usage"]>;
+const cores = (m: number | null): string => (m === null ? "—" : fmt(m / 1000));
+const gib = (b: number | null): string => (b === null ? "—" : fmt(b / GIB));
+
+/**
+ * The plan's "Live usage · last 14 days" (mockup: qc.usage): now, 7-day average, p95, peak, the quota now and planned, and the
+ * planned quota over the peak. With insufficient data or no answer from Thanos the figures are "—" and a callout says why.
+ */
+function LiveUsage({ usage, clusterId }: { usage: Usage; clusterId: string }) {
+  const rows = [["cpu (cores)", usage.cpu, cores], ["memory (Gi)", usage.memory, gib]] as const;
+  return (
+    <Stack hasGutter>
+      <Title headingLevel="h3" size="md">Live usage · last 14 days</Title>
+      {usage.state !== "ok" && (
+        <Callout tone={usage.state === "unavailable" ? "warn" : "info"} title={usage.state === "unavailable" ? "Live usage unavailable" : "Insufficient data"}>{usage.reason ?? ""}</Callout>
+      )}
+      <DataTable
+        label="Live usage · last 14 days"
+        cols={["Resource", "Now", "7d avg", "p95", "Peak", "Quota", "New / peak"]}
+        blank="New / peak"
+        rows={[...rows]}
+        cells={([k, f, unit]) => [k, unit(f.now), unit(f.avg7d), unit(f.p95), unit(f.peak), `${unit(f.quota)} → ${unit(f.newQuota)}`,
+          f.newOverPeak === null ? "—" : `${fmt(f.newOverPeak)}×`]}
+      />
+      {usage.state === "ok" && <Small>{`Read live from ${clusterId}'s Thanos for this plan; cached 10 minutes and not stored. Cluster headroom comes from the watch cache's committed quota, with no Thanos call.`}</Small>}
+    </Stack>
+  );
+}
+
+/**
+ * The mockup's check "New quota vs 14-day peak": the ratios, or why there are none. It warns when the API's approval names the
+ * rule that reads the ratio (approval-rules.yaml `requestToPeakRatio`): the page computes no threshold of its own.
+ */
+function peakCheck(usage: Usage, reasons: string[]): Check {
+  if (usage.state === "unavailable") return { s: "warn", mark: MARK.warn, main: "New quota vs 14-day peak", note: "Thanos did not answer: a platform approval is added" };
+  if (usage.state !== "ok") return { s: "warn", mark: MARK.warn, main: "New quota vs 14-day peak", note: "insufficient data" };
+  const ratio = (x: number | null) => (x === null ? "—" : `${fmt(x)}×`);
+  const flagged = reasons.some((r) => r.includes("requestToPeakRatio"));
+  const note = `cpu ${ratio(usage.cpu.newOverPeak)} · memory ${ratio(usage.memory.newOverPeak)}${flagged ? " · adds an approval" : ""}`;
+  return flagged ? { s: "warn", mark: MARK.warn, main: "New quota vs 14-day peak", note } : { s: "pass", mark: MARK.pass, main: "New quota vs 14-day peak", note };
 }
 
 /** The plan's approval as the mockup's callout of a quota change: who must approve, and why. */
@@ -564,6 +614,7 @@ function ChangeForm({ row, etag, config, catalog, reread }: { row: QuotaRow; eta
     { s: "pass", mark: MARK.pass, main: "Environment served", note: `${env} in [${config.environments.join(", ")}]` },
     { s: "pass", mark: MARK.pass, main: "If-Match matches the current ETag", note: planned!.etag },
     { ...capacityCheck(planOk), main: `Capacity on ${row.clusterId}`, note: `${capacityCheck(planOk).note} · ${capacityLine(planOk)}` },
+    ...(planOk.usage ? [peakCheck(planOk.usage, planOk.approval.reasons)] : []),
     { s: planOk.approval.auto ? "pass" : "warn", mark: planOk.approval.auto ? MARK.pass : MARK.warn, main: "Approval", note: planOk.approval.rule }
   ] : [];
   const appr = planOk ? approvalOf(planOk, env) : null;
@@ -607,6 +658,7 @@ function ChangeForm({ row, etag, config, catalog, reread }: { row: QuotaRow; eta
       {plan.state === "sending" && <span role="status">Planning…</span>}
       {planOk && appr && (
         <Stack hasGutter>
+          {planOk.usage && <LiveUsage usage={planOk.usage} clusterId={row.clusterId} />}
           <Checks items={checks} />
           <Callout tone={appr.tone} title={appr.title}>{appr.detail}</Callout>
         </Stack>

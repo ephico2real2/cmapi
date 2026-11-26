@@ -24,6 +24,7 @@ An instance of cmapi has three kinds of setting:
 | `clusters.yaml` | Yes | The process stops (`load_policies`, `core/registry.py`) |
 | `plugins.yaml` | No | Each built-in plugin is enabled (`core/plugins.py`) |
 | `integrations.yaml`, `capacity.yaml` | No | An empty mapping: each key takes the default of this document (`_yaml`, `core/context.py`) |
+| `analysis.yaml` | No | docs/03's thresholds of the usage verdicts (the section "`analysis.yaml`") |
 
 ## The three instances
 
@@ -782,7 +783,8 @@ A `when` line reads these facts. The names are fixed in the code. An unknown nam
 | `tierChange` | `up`, `down`, `same`, `to-custom`, `from-custom` or `custom`. Set for a change of an existing namespace only | `TierCatalog.compare` |
 | `quotaIncreasePct` | The largest increase of a sizable key, in percent. Set for a change of an existing namespace only | `QuotaChange.quota_increase_pct` |
 | `quotaBelowRequested` | A new quota is below what the pods request now. It is always `false` today: `TierCatalog.compare` takes the usage as an argument, and the planner does not pass it (`core/pipeline.py`, #256) | `QuotaChange.facts` |
-| `requestToPeakRatio` | Request against the peak use. A rule that reads it never fires today (#257) | Not set by any built code |
+| `requestToPeakRatio` | On a change of an existing namespace's quota, with `usage` `ok`: the largest planned hard limit over the namespace's 14-day peak, of a resource the change raises (#310). Absent otherwise, so a rule that reads it adds nothing | `plan_usage`, `capacity/usage.py` |
+| `usage` | On a change of an existing namespace's quota: `ok`, `insufficient-data` (no usage source, or under 80% of the window's samples) or `unavailable` (Thanos did not answer). The shipped rule adds approver-platform on `usage == "unavailable"`. If the active policy has no matching usage threshold that adds that group, the planner supplies one platform slot (#310) | `plan_usage`, `capacity/usage.py` |
 | `capacity`, `capacityFresh` | `fits`, `warn`, `exceeded` or `unknown`, and whether the data is fresh. `unknown`, not fresh, when the cluster has no `simulatedCapacity`, no watch cache, ResourceQuotas not listed yet, ResourceQuota reads refused (401 or 403), or a ResourceQuota watch with no good read for 30 minutes (#393). What is committed comes from the cluster's quota ledger: per namespace the smallest unscoped managed quota, scoped quotas left out (#302) | `core/capacity_backend.py`, `core/capacity_ledger.py` |
 | `namespaceAgeDays`, `pods`, `pvcs`, `protected` | The namespace for a delete | `Pipeline.plan_delete` |
 | `keyClasses`, `sensitiveKeyChanged` | The classes of the changed keys, and a change of a `sensitiveKeys` key | `MetadataKeys.change_facts` |
@@ -935,7 +937,7 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `writes` | boolean | `true` | `false` makes the cluster read only |
 | `syncSignal` | text | `poll` | No built code reads it. `notify` is not built |
 | `delivery` | `argocd` or `apply` | The `delivery.mode` of `integrations.yaml` | The delivery mode of this cluster (`jobs/watch_sync.py`) |
-| `thanosUrl` | text | None | No built code reads it |
+| `thanosUrl` | text | None | The Thanos Querier of the cluster, read when `capacity.yaml` `usage.source` is `thanos`. Without it, the host of the Route `thanos-querier` in `openshift-monitoring` (`capacity/thanos.py`, #310). An https URL with a host and no userinfo, because the reader's token goes to it; another value stops the start. It is verified with the cluster's own trust mode, as the Route is |
 | `labels` | mapping | `{}` | Labels that `match.clusterSelector` reads. `GET /api/v1/clusters` shows them |
 | `metadata`, `placement` | mapping | `{}` | No built code reads them |
 | `simulatedCapacity` | mapping with `cpu` and `memory` | None | The size of the cluster for the built-in capacity check, which counts the hard `requests.cpu` and `requests.memory` (or `cpu` and `memory`, the same resources; the smaller when a quota has both) of the ResourceQuotas labelled `cmapi.net/managed: "true"`: in each namespace the smallest unscoped one, never their sum, and no scoped quota (`scopes` or `scopeSelector`), since a scoped quota bounds only the pods of its scope (#302, docs/16). Without it, or while those quotas are not known (#393), the capacity answer is `unknown`, so the guard `capacity` stops each auto-approval of a create or a change. The Capacity tab measures against it when it is set, labelled "simulated", with the nodes' allocatable beside it; without it, against the allocatable (the owner, 2026-11-18). Both `cpu` and `memory` are needed, each a Kubernetes quantity above 0; another value stops the start (`load_policies`) |
@@ -948,9 +950,28 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `targets.<env>.commitment.warn` | number | `0.85` | The commitment at which the plan's capacity answer is `warn`, and a cluster or group of the Capacity tab is `warn` |
 | `targets.<env>.commitment.critical` | number | `0.95` | The commitment at which a cluster of the Capacity tab is `critical`. Above 1 it is `over` (#302) |
 | `countTaints` | list of taint keys | `[]` | The taint keys whose `NoSchedule` and `NoExecute` nodes still count toward allocatable (`core/clients/nodes.py`, #302). By default a node counts when it is Ready, not cordoned, and has no such taint, so control-plane nodes with `node-role.kubernetes.io/master:NoSchedule` do not count. A single-node cluster such as CRC has no taint and counts |
+| `usage.source` | `none` or `thanos` | `none` | Where the live 14-day namespace usage and the daily verdicts come from (#310). `thanos` reads each cluster's Thanos Querier with the reader's token, which needs `cluster-monitoring-view` (`examples/baseline/cmapi-reader-rbac.yaml`); `none` reads nothing, and every quota-change plan and every Quotas row says insufficient data, and why. Another value stops the start |
 | `kpi.thresholds` | mapping | `memoryPercent: 80`, `cpuPercent: 80`, `throttledPercent: 1`, `dbConnectionsPercent: 80`, `dbVolumePercent: 80`, `backupMaxAgeHours: 26` | Reported by `GET /api/v1/admin/kpi` as `thresholds` (`kpi_report`, `core/kpi.py`). A non-empty mapping replaces the whole default; an empty one gives the default. Unlike the keys above, it is not checked at start (`CapacitySettings` does not read `kpi`): a value that is not a mapping of numbers starts, and `GET /api/v1/admin/kpi` then fails (`KpiView.thresholds` is `dict[str, float]`). The chart writes no `kpi` key into `capacity.yaml` |
 
 The chart and the plain manifests also write `mode`, `snapshotInterval` and `targets.<env>.utilisation`. No built code reads them. The other keys of the reference file are designed for the capacity service, which is not built. The Capacity tab reads each connected cluster's nodes through cmapi-reader, which needs `get`, `list` and `watch` on `nodes` (`deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml`); without it the cluster's nodes are `forbidden` and the tab shows the commitment against `simulatedCapacity` only. The API process watches the nodes; the worker does not.
+
+## `analysis.yaml`
+
+Optional (#310). The thresholds of the usage verdicts, per served environment. Without the file, or for an environment it does
+not name, each threshold is docs/03's "Verdicts" table, and `dev` takes `rnd`'s column (`capacity/verdicts.py`). A key or an
+environment the instance does not serve, or a value out of range, stops the start, naming each one:
+
+```yaml
+environments:
+  prod: {quotaOversizedBelow: 0.5, requestsOversizedBelow: 0.4, quotaTightAt: 0.85, idleDays: 14}
+```
+
+| Key | Range | rnd, dev | qa | uat | prod | Verdict |
+|---|---|---|---|---|---|---|
+| `quotaOversizedBelow` | above 0, at most 1 | 0.30 | 0.40 | 0.50 | 0.50 | `quota-oversized` when requests ÷ quota (its hourly p95 over 14 days) is below it |
+| `requestsOversizedBelow` | above 0, at most 1 | 0.20 | 0.30 | 0.40 | 0.40 | `requests-oversized` when usage p95 ÷ requests is below it |
+| `quotaTightAt` | above 0, at most 1 | 0.95 | 0.90 | 0.90 | 0.85 | `quota-tight` when requests ÷ quota is at or above it in 10% of hours, or the quota was exhausted |
+| `idleDays` | 1 to 14 | 7 | 14 | 14 | 14 | `idle` when CPU p95 is under 0.05 cores and memory p95 under 128 MiB over this many days |
 
 ---
 
@@ -1031,7 +1052,7 @@ The chart and the plain manifests also write `mode`, `snapshotInterval` and `tar
 | `delivery.hubDeliverer.enabled`, `.acknowledgeDirectWrites` | boolean | `false`, `false` | `delivery.mode: apply` makes the worker a cluster-wide writer. The chart refuses `apply` unless `acknowledgeDirectWrites` is `true`. `enabled` gives the worker the writer ClusterRole (`templates/rbac.yaml`) |
 | `argocd.namespace`, `argocd.rootApplication` | text | `openshift-gitops`, `cluster-configs-{clusterId}` | `integrations.yaml` `delivery.argocd` |
 | `argocd.controllerServiceAccount` | text | `""` | Needed in `argocd` mode: `system:serviceaccount:<namespace>:<name>` of the Argo CD controller. The chart refuses an empty value unless `argocd.acknowledgeUncontainedController` is `true` |
-| `capacity.mode`, `.snapshotInterval`, `.overcommit`, `.targets`, `.countTaints` | | `embedded`, `30m`, the `rnd` and `dev` entries of `values.yaml`, `[]` | `capacity.yaml`. No built code reads `mode` and `snapshotInterval`. The chart writes `countTaints` only when it is not empty |
+| `capacity.mode`, `.snapshotInterval`, `.overcommit`, `.targets`, `.countTaints`, `.usage` | | `embedded`, `30m`, the `rnd` and `dev` entries of `values.yaml`, `[]`, `{source: none}` | `capacity.yaml`. No built code reads `mode` and `snapshotInterval`. The chart writes `countTaints` only when it is not empty |
 | `notifier.smtp` | mapping | `{}` | `integrations.yaml` `notifier.smtp`. Empty: the email channel is off |
 | `database.cnpg.enabled`, `.name`, `.instances`, `.storage`, `.storageClass`, `.imageName`, `.resources`, `.parameters` | | CloudNativePG with 1 instance and 2Gi | The PostgreSQL cluster. See `docs/12` |
 | `database.existingSecret` | text | `""` | With CNPG off: a Secret with the key `uri`. Needed then |
@@ -1066,6 +1087,7 @@ A site sets its own values in `deploy/environments/<site>.yaml`, and passes the 
 | Git delivery: a Git layer and a thin PR adapter, apply before merge | `docs/reviews/2026-11-15-issue-286/README.md` |
 | The validator matches a pattern with RE2, in linear time | `docs/reviews/2026-11-17-issue-348/README.md` |
 | Capacity from the watch: the ledger in memory (no table), the node cache, `countTaints`, `simulatedCapacity` (#302) | `docs/reviews/2026-11-18-issue-302-capacity/` |
+| Live 14-day usage on a quota change, the daily verdicts, `usage.source: none` by default (#310) | `docs/reviews/2026-11-25-issue-310/README.md` |
 | Kyverno in audit by default; cmapi's own checks refuse (#342) | `docs/reviews/2026-11-17-issue-342/` |
 
 ## The bot account on each host
