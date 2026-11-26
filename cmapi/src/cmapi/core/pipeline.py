@@ -433,7 +433,8 @@ class Pipeline:
         deltas = {k: qty(hard.get(f"requests.{k}", "0")) - qty(old_hard.get(f"requests.{k}", "0")) for k in ("cpu", "memory")}
         cpu_delta, mem_delta = float(deltas["cpu"]), float(deltas["memory"])
         placement_id = self._placement(body, action, cluster_id, env, labels.get("cmapi.net/team"))
-        cap = self.capacity.check(cluster_id, env, max(cpu_delta, 0), max(mem_delta, 0), exclude_placement=placement_id)
+        cap = self.capacity.check(cluster_id, env, max(cpu_delta, 0), max(mem_delta, 0), exclude_placement=placement_id,
+                                  namespace=ns)
         if cap.status == "exceeded":
             raise capacity_exceeded(cap)
         # What submit holds until the quota is live (#62): the increase just checked, and the binding quota it leads to.
@@ -703,7 +704,7 @@ class Pipeline:
         live = self._live_committed(cluster_id, ns, current)
         deltas = {k: committed[k] - live[k] for k in ("cpu", "memory")}
         cap = self.capacity.check(cluster_id, env, max(float(deltas["cpu"]), 0), max(float(deltas["memory"]), 0),
-                                  session=session)
+                                  session=session, namespace=ns)
         if cap.status == "exceeded":
             raise capacity_exceeded(cap)
         hold = CapacityHold.of(ns, deltas, {k: committed[k] if committed[k] > 0 else None for k in ("cpu", "memory")})

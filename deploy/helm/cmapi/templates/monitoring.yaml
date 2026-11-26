@@ -27,7 +27,7 @@ spec:
         - {port: 8080, protocol: TCP}
 {{- if .Values.portal.enabled }}
 ---
-# The front door: on OpenShift, the router alone. The router's namespace carries policy-group.network.openshift.io/ingress,
+# The front door: on OpenShift, the ingress policy group (including node addresses for default HostNetwork ingress). The peer uses policy-group.network.openshift.io/ingress,
 # the label that OpenShift's documentation prefers. With Ingress exposure the controller's namespace is the site's own
 # choice, so the port is open to the cluster, as the API's port was before the front door.
 apiVersion: networking.k8s.io/v1

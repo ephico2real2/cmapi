@@ -1,6 +1,6 @@
 # #21 capacity snapshots and safe placement, and #303 the placement API: decisions
 
-Story #21 (OBI-32) and its sub-issue #303. Stacked on PR #725 (#62, the capacity holds and migration 0011). The implementer is
+Story #21 (OBI-32) and its sub-issue #303. Built on PR #725 (#62, the capacity holds and migration 0011), merged to main as 9ccb88f and merged into this branch. The implementer is
 Opus 5.5 at `high`. The design is docs/01 ("Capacity, placement and usage", "cmapi-capacity service") and docs/02 ("Stored
 capacity", "Snapshot job", "Capacity service (cmapi-capacity)", "Cluster and fleet capacity", "Placement"), built as written
 except where a row below says why.
@@ -33,6 +33,7 @@ gone (#303). The Capacity tab shows each cluster's snapshot (the mockup's Snapsh
 | D9 | A dry run of the placement | `dryRun=true` ranks and holds nothing: the portal's preview | docs/diagrams/portal-architecture/README.md: "It names no call that ranks clusters and reserves nothing." Every write of the API takes `dryRun` (docs/02, "Dry run") |
 | D10 | Units | Millicores and bytes as integers, as `GET /api/v1/capacity` | The arbitration of #302 (design B: "no floats for amounts in the contract"). docs/02's example uses cores and "32Gi" |
 | D11 | clusters.yaml `placement` | `enabled`, `maxNamespaces`, `weight` and `overcommit` are read and checked at the start; `overcommit` applies to the plan's check and the Capacity tab too | docs/01: "A cluster's placement block can override its environment's overcommit." Applying it to placement alone would rank a cluster the check refuses |
+| D13 | A namespace's own open hold (#725's `check(..., namespace=)`, da0e36b) | Kept: the create's plan and its submit pass `namespace` beside `exclude_placement`. Placement ranks a namespace that does not exist yet, so it has no hold of its own to leave out; a placement's hold has no namespace until a create claims it, so it is always counted | The two are alternatives of one namespace, never both (da0e36b). A new namespace has no open request on it: its create is refused 409 namespace-exists or change-pending first |
 | D12 | Node roles | `node-role.kubernetes.io/<role>`, with `control-plane` as `master`; a node with several roles counts in each role's row | CRC's one node is master and worker. The role rows are breakdowns, not a partition of the cluster row |
 
 ## Sources read for the queries, 2026-11-26

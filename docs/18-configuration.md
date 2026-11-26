@@ -10,6 +10,23 @@ An instance of cmapi has three kinds of setting:
 | Environment variables of the process | `CMAPI_*` | `cmapi/src/cmapi/settings.py` (`Settings`) |
 | Helm values | `deploy/helm/cmapi/values.yaml` | The chart. It writes the files and the variables above |
 
+## Supported OpenShift versions
+
+cmapi targets **OpenShift 4.18 and later** on the hub and onboarded OpenShift clusters. The [compatibility audit](reviews/2026-11-26-issue-727/README.md) compares 4.18 source with the 4.23 development branch and documentation through 4.22. The only live OpenShift evidence is CRC 4.22.14. Intermediate releases and future releases have no independent deployment qualification here.
+
+| Depends on | On OpenShift 4.18 and later |
+|---|---|
+| Routes (`exposure: Route`), the router's `set-forwarded-headers` and `timeout` annotations, `policy-group.network.openshift.io/ingress` | The same. The front door's NetworkPolicy admits node addresses when the default IngressController uses HostNetwork on OVN-Kubernetes. See audit row 2 for sharded ingress |
+| User workload monitoring (`monitoring.serviceMonitor`, `monitoring.prometheusRule`, `networkPolicy.monitoringNamespace`) | The same. It needs `enableUserWorkload: true` in `cluster-monitoring-config` |
+| `usage.source: thanos` (`capacity.yaml`): Route `thanos-querier` in `openshift-monitoring`, and the reader's `cluster-monitoring-view` or `cluster-monitoring-metrics-api` on each cluster | Bind the monitoring role for the query. For host discovery also grant the reader `get` on `routes.route.openshift.io` named `thanos-querier` in `openshift-monitoring`, or supply the cluster's `thanosUrl` |
+| `trustedCA.injected` (`config.openshift.io/inject-trusted-cabundle`) | The same |
+| The reader's identity check | `users/~` where OpenShift's OAuth runs. With direct OIDC configured, a SelfSubjectReview. The newer release enables the feature gate by default. The default authentication type remains IntegratedOAuth |
+| SCC `restricted-v2` (`securityContext`) | The same. `restricted-v3`, on newer releases, needs user namespaces, which the pods do not ask for |
+| The deliverer's ValidatingAdmissionPolicy (`delivery.mode: apply`) | `admissionregistration.k8s.io/v1`, GA in 4.18's Kubernetes 1.31 |
+| `database.cnpg.enabled` (CloudNativePG, installed by the site) | Certified bundle metadata lists CloudNativePG 1.30.1 and 1.30.2 for 4.18–4.22. CRC ran 1.30.1. The 4.20–5.0 listing belongs to 1.31.0-rc1, which cmapi has never run. A production CNPG combination for 4.23 remains unverified. Alternatively, disable `database.cnpg.enabled` and configure an [existing PostgreSQL](12-existing-postgresql.md). |
+| `instance.policy.engine: kyverno` (Kyverno, installed by the site) | Community Kyverno v1.20 covers Kubernetes 1.34–1.37. For 4.18 (Kubernetes 1.31), use `instance.policy.engine: none` to run without the Kyverno bundle and reports, or establish support separately for the chosen operator. |
+| `delivery.mode: argocd` (OpenShift GitOps) | GitOps 1.22.0 lists 4.18–4.22. Compatibility with 4.23 is unverified. |
+
 ## How cmapi reads its configuration
 
 1. `load_instance` reads `instance.yaml` and the files below it, and checks each file against the others. It collects every problem and stops the process with all of them (`ConfigError`, `core/config.py`).
@@ -951,7 +968,7 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `targets.<env>.commitment.warn` | number | `0.85` | The commitment at which the plan's capacity answer is `warn`, and a cluster or group of the Capacity tab is `warn` |
 | `targets.<env>.commitment.critical` | number | `0.95` | The commitment at which a cluster of the Capacity tab is `critical`. Above 1 it is `over` (#302) |
 | `countTaints` | list of taint keys | `[]` | The taint keys whose `NoSchedule` and `NoExecute` nodes still count toward allocatable (`core/clients/nodes.py`, #302). By default a node counts when it is Ready, not cordoned, and has no such taint, so control-plane nodes with `node-role.kubernetes.io/master:NoSchedule` do not count. A single-node cluster such as CRC has no taint and counts |
-| `usage.source` | `none` or `thanos` | `none` | Where the live 14-day namespace usage and the daily verdicts come from (#310). `thanos` reads each cluster's Thanos Querier with the reader's token, which needs `cluster-monitoring-view` (`examples/baseline/cmapi-reader-rbac.yaml`); `none` reads nothing, and every quota-change plan and every Quotas row says insufficient data, and why. Another value stops the start |
+| `usage.source` | `none` or `thanos` | `none` | Where the live 14-day namespace usage and the daily verdicts come from (#310). `thanos` reads each cluster's Thanos Querier with the reader's token. The token needs `get` on `prometheuses/api` `k8s` in `openshift-monitoring`, the check of the Route's kube-rbac-proxy: the platform's Role `cluster-monitoring-metrics-api` is the narrowest documented platform role for this access, and `cluster-monitoring-view` grants it too (`examples/baseline/cmapi-reader-rbac.yaml`). Without `thanosUrl` it also needs `get` on Route `thanos-querier`. CRC sets `thanos`, and binds `cluster-monitoring-metrics-api` and that Route's `get` to the reader in `environments/crc/reader/00-cmapi-reader.yaml` (docs/13, step 7); kind and the chart's default stay `none`. `none` reads nothing, and every quota-change plan and every Quotas row says insufficient data, and why. Another value stops the start |
 | `snapshotInterval` | duration, `15m` to `60m` (`1h`) | `30m` | How often the worker stores each cluster's capacity snapshot (`jobs/capacity_snapshot.py`, #21). The job runs at each interval boundary. Another value stops the start |
 | `staleAfterIntervals` | whole number, 1 or more | `2` | Placement excludes a cluster as `stale-data` when its newest complete snapshot is older than this many intervals |
 | `kpi.thresholds` | mapping | `memoryPercent: 80`, `cpuPercent: 80`, `throttledPercent: 1`, `dbConnectionsPercent: 80`, `dbVolumePercent: 80`, `backupMaxAgeHours: 26` | Reported by `GET /api/v1/admin/kpi` as `thresholds` (`kpi_report`, `core/kpi.py`). A non-empty mapping replaces the whole default; an empty one gives the default. Unlike the keys above, it is not checked at start (`CapacitySettings` does not read `kpi`): a value that is not a mapping of numbers starts, and `GET /api/v1/admin/kpi` then fails (`KpiView.thresholds` is `dict[str, float]`). The chart writes no `kpi` key into `capacity.yaml` |
@@ -1102,6 +1119,7 @@ A site sets its own values in `deploy/environments/<site>.yaml`, and passes the 
 | The validator matches a pattern with RE2, in linear time | `docs/reviews/2026-11-17-issue-348/README.md` |
 | Capacity from the watch: the ledger in memory (no table), the node cache, `countTaints`, `simulatedCapacity` (#302) | `docs/reviews/2026-11-18-issue-302-capacity/` |
 | Live 14-day usage on a quota change, the daily verdicts, `usage.source: none` by default (#310) | `docs/reviews/2026-11-25-issue-310/README.md` |
+| CRC reads usage from Thanos, with the reader's namespaced grants in `openshift-monitoring` (#22) | `docs/reviews/2026-11-26-crc-usage-thanos/README.md` |
 | Kyverno in audit by default; cmapi's own checks refuse (#342) | `docs/reviews/2026-11-17-issue-342/` |
 
 ## The bot account on each host

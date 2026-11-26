@@ -271,6 +271,35 @@ def test_a_retry_from_failed_holds_again_only_when_it_still_fits(world):
     assert (h.request_id, float(h.cpu)) == (rid, 8.0)
 
 
+def test_a_plan_does_not_count_the_open_request_on_its_own_namespace_beside_its_delta(world):
+    """payments-dev is small and live (8 cores), and its change to large is open (pending_approval): it holds +24, sized from
+    the small quota that Git holds. A second plan of payments-dev, to medium, is sized from that same small quota: +8. The two
+    increases are alternatives for one namespace, never both: the open request holds the namespace's lock, the Reservation
+    states lie within the lock's (docs/01, the lifecycle), and the medium change can be submitted only after the large one ends.
+    Counted together the namespace weighs 40 cores, more than either outcome (32 or 16): #725 recorded 0.312 for the sample's
+    plan, (8 + 24 + 8) / 128, where (8 + 8) / 128 is right. With 96 more cores committed the double count also turned the
+    submit's 409 change-pending into 422 capacity-exceeded, (104 + 24 + 8) / 128 > 1."""
+    from test_usage_verdicts_310 import ONE, synced_namespace
+
+    client, ctx, git, kube, validator, keys = world
+    etag = synced_namespace(world)
+    ctx.registry.cache("CRC")._list("ResourceQuota")                  # the fake watch does not stream: read the quotas again
+    held = {**auth(keys, "ola", **OLA), "If-Match": etag}
+    large = client.patch(ONE, json={"tier": "large", "justification": "Load test"}, headers={**held, "Idempotency-Key": str(uuid.uuid4())})
+    assert large.status_code == 202 and large.json()["status"] == "pending_approval", large.text
+    [h] = holds(ctx)
+    assert (h.namespace, float(h.cpu), h.memory) == ("payments-dev", 24.0, 48 * GiB)
+    dry = client.patch(ONE + "?dryRun=true", json={"tier": "medium"}, headers=held)
+    assert dry.status_code == 200, dry.text
+    assert {k: dry.json()["capacity"][k] for k in ("cpu", "memory", "reserved")} == {
+        "cpu": 0.125, "memory": 0.1, "reserved": {"cpu": 0.0, "memory": 0}}, dry.json()["capacity"]  # (8 + 8) / 128, 32Gi / 320Gi
+    other = client.post("/api/v1/clusters/CRC/namespaces?dryRun=true", json=body("payments-b"), headers=auth(keys, "ola", **OLA))
+    assert other.json()["capacity"]["reserved"] == {"cpu": 24.0, "memory": 48 * GiB}, "another namespace's plan counts the hold"
+    committed(ctx, 96)
+    r = client.patch(ONE, json={"tier": "medium", "justification": "Smaller"}, headers={**held, "Idempotency-Key": str(uuid.uuid4())})
+    assert r.status_code == 409 and r.json()["code"] == "change-pending", r.text
+
+
 # ---- criterion 3: the two facts come from measured data
 
 def test_open_request_on_namespace_is_read_from_the_open_requests(world, monkeypatch):

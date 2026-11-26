@@ -32,6 +32,17 @@ case "$s" in
   # crc-image.sh (#545): the pull secret's type, GHCR's answer through the cluster's importer, the import, and the image stream tag. Each answer
   # is the object the API returns, rendered with the script's own output template by a real kubectl, offline, so a wrong path in the script fails here.
   "get secret cmapi-ghcr-pull -n cmapi --ignore-not-found -o jsonpath={.type}") [ -n "${STUB_NO_PULL_SECRET:-}" ] || printf '%s' "${STUB_PULL_SECRET_TYPE:-kubernetes.io/dockerconfigjson}"; exit 0;;
+  # The proof's SubjectAccessReviews for the reader's Thanos grants (#310): each allowed by cmapi's own RoleBinding. The same API resource is refused
+  # in another namespace. A review that names system:authenticated is allowed by a binding to everyone, as on CRC, so it proves nothing.
+  "create -o go-template={{if .status.evaluationError}}inconclusive{{else}}{{.status.allowed}} {{.status.reason}}{{end}} -f -") body=$(cat); printf '%s\n' "$body" >>"$ARGV_LOG.sar"
+    case "$body" in *system:authenticated*) printf 'true RBAC: allowed by ClusterRoleBinding "everyone"'; exit 0;; esac
+    case "$body" in
+      *'"name":"thanos-querier"'*) printf '%s' "${STUB_SAR_ROUTE-true RBAC: allowed by RoleBinding \"cmapi-reader-thanos-route/openshift-monitoring\" of Role \"cmapi-reader-thanos-route\" to ServiceAccount \"cmapi-reader/cmapi-system\"}";;
+      *'"namespace":"openshift-user-workload-monitoring","group":"monitoring.coreos.com","resource":"prometheuses","subresource":"api","name":"k8s"'*) printf '%s' "${STUB_SAR_UWM-false }";;
+      *'"namespace":"openshift-monitoring","group":"monitoring.coreos.com","resource":"prometheuses","subresource":"api","name":"k8s"'*) printf '%s' "${STUB_SAR_API-true RBAC: allowed by RoleBinding \"cmapi-reader-metrics-api/openshift-monitoring\" of Role \"cluster-monitoring-metrics-api\" to ServiceAccount \"cmapi-reader/cmapi-system\"}";;
+      *) echo "stub oc: unhandled review $body" >&2; exit 3;;
+    esac; exit 0;;
+  "create token cmapi-reader -n cmapi-system --duration=10m") printf 'reader.%s\n' "$TOKEN"; exit 0;;
   "create -f - -o jsonpath="*|"create -f - -o go-template="*) [ -z "${STUB_CREATE_ERROR:-}" ] || { echo "$STUB_CREATE_ERROR" >&2; exit 1; }; python3 "$STUB_IMAGES_PY" isi >"$ARGV_LOG.response" || exit 1; render "$ARGV_LOG.response" "${*: -1}"; exit;;
   "import-image cmapi:sha-"*|"import-image cmapi-portal:sha-"*) [ "${STUB_IMPORT_RC:-0}" = 0 ] || { echo "error: tag failed: ${STUB_REGISTRY_ERROR:-stub}" >&2; exit "$STUB_IMPORT_RC"; }
     printf '%s\n' "$@" >"$ARGV_LOG.imported"; echo "imagestream.image.openshift.io/stub imported"; exit 0;;
@@ -198,8 +209,17 @@ Content-Security-Policy: default-src 'self'; script-src 'self'
       fi
       printf '%s\n%s' "${STUB_PLAN_BODY-{\"changes\":{\"clusters/CRC/namespaces/abc-proof-plan-dev/namespace.yaml\":\"+\"\}\}}" "${STUB_PLAN:-200}"; exit 0;;
     # Prometheus's answer: a series per target, each with its job label, as the ServiceMonitors make them (job is the Service's name).
-    */api/v1/query*) api='{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'; wrk='{"metric":{"job":"cmapi-worker"},"value":[0,"1"]}'
-      case "$*" in *cluster_token_expiry_seconds*' > bool 0'*) printf '{"data":{"result":[%s]}}' "${STUB_EXPIRY-$api,$wrk}";; *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-$api,$wrk}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-$api,$wrk}";; esac; exit 0;;
+    */api/v1/query*) api='{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'; wrk='{"metric":{"job":"cmapi-worker"},"value":[0,"1"]}'; quotas='{"metric":{},"value":[0,"108"]}'
+      case "$*" in
+        *'count(kube_resourcequota)'*)
+          case "$STDIN_SEEN" in *"reader.$TOKEN"*) ;; *) exit 22;; esac
+          for arg in partial_response=false dedup=true timeout=10s; do
+            case " $* " in *" --data-urlencode $arg "*) ;; *) exit 22;; esac
+          done
+          while [ "$1" != --cacert ]; do shift || exit 22; done
+          cmp -s "$2" "$STUB_CA" || exit 60
+          printf '{"status":"success","warnings":%s,"data":{"resultType":"vector","result":[%s]}}' "${STUB_WARNINGS-[]}" "${STUB_QUOTAS-$quotas}";;
+        *cluster_token_expiry_seconds*' > bool 0'*) printf '{"data":{"result":[%s]}}' "${STUB_EXPIRY-$api,$wrk}";; *cluster_status*) printf '{"data":{"result":[%s]}}' "${STUB_CONNECTED-$api,$wrk}";; *) printf '{"data":{"result":[%s]}}' "${STUB_UP:-$api,$wrk}";; esac; exit 0;;
   esac
   [ -z "$wants" ] || printf '%s' "$code"; exit 0
 fi
@@ -382,7 +402,12 @@ ln -s "$W" "$B"; got=$("$D/crc-backup.sh" >"$W/out" 2>&1; echo $?); [ "$got" != 
 
 # crc-proof.sh
 export STUB_PROOF=1 CMAPI_PROOF_SCRAPE_TRIES=1 CMAPI_CRC_CA=$W/mac.pem; P=$W/rendered; mkdir -p "$P"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi@sha256:aaaa\n' >"$P/IMAGE"; printf 'image-registry.openshift-image-registry.svc:5000/cmapi/cmapi-portal@sha256:pppp\n' >"$P/PORTAL_IMAGE"
-want "proof passes when all is right" 0 "$(run "$D/crc-proof.sh" "$P")"; [ "$(tail -1 "$W/out")" = "proof: all passed" ] || bad "the proof's last line: $(tail -1 "$W/out")"
+: >"$ARGV_LOG.sar"; want "proof passes when all is right" 0 "$(run "$D/crc-proof.sh" "$P")"; [ "$(tail -1 "$W/out")" = "proof: all passed" ] || bad "the proof's last line: $(tail -1 "$W/out")"
+# The reader's Thanos grants (#310): three reviews, each for the reader and its own groups alone, and its own token's query.
+grep -qxF 'proof: the reader has the two cmapi Thanos grants in openshift-monitoring: count(kube_resourcequota) = 108' "$W/out" \
+  && ok "the proof records the reader's Thanos grants and its query" || bad "the reader's Thanos record: $(grep -i thanos "$W/out" | head -1)"
+[ "$(grep -c '"user":"system:serviceaccount:cmapi-system:cmapi-reader","groups":\["system:serviceaccounts","system:serviceaccounts:cmapi-system"\]' "$ARGV_LOG.sar")" = 3 ] \
+  && ! grep -q 'system:authenticated' "$ARGV_LOG.sar" && ok "each review names the reader's groups without system:authenticated" || bad "the reviews: $(cat "$ARGV_LOG.sar")"
 # The Policies tab's premise, recorded as the reader's discovery serves it (#387): the request the API's own probe makes.
 grep -qxF 'proof: discovery, as cmapi-reader, serves wgpolicyk8s.io/v1alpha2 with clusterpolicyreports policyreports, the reports of the Policies tab; openreports.io: not served' "$W/out" \
   && grep -qxF 'oc get --raw /apis/wgpolicyk8s.io/v1alpha2 --as=system:serviceaccount:cmapi-system:cmapi-reader' "$ARGV_LOG" \
@@ -470,6 +495,14 @@ pstop "a connection without TLS" "STUB_SSL=3|1"
 pstop "no connection at all" "STUB_SSL=0|0"
 pstop "a connection that does not verify the server" STUB_SSLMODE=prefer
 pstop "a container that cannot say how it connects" STUB_SSLMODE_RC=1
+# The reader's Thanos grants (#310), each by cmapi's own RoleBinding, proven without system:authenticated, and its own token's query.
+pstop "the reader without its Route grant" 'STUB_SAR_ROUTE=false '
+pstop "Thanos allowed to the reader only through a binding to everyone" 'STUB_SAR_API=true RBAC: allowed by ClusterRoleBinding "openshift-coo-cluster-monitoring-view" of ClusterRole "cluster-monitoring-view" to Group "system:authenticated"'
+pstop "the named monitoring API grant extends to another namespace" 'STUB_SAR_UWM=true RBAC: allowed by ClusterRoleBinding "x" of ClusterRole "cluster-monitoring-view" to ServiceAccount "cmapi-reader/cmapi-system"'
+pstop "a positive count with a Thanos store warning" 'STUB_WARNINGS=["store unavailable"]'
+pstop "an inconclusive scope review" 'STUB_SAR_UWM=inconclusive'
+pstop "no kube_resourcequota series as the reader" STUB_QUOTAS=
+pstop "kube_resourcequota counted 0 as the reader" 'STUB_QUOTAS={"metric":{},"value":[0,"0"]}'
 pstop "a target Prometheus does not scrape" 'STUB_UP={"value":[0,"1"]}'
 pstop "two api targets up and no worker" 'STUB_UP={"metric":{"job":"cmapi-api"},"value":[0,"1"]},{"metric":{"job":"cmapi-api"},"value":[0,"1"]}'
 pstop "worker has not observed the bounded import" 'STUB_EXPIRY={"metric":{"job":"cmapi-api"},"value":[0,"1"]}'
@@ -526,6 +559,7 @@ want "rollback needs --yes" 2 "$(run "$D/crc-rollback.sh")"; [ ! -s "$ARGV_LOG" 
 check_deletes() { python3 - "$ARGV_LOG" <<'PY'
 import re,sys
 ok={"secret cmapi-ldap-test-users -n cmapi","keycloakrealmimport cmapi -n keycloak","job cmapi-realm-sync -n cmapi","cluster.postgresql.cnpg.io cmapi-db -n cmapi","pvc cmapi-db-1 -n cmapi","pv pv-1","namespace cmapi-np-probe","namespace cmapi-imports","namespace cmapi-system","clusterrolebinding cmapi-reader","clusterrole cmapi-reader","secret cmapi-realm-secrets -n keycloak",
+    "rolebinding cmapi-reader-metrics-api -n openshift-monitoring","rolebinding cmapi-reader-thanos-route -n openshift-monitoring","role cmapi-reader-thanos-route -n openshift-monitoring",
     "clusterrolebinding cmapi-deliverer","clusterrole cmapi-deliverer","validatingadmissionpolicybinding cmapi-deliverer-managed-only","validatingadmissionpolicy cmapi-deliverer-managed-only"}
 ok|={f"{k} {n} -n cmapi" for k,n in [("deployment","cmapi-api"),("deployment","cmapi-worker"),("deployment","cmapi-portal"),("pod","cmapi-np-target"),("service","cmapi-api"),("service","cmapi-api-pods"),("service","cmapi-worker"),("service","cmapi-portal"),("networkpolicy","cmapi-metrics"),("networkpolicy","cmapi-front-door"),("route.route.openshift.io","cmapi"),("route.route.openshift.io","cmapi-mockup"),("servicemonitor.monitoring.coreos.com","cmapi-api"),("servicemonitor.monitoring.coreos.com","cmapi-worker"),("prometheusrule.monitoring.coreos.com","cmapi"),("configmap","cmapi-env"),("configmap","cmapi-config"),("configmap","cmapi-trust"),("configmap","cmapi-trusted-ca"),("configmap","cmapi-portal-config"),("secret","cmapi-keys"),("secret","cmapi-keycloak"),("secret","cmapi-test-users"),("secret","cmapi-git"),("secret","cmapi-git-bot"),("secret","cmapi-git-bot-ssh"),("configmap","cmapi-git-bot-known-hosts"),("serviceaccount","cmapi-api"),("serviceaccount","cmapi-worker"),("serviceaccount","cmapi-jobs"),("imagestream.image.openshift.io","cmapi"),("imagestream.image.openshift.io","cmapi-portal")]}
 bad=[]
