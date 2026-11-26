@@ -495,7 +495,7 @@ class Pipeline:
         return Problem.policy_violation("Metadata refused", protection) if protection else None
 
     def _decide(self, facts: Mapping[str, Any], team_auto_today: int = 0, session: Any = None) -> Requirement:
-        """`session`: the transaction to read the auto-approval switch in, when the caller holds one (submit)."""
+        """`session`: the transaction to read the auto-approval switch in, when the caller holds one (submit, the revert job)."""
         # Refused here, before the rules, so the answer names the instance that serves the environment (#671). The revert job
         # reaches this with an environment from a stored request, which a later configuration may no longer serve.
         if facts["environment"] not in self.cfg.allowed_environments:

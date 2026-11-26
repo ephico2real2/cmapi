@@ -341,6 +341,12 @@ class SwitchRepo:
         row = self.s.get(SwitchRow, name)
         return None if row is None else {**row.value, "setBy": row.set_by, "setAt": row.set_at.isoformat()}
 
+    def value(self, name: str) -> dict[str, Any] | None:
+        """The switch's value, by a query in the session's transaction, never from its identity map. Session.get returns a row
+        that the session still holds "directly from this collection and no SQL is emitted" (SQLAlchemy 2.1), so a caller whose
+        transaction keeps the row would miss a pause committed since; the kill switch must not depend on who keeps it."""
+        return self.s.execute(select(SwitchRow.value).where(SwitchRow.name == name)).scalar_one_or_none()
+
     def set(self, name: str, value: Mapping[str, Any], by: str) -> None:
         row = self.s.get(SwitchRow, name)
         if row is None:

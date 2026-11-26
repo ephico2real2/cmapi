@@ -61,9 +61,9 @@ class AppContext:
         session from the same pool can find none and time out (the #695 review's pool starvation)."""
         if session is None:
             with self.db.session() as s:
-                v = SwitchRepo(s).get("auto-approval")
+                v = SwitchRepo(s).value("auto-approval")
         else:
-            v = SwitchRepo(session).get("auto-approval")
+            v = SwitchRepo(session).value("auto-approval")
         paused = bool(v and v.get("paused"))
         AUTO_PAUSED.set(1 if paused else 0)
         return paused
