@@ -146,6 +146,12 @@ class ApprovalRules:
                 g, n = t.get("group", self.defaults["group"]), int(t.get("add", 1))
                 out.append((Slot(g, n, t.get("reason") or expr.source), f"threshold {expr.source}: +{n} {g}",
                             frozenset(expr.names())))
+        if facts.get("usage") == "unavailable" and not any(
+            "usage" in names and slot.group == "approver-platform" and slot.count > 0 for slot, _, names in out
+        ):
+            # A site may still mount the policy shipped before live usage existed.
+            out.append((Slot("approver-platform", 1, "Live usage unavailable"),
+                        "live usage unavailable: +1 approver-platform", frozenset({"usage"})))
         if facts.get("beyondTier") and not any(names & BEYOND_FACTS for _, _, names in out):
             g = self.defaults["group"]
             out.append((Slot(g, 1, "Value beyond the tier"), f"beyond the tier, and no rule reads beyondTier: +1 {g}",

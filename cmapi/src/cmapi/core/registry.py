@@ -206,6 +206,14 @@ def load_policies(path: Path, allowed_environments: set[str],
         if size is not None and (why := _size_problem(size)):
             problems.append(f"cluster {cid}: simulatedCapacity {why}")
             continue
+        thanos_url = e.get("thanosUrl")
+        if thanos_url is not None:
+            # The reader's token goes to it (capacity/thanos.py): never in clear text, nor as Basic auth from a userinfo (#310).
+            try:
+                require_https(thanos_url if isinstance(thanos_url, str) else "", "thanosUrl")
+            except ValueError as exc:
+                problems.append(f"cluster {cid}: {exc}")
+                continue
         try:
             tokens = token_defaults.override(e.get("clusterTokens", {}))
         except ValueError as exc:

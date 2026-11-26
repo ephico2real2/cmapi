@@ -55,8 +55,8 @@ def quota_now(cache: Any) -> dict[str, tuple[dict[str, float | None], dict[str, 
         quotas: dict[str, float | None] = {}
         for r, key in QUOTA_KEYS.items():
             hards = [qty(q["spec"]["hard"][key]) for q in by_ns.get(name, []) if key in (q.get("spec") or {}).get("hard", {})]
-            used = [qty((q.get("status") or {}).get("used", {}).get(key, "0")) for q in by_ns.get(name, [])
-                    if key in (q.get("spec") or {}).get("hard", {})]
+            used = [qty(q["status"]["used"][key]) for q in by_ns.get(name, [])
+                    if key in (q.get("spec") or {}).get("hard", {}) and key in (q.get("status") or {}).get("used", {})]
             quotas[r] = float(min(hards)) if hards else None
             requests[r] = float(max(used)) if used else None
         out[name] = (requests, quotas)
@@ -138,7 +138,8 @@ class VerdictRepo:
 
 def run_sweep(clusters: Iterable[ClusterState], usage: UsageSource, analysis: AnalysisSettings, session: Session,
               now: datetime | None = None) -> list[ClusterSweep]:
-    """One sweep of every given cluster, one at a time, each at its own single instant; then the retention."""
+    """One sweep of every given cluster, one at a time, each at its own single instant. The retention is the job's
+    (jobs/usage_sweep.py), so it runs with no usage source too."""
     done = []
     for st in clusters:
         at = now or datetime.now(timezone.utc)
@@ -147,14 +148,14 @@ def run_sweep(clusters: Iterable[ClusterState], usage: UsageSource, analysis: An
             continue
         VerdictRepo(session).store(sweep)
         done.append(sweep)
-    VerdictRepo(session).prune((now or datetime.now(timezone.utc)).date())
     return done
 
 
 def row_verdict(stored: tuple[date, list[Verdict]] | None, configured: bool) -> dict[str, Any]:
     """The verdict fields of one GET /api/v1/quotas row, from its stored verdicts: the headline, the resources it holds for,
-    the sentence that says why, and the sweep's day. With none stored, insufficient-data that says why."""
-    if stored is None:
+    the sentence that says why, and the sweep's day. With none stored, or with no usage source (whatever an earlier source
+    stored), insufficient-data that says why: docs/18, `usage.source` none, "every Quotas row says insufficient data"."""
+    if not configured or stored is None:
         from cmapi.capacity.usage import NOT_CONFIGURED
         reason = NOT_CONFIGURED if not configured else "No usage sweep has judged this namespace yet; the sweep runs once a day."
         return {"verdict": "insufficient-data", "verdictKind": "info", "verdictResources": [], "verdictReason": reason,

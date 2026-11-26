@@ -98,7 +98,7 @@ def test_under_80_percent_of_the_windows_steps_is_insufficient_data(coverage, st
     u = PromUsage(metrics, clock=lambda: AT.timestamp()).namespace("CRC", "payments-dev")
     assert u.state == state
     if state != "ok":
-        assert u.reason == "Pods were seen in 80% of the 14-day window's 4,032 five-minute steps; 80% are needed."
+        assert u.reason == "Pods were seen in 79.99% of the 14-day window's 4,032 five-minute steps; 80% are needed."
         v = judge("dev", DEV, u, REQUESTS, QUOTAS)
         assert names(v) == ["insufficient-data", "insufficient-data"]
         assert (headline(v).verdict, headline(v).kind) == ("insufficient-data", "info")
@@ -137,9 +137,10 @@ def test_a_failed_query_is_unavailable_and_is_asked_again_next_time():
     assert p.namespace("CRC", "payments-dev").state == "ok", "a failure is not cached"
 
 
-def test_the_live_read_is_one_instant_one_namespace_and_cached_ten_minutes():
+def test_the_live_read_is_one_instant_one_namespace_and_cached_ten_minutes(monkeypatch):
     metrics = FakeMetrics({"payments-dev": Fake(), "ledger-dev": Fake()})
     now = [AT.timestamp()]
+    monkeypatch.setattr("cmapi.capacity.usage.time.monotonic", lambda: now[0])
     p = PromUsage(metrics, clock=lambda: now[0])
     first = p.namespace("CRC", "payments-dev")
     assert first.state == "ok" and first.cpu.p95 == 1.0 and first.coverage == 1.0
@@ -170,7 +171,7 @@ def test_the_plan_shows_the_figures_and_the_new_quota_over_the_peak():
     assert view["state"] == "ok" and view["units"] == {"cpu": "millicores", "memory": "bytes"}
     assert view["cpu"] == {"now": 6100, "avg7d": 5400, "p95": 8200, "peak": 9600, "quota": 16000, "newQuota": 32000, "newOverPeak": 3.33}
     assert view["memory"]["newOverPeak"] == 3.72 and view["memory"]["quota"] == 32 * GiB
-    assert facts == {"usage": "ok", "requestToPeakRatio": 3.721}
+    assert facts == {"usage": "ok", "requestToPeakRatio": pytest.approx(64 / 17.2)}
 
 
 def test_the_ratio_fact_counts_only_the_resources_the_change_raises():

@@ -90,7 +90,7 @@ class Plan:
         return {"files": self.files, "prev": self.prev, "changes": self.changes, "facts": self.facts,
                 "capacity": {"status": self.capacity.status, "fresh": self.capacity.fresh, **dict(self.capacity.detail)},
                 "spec": _spec_json(self.spec), "findings": [f.view() for f in self.findings],
-                "beyondTier": self.beyond_tier, "usage": self.usage}
+                "beyondTier": self.beyond_tier}
 
 
 def _spec_json(spec: NamespaceSpec | None) -> dict[str, Any] | None:
@@ -419,8 +419,12 @@ class Pipeline:
         # A quota change on an existing namespace reads its live 14-day usage (docs/01, "Quota changes on existing namespaces");
         # a create never does ("Thanos on onboarding: Never queried"), nor a change that leaves the quota as it is.
         usage_view, usage_facts = None, {}
-        if action != "create" and old_hard and (cpu_delta or mem_delta):
-            usage_view, usage_facts = plan_usage(self.usage.namespace(cluster_id, ns), old_hard, hard)
+        if action != "create" and not quotas_held:
+            # Compare the hard limits in Git with what will be rendered. The tier catalog can change
+            # between requests, and a change can move only pods, limits, or another quota resource.
+            previous = old_quota or {}
+            if previous.keys() != hard.keys() or any(qty(previous[k]) != qty(hard[k]) for k in hard):
+                usage_view, usage_facts = plan_usage(self.usage.namespace(cluster_id, ns), previous, hard)
         facts = {"plugin": "namespaces", "action": action, "environment": env, "namespace": ns, "clusterId": cluster_id,
                  "team": labels.get("cmapi.net/team"), "tier": tier, "capacity": cap.status, "capacityFresh": cap.fresh,
                  "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,

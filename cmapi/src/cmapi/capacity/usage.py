@@ -32,12 +32,13 @@ from __future__ import annotations
 import math
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal, Mapping, Protocol, runtime_checkable
 
+from cmapi.core.naming import is_label
 from cmapi.core.ports import MetricsSource
 from cmapi.core.tiers import qty
 
@@ -46,6 +47,7 @@ WINDOW_DAYS = 14
 EXPECTED_STEPS = WINDOW_DAYS * 24 * 12          # 4,032 five-minute steps: docs/03, "Coverage"
 MIN_COVERAGE = 0.8                              # docs/03: "a namespace needs at least 80% of the window's steps"
 CACHE_SECONDS = 600                             # docs/02: live usage "cached 10 minutes"
+SWEEP_BATCH = 8                                 # the sweep's queries in flight at once
 RESOURCES = ("cpu", "memory")
 QUOTA_KEYS = {"cpu": "requests.cpu", "memory": "requests.memory"}
 
@@ -80,7 +82,11 @@ RATIO = ('(max by (namespace, resource) (kube_resourcequota{{type="used", resour
 
 def selector(namespace: str | None) -> str:
     """The extra label matcher of one namespace. `namespace` is a DNS label (core/naming.py), so it has no quote to escape."""
-    return f', namespace="{namespace}"' if namespace else ""
+    if namespace is None:
+        return ""
+    if not is_label(namespace):
+        raise ValueError("Expected a DNS label for the usage namespace")
+    return f', namespace="{namespace}"'
 
 
 def usage_queries(sel: str) -> dict[str, str]:
@@ -106,7 +112,10 @@ def sweep_queries(idle_days: int, ceiling: float) -> dict[str, str]:
             out[f"{r}.idleP95"] = f"quantile_over_time(0.95, ({expr.format(sel='')})[{idle_days}d:5m])"
     ratio = RATIO.format(sel="")
     out["quota.p95"] = f"quantile_over_time(0.95, ({ratio})[{WINDOW}:1h])"
-    out["quota.hoursAtCeiling"] = f"avg_over_time(({ratio} >= bool {ceiling})[{WINDOW}:1h])"
+    hours = WINDOW_DAYS * 24
+    available_hours = f"count_over_time(({ratio})[{WINDOW}:1h])"
+    out["quota.hoursAtCeiling"] = (f"(sum_over_time(({ratio} >= bool {ceiling})[{WINDOW}:1h]) / {hours})"
+                                   f" and ({available_hours} >= {math.ceil(hours * MIN_COVERAGE)})")
     out["quota.peak"] = f"max_over_time(({ratio})[{WINDOW}:5m])"
     return out
 
@@ -172,7 +181,8 @@ def _judge_coverage(coverage: float | None, cpu: Figures, memory: Figures) -> tu
     if coverage is None:
         return "insufficient-data", "Thanos has no running-pod sample of this namespace in the last 14 days."
     if coverage < MIN_COVERAGE:
-        return "insufficient-data", (f"Pods were seen in {coverage:.0%} of the 14-day window's {EXPECTED_STEPS:,} five-minute "
+        percent = f"{coverage * 100:.2f}".rstrip("0").rstrip(".")
+        return "insufficient-data", (f"Pods were seen in {percent}% of the 14-day window's {EXPECTED_STEPS:,} five-minute "
                                      f"steps; {MIN_COVERAGE:.0%} are needed.")
     missing = [r for r, f in (("CPU", cpu), ("memory", memory)) if f.p95 is None or f.peak is None]
     if missing:
@@ -194,21 +204,36 @@ class PromUsage:
         self._lock = threading.Lock()
 
     @staticmethod
-    def _run(metrics: MetricsSource, cluster_id: str, queries: Mapping[str, str], at: datetime) -> dict[str, list[dict[str, Any]]]:
-        """Every query at the one instant `at`; MetricsUnavailable when any fails, so no answer mixes data and gaps."""
-        with ThreadPoolExecutor(max_workers=min(8, len(queries))) as pool:
+    def _run(metrics: MetricsSource, cluster_id: str, queries: Mapping[str, str], at: datetime,
+             timeout: float) -> dict[str, list[dict[str, Any]]]:
+        """Every query at the one instant `at`, all of them within `timeout` seconds, the Route's discovery included;
+        MetricsUnavailable when any fails or the time runs out, so no answer mixes data and gaps. Each query has a thread of
+        its own, so the deadline is the slowest query's. A query still running at the deadline is not waited for: its answer
+        is dropped, and its thread ends with the transport's own deadline (monitoring_get)."""
+        pool = ThreadPoolExecutor(max_workers=len(queries), thread_name_prefix="usage")
+        try:
             futures = {name: pool.submit(metrics.query, cluster_id, q, at) for name, q in queries.items()}
+            done, pending = wait(futures.values(), timeout=timeout, return_when=FIRST_EXCEPTION)
+            for f in done:
+                f.result()                  # the first failure, as the source raised it
+            if pending:
+                raise MetricsUnavailable(f"{cluster_id}: no answer to every query within {timeout:g} seconds")
             return {name: f.result() for name, f in futures.items()}
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
     def namespace(self, cluster_id: str, namespace: str) -> NamespaceUsage:
-        now = self.clock()
+        # The cache's age is the monotonic clock's, so a step of the wall clock never stretches the 10 minutes; `clock` (the
+        # wall clock) gives only the instant every query is evaluated at.
+        started = time.monotonic()
         with self._lock:
             hit = self._cache.get((cluster_id, namespace))
-        if hit and now - hit[0] < self.cache_seconds:
+        if hit and started - hit[0] < self.cache_seconds:
             return hit[1]
-        at = datetime.fromtimestamp(now, timezone.utc)
+        at = datetime.fromtimestamp(self.clock(), timezone.utc)
+        from cmapi.capacity.thanos import LIVE_TIMEOUT_SECONDS
         try:
-            answers = self._run(self.metrics, cluster_id, usage_queries(selector(namespace)), at)
+            answers = self._run(self.metrics, cluster_id, usage_queries(selector(namespace)), at, LIVE_TIMEOUT_SECONDS)
         except MetricsUnavailable as exc:
             # Not cached: the next plan asks again. docs/02: "the plan carries usage: unavailable".
             return NamespaceUsage("unavailable", f"Thanos did not answer: {exc}", None, evaluated_at=at)
@@ -216,14 +241,20 @@ class PromUsage:
             "insufficient-data", "Thanos has no running-pod sample of this namespace in the last 14 days.", None, evaluated_at=at)
         with self._lock:
             # Expired answers go as a new one comes in, so the cache holds at most the namespaces planned in 10 minutes.
-            self._cache = {k: v for k, v in self._cache.items() if now - v[0] < self.cache_seconds}
-            self._cache[(cluster_id, namespace)] = (now, result)
+            self._cache = {k: v for k, v in self._cache.items() if started - v[0] < self.cache_seconds}
+            self._cache[(cluster_id, namespace)] = (started, result)
         return result
 
     def cluster(self, cluster_id: str, *, idle_days: int, ceiling: float, at: datetime) -> dict[str, NamespaceUsage]:
         """Every namespace that any figure names. MetricsUnavailable when a query fails: docs/03, "A failed or warned query
         gives that cluster's namespaces insufficient-data for the day"; the sweep writes that."""
-        return _assemble(self._run(self.sweep_metrics, cluster_id, sweep_queries(idle_days, ceiling), at), at)
+        from cmapi.capacity.thanos import SWEEP_TIMEOUT_SECONDS
+        # Eight in flight at most, as before; each batch has docs/03's "120-second timeout per query".
+        queries = list(sweep_queries(idle_days, ceiling).items())
+        answers: dict[str, list[dict[str, Any]]] = {}
+        for i in range(0, len(queries), SWEEP_BATCH):
+            answers.update(self._run(self.sweep_metrics, cluster_id, dict(queries[i:i + SWEEP_BATCH]), at, SWEEP_TIMEOUT_SECONDS))
+        return _assemble(answers, at)
 
 
 def _by_namespace(series: list[dict[str, Any]]) -> dict[str, float | None]:
@@ -317,9 +348,9 @@ def plan_usage(u: NamespaceUsage, old_hard: Mapping[str, str], new_hard: Mapping
         if over is not None and before is not None and after is not None and after > before:
             ratios.append(over)
     view = {"state": u.state, "reason": u.reason, "window": WINDOW,
-            "coverage": round(u.coverage, 3) if u.coverage is not None else None,
+            "coverage": u.coverage,
             "evaluatedAt": u.evaluated_at.isoformat() if u.evaluated_at else None, "units": dict(UNITS), **rows}
     facts: dict[str, Any] = {"usage": u.state}
     if ratios:
-        facts["requestToPeakRatio"] = round(max(ratios), 3)
+        facts["requestToPeakRatio"] = max(ratios)
     return view, facts

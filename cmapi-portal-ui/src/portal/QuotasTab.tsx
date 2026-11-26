@@ -502,7 +502,7 @@ function LiveUsage({ usage, clusterId }: { usage: Usage; clusterId: string }) {
         cells={([k, f, unit]) => [k, unit(f.now), unit(f.avg7d), unit(f.p95), unit(f.peak), `${unit(f.quota)} → ${unit(f.newQuota)}`,
           f.newOverPeak === null ? "—" : `${fmt(f.newOverPeak)}×`]}
       />
-      <Small>{`Read live from ${clusterId}'s Thanos for this plan; cached 10 minutes and not stored. Cluster headroom comes from the watch cache's committed quota, with no Thanos call.`}</Small>
+      {usage.state === "ok" && <Small>{`Read live from ${clusterId}'s Thanos for this plan; cached 10 minutes and not stored. Cluster headroom comes from the watch cache's committed quota, with no Thanos call.`}</Small>}
     </Stack>
   );
 }

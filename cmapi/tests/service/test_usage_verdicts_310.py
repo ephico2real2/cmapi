@@ -7,6 +7,7 @@ the real ones."""
 from __future__ import annotations
 
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -159,6 +160,7 @@ def test_a_failed_sweep_gives_insufficient_data_for_the_day_and_old_verdicts_exp
         # 13 months later the retention removes both days.
         fleet.fail = None
         run_sweep(served, ctx.usage, ctx.analysis, s, now=NOW + timedelta(days=397))
+        VerdictRepo(s).prune((NOW + timedelta(days=397)).date())
         assert {r.day.isoformat() for r in s.query(NamespaceVerdictRow)} == {(NOW + timedelta(days=397)).date().isoformat()}
         assert s.query(AnalysisSweepRow).count() == 1
 
@@ -238,3 +240,76 @@ def test_a_change_that_leaves_the_quota_and_a_create_read_no_usage(world):
     body = plan(world, etag, {"labels": {"cmapi.net/cost-center": "cc-9999"}})
     assert body["usage"] is None
     assert metrics.calls == [], "Thanos on onboarding: never queried; and only a change of the quota reads it"
+
+
+def test_usage_follows_the_change_to_the_stored_quota(test_config, keys, monkeypatch):
+    """An unchanged tier name can still change a hard limit when the catalog moved."""
+    import yaml
+    from conftest import build_world
+    from cmapi.core.identity.claims import Identity
+    from cmapi.core.pipeline import folder_etag
+    from cmapi.core.ports import CapacityResult
+
+    with build_world(test_config, keys, monkeypatch) as (_, ctx, git, *_):
+        who = Identity("sub-ola", "ola", "user", "cmapi-portal", "ola@example.test", employee_id="E1",
+                       roles=frozenset(OLA["roles"]), groups=frozenset(OLA["groups"]))
+        monkeypatch.setattr(ctx.pipeline, "auto_paused", lambda session: False)
+        monkeypatch.setattr(ctx.pipeline.capacity, "check", lambda *args: CapacityResult("fits", True, None, {}))
+        created = ctx.pipeline.plan_namespace(who, "CRC", NS, action="create")
+        files = dict(created.files)
+        path = next(p for p, value in files.items() if yaml.safe_load(value)["kind"] == "ResourceQuota")
+        quota = yaml.safe_load(files[path])
+        quota["spec"]["hard"]["pods"] = "1"
+        files[path] = yaml.safe_dump(quota)
+        git.branches["main"].update(files)
+        metrics = FakeMetrics()
+        metrics.fail = "offline"
+        ctx.pipeline.usage = PromUsage(metrics)
+        changed = ctx.pipeline.plan_namespace(who, "CRC", {"namespace": NS["namespace"], "labels": {"cmapi.net/cost-center": "cc-9999"}},
+                                              action="update", if_match=folder_etag(files))
+        assert changed.usage and changed.usage["state"] == "unavailable"
+        assert any(slot.group == "approver-platform" for slot in changed.requirement.slots)
+
+
+def test_two_workers_run_one_sweep_a_day(world, fleet):
+    """Two worker pods: each seeds the recurring jobs at start, then both claim at once. The pending-job index keeps one
+    usage_sweep, FOR UPDATE SKIP LOCKED gives it to one worker, and the day has one sweep row per cluster (reviewer 2)."""
+    import threading
+    from cmapi.core.db.models import JobRow
+    from cmapi.worker import Worker
+    client, ctx, git, kube, validator, keys = world
+    slow = fleet.query
+
+    def query(*args, **kwargs):                 # long enough that the second claim comes while the first sweep runs
+        time.sleep(0.05)
+        return slow(*args, **kwargs)
+    fleet.query = query
+    workers = [Worker(ctx, "worker-a"), Worker(ctx, "worker-b")]
+    start = threading.Barrier(2)
+    ran: dict[str, bool] = {}
+    errors: list[BaseException] = []
+
+    def run(w):
+        try:
+            start.wait()
+            w.ensure_recurring()
+            start.wait()
+            with ctx.db.session() as s:   # only the sweep is due: the other recurring jobs wait for this test
+                s.query(JobRow).filter(JobRow.kind != "usage_sweep", JobRow.done_at.is_(None)).delete()
+            start.wait()
+            ran[w.worker_id] = w.run_one()
+        except BaseException as exc:            # noqa: BLE001 - reported by the assertion below
+            errors.append(exc)
+    threads = [threading.Thread(target=run, args=(w,)) for w in workers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert errors == [] and sorted(ran.values()) == [False, True], ran
+    with ctx.db.session() as s:
+        sweeps = s.query(AnalysisSweepRow).all()
+        assert [(r.cluster_id, r.status) for r in sweeps] == [("CRC", "complete")]
+        pending = s.query(JobRow).filter(JobRow.kind == "usage_sweep", JobRow.done_at.is_(None)).all()
+        assert len(pending) == 1 and pending[0].run_after > datetime.now(timezone.utc) + timedelta(hours=23)
+        done = s.query(JobRow).filter(JobRow.kind == "usage_sweep", JobRow.done_at.is_not(None)).all()
+        assert len(done) == 1 and done[0].attempts == 1

@@ -2490,6 +2490,7 @@ try {
     await planOf(page, "medium");
     const none = changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "Insufficient data" });
     await none.waitFor();
+    assert.doesNotMatch(await changeCard(page).innerText(), /Read live from/);
     assert.match(await none.innerText(), new RegExp(NO_SOURCE.replace(/[.()]/g, "\\$&")));
     assert.deepEqual(await usageRows(page), [["cpu (cores)", "—", "—", "—", "—", "8 → 16", "—"], ["memory (Gi)", "—", "—", "—", "—", "16 → 32", "—"]]);
     assert.ok((await changeCard(page).locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()).includes("! New quota vs 14-day peak insufficient data"));
@@ -2499,6 +2500,7 @@ try {
     await planOf(page, "large");
     const down = changeCard(page).locator(".pf-v6-c-alert").filter({ hasText: "Live usage unavailable" });
     await down.waitFor();
+    assert.doesNotMatch(await changeCard(page).innerText(), /Read live from/);
     assert.match(await down.innerText(), /Thanos did not answer: CRC: ReadTimeout: timed out/);
     assert.ok((await changeCard(page).locator("li").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()).includes("! New quota vs 14-day peak Thanos did not answer: a platform approval is added"));
     assert.deepEqual(errors, []);

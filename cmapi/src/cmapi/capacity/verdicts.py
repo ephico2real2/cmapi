@@ -143,6 +143,9 @@ def judge(env: str, t: Thresholds, usage: NamespaceUsage, requests: Mapping[str,
                                f"Thanos has no kube_resourcequota history of {QUOTA_KEYS_TEXT[r]} for this namespace.", ev))
             continue
         found = False
+        if quota is not None and req is None:
+            out.append(Verdict(r, "insufficient-data", "info", f"The quota status has no used value for {QUOTA_KEYS_TEXT[r]}.", ev))
+            found = True
         if quota is not None and (history.hours_at_ceiling >= QUOTA_TIGHT_HOURS or history.peak >= 1):
             why = (f"the {NAMES[r]} quota was exhausted" if history.peak >= 1 else
                    f"requests were at {_pct(t.quota_tight_at)} or more of the {NAMES[r]} quota in "

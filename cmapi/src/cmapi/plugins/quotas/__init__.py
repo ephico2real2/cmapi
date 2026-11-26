@@ -56,7 +56,7 @@ def quota_rows(c: AppContext, who: Identity) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     with c.db.session() as s:
         open_map = RequestRepo(s).open_namespaces()
-        verdicts = VerdictRepo(s).latest()
+        verdicts = VerdictRepo(s).latest() if c.usage.configured else {}
     for st in c.registry.connected():
         env = st.policy.environment if st.policy else None
         if env is None or not c.cfg.roles.allowed(who, "objects:read", env):
