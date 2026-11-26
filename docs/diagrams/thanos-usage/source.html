@@ -1,0 +1,160 @@
+<!-- SPDX-License-Identifier: MIT-0. Started from the diagram-kit template, https://github.com/ephico2real2/diagram-kit -->
+<title>Usage From Thanos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --ground: #f5f6f8; --surface: #ffffff; --ink: #18212c; --muted: #58636f; --rule: #d7dce3;
+  --host: #a55a0b; --host-wash: #fbf1e4; --remote: #0e6f68; --remote-wash: #e3f3f1;
+  --gap: #b3261e; --gap-wash: #fbe9e7; --none: #5f6a77; --none-wash: #eef0f3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+    --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+    --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+  --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+  --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1060px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { font-size: 17px; max-width: 70ch; }
+.muted { color: var(--muted); }
+code { font-family: var(--font-mono); font-size: .9em; }
+section { display: grid; gap: 14px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--ground); }
+tr:last-child td { border-bottom: 0; }
+.yes { color: var(--remote); font-weight: 600; } .no { color: var(--gap); font-weight: 600; }
+.cell-gap { background: var(--gap-wash); }
+.decisions { display: grid; gap: 12px; }
+.decision { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 20px; display: grid; gap: 8px; }
+.decision .id { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.decision .q { font-weight: 600; }
+.decision .rec { font-size: 14px; border-left: 3px solid var(--remote); padding-left: 10px; }
+.decision .rec.warn { border-left-color: var(--host); }
+a { color: var(--remote); }
+:focus-visible { outline: 2px solid var(--remote); outline-offset: 2px; }
+</style>
+
+
+<div class="page">
+  <header>
+    <div class="eyebrow">cmapi · capacity plugin · 2026-11-26</div>
+    <h1>How cmapi reads usage from a managed cluster's Thanos</h1>
+    <p class="lede">With <code>usage.source: thanos</code>, cmapi checks the reader's grants at the import, reads the Route of the cluster's own Thanos Querier, and queries it with the reader's token. A cluster whose check found a missing grant is not queried.</p>
+  </header>
+  <section>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1000 640" role="img" aria-label="The hub checks the reader's grants at the import with a discovery call and two reviews, reads the host of the thanos-querier Route, then queries the cluster's Thanos Querier with the reader token; a missing grant leaves usage unavailable and sends no query. The CRC live run is not yet proven.">
+          <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
+<rect x="20" y="14" width="330" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
+<text x="185" y="34" text-anchor="middle" fill="var(--host)">HUB  ·  cmapi api and worker</text>
+<rect x="366" y="14" width="614" height="30" rx="6" fill="var(--remote-wash)" stroke="var(--remote)"/>
+<text x="673" y="34" text-anchor="middle" fill="var(--remote)">ONE MANAGED OPENSHIFT CLUSTER</text>
+</g>
+<line x1="358" y1="14" x2="358" y2="470" stroke="var(--rule)" stroke-width="1.5" stroke-dasharray="6 5"/>
+<rect x="764" y="56" width="224" height="318" rx="8" fill="none" stroke="var(--rule)" stroke-width="1.4"/>
+<g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+<text x="776" y="76" fill="var(--muted)">openshift-monitoring: the baseline</text>
+<rect x="50" y="90" width="300" height="70" rx="7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+<text x="64" y="112" font-weight="600" fill="currentColor">①② Import check, once per check</text>
+<text x="64" y="129">registry._usage_grants, usage.source thanos</text>
+<text x="64" y="146" fill="var(--muted)">grants held: go on · missing: a finding</text>
+<rect x="50" y="190" width="300" height="70" rx="7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+<text x="64" y="212" font-weight="600" fill="currentColor">③ Route lookup (ThanosQuerier)</text>
+<text x="64" y="229">the host of Route thanos-querier,</text>
+<text x="64" y="246" fill="var(--muted)">cached by client; a thanosUrl skips it</text>
+<rect x="50" y="290" width="300" height="70" rx="7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+<text x="64" y="312" font-weight="600" fill="currentColor">④ The query</text>
+<text x="64" y="329">monitoring_get: https only, 10 s timeout</text>
+<text x="64" y="346" fill="var(--muted)">token: cmapi-reader · CA: its caData</text>
+<rect x="50" y="390" width="300" height="70" rx="7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+<text x="64" y="412" font-weight="600" fill="currentColor">⑤ The answer</text>
+<text x="64" y="429">parse_answer: an error or a warning is</text>
+<text x="64" y="446" fill="var(--muted)">unavailable, never zero. Cached 10 min</text>
+<line x1="200" y1="160" x2="200" y2="190" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah)"/>
+<line x1="200" y1="260" x2="200" y2="290" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah)"/>
+<line x1="200" y1="360" x2="200" y2="390" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah)"/>
+<rect x="520" y="90" width="240" height="70" rx="7" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.4"/>
+<text x="534" y="112" font-weight="600" fill="var(--remote)">API server</text>
+<text x="534" y="129">① serves monitoring.coreos.com/v1?</text>
+<text x="534" y="146" fill="var(--muted)">② judges the reviews by RBAC</text>
+<rect x="520" y="190" width="240" height="70" rx="7" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.4"/>
+<text x="534" y="212" font-weight="600" fill="var(--remote)">Route thanos-querier</text>
+<text x="534" y="229">③ the API server returns spec.host</text>
+<text x="534" y="246" fill="var(--muted)">read with one get on that Route</text>
+<rect x="520" y="290" width="240" height="70" rx="7" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.4"/>
+<text x="534" y="312" font-weight="600" fill="var(--remote)">Route host → kube-rbac-proxy</text>
+<text x="534" y="329">④ checks the token’s own user:</text>
+<text x="534" y="346" fill="var(--muted)">get prometheuses/api, name k8s</text>
+<rect x="520" y="390" width="240" height="70" rx="7" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.4"/>
+<text x="534" y="412" font-weight="600" fill="var(--remote)">Thanos Querier</text>
+<text x="534" y="429">answers the instant query</text>
+<text x="534" y="446" fill="var(--muted)">partial_response=false, dedup=true</text>
+<line x1="640" y1="360" x2="640" y2="390" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah)"/>
+<rect x="772" y="90" width="208" height="70" rx="7" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.4"/>
+<text x="786" y="112" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--remote)">cmapi-reader-grant-check</text>
+<text x="786" y="129">Role: create LocalSubjectAR</text>
+<text x="786" y="146" fill="var(--muted)">gates ②</text>
+<rect x="772" y="190" width="208" height="70" rx="7" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.4"/>
+<text x="786" y="212" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--remote)">cmapi-reader-thanos-route</text>
+<text x="786" y="229">get on that one Route</text>
+<text x="786" y="246" fill="var(--muted)">gates ③ (not with a thanosUrl)</text>
+<rect x="772" y="290" width="208" height="70" rx="7" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.4"/>
+<text x="786" y="312" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--remote)">cmapi-reader-metrics-api</text>
+<text x="786" y="329">get prometheuses/api k8s</text>
+<text x="786" y="346" fill="var(--muted)">platform Role · gates ④</text>
+<line x1="350" y1="115" x2="520" y2="115" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah)"/>
+<line x1="350" y1="140" x2="520" y2="140" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah)"/>
+<text x="366" y="108" fill="var(--muted)">① discovery GET</text>
+<text x="366" y="133" fill="var(--muted)">② 2 reviews, POST</text>
+<line x1="350" y1="225" x2="520" y2="225" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah)"/>
+<text x="366" y="218" fill="var(--muted)">③ GET the Route</text>
+<line x1="350" y1="325" x2="520" y2="325" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah)"/>
+<text x="366" y="318" fill="var(--muted)">④ GET /api/v1/query</text>
+<text x="366" y="342" fill="var(--muted)">bearer token, caData</text>
+<line x1="520" y1="425" x2="350" y2="425" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah)"/>
+<text x="440" y="418" fill="var(--muted)">⑤ vector</text>
+<path d="M50,125 L30,125 L30,540 L50,540" fill="none" stroke="var(--gap)" stroke-width="1.5" marker-end="url(#ah)"/>
+<rect x="50" y="500" width="300" height="80" rx="7" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.4"/>
+<text x="64" y="522" font-weight="600" fill="var(--gap)">Failure: a usage finding stands</text>
+<text x="64" y="539">② missed a grant, or could not ask: usage is</text>
+<text x="64" y="556">unavailable. No ③, no ④, no cached answer.</text>
+<text x="64" y="573" fill="var(--muted)">Still connected. Fix: apply the baseline.</text>
+<rect x="520" y="500" width="460" height="80" rx="7" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.4" stroke-dasharray="5 4"/>
+<text x="534" y="522" font-weight="600" fill="var(--host)">Not yet proven live: CRC run 45</text>
+<text x="534" y="539">Since #726 and #734 merged, nothing has run on CRC.</text>
+<text x="534" y="556" fill="var(--muted)">Run 45 checks the grants, one clean query, and no finding.</text>
+<text x="30" y="608" fill="var(--muted)">Solid = on main and covered by the service tests. Dashed amber = not yet proven on a live cluster. Red = the failure branch.</text>
+<text x="30" y="628" fill="var(--host)" font-weight="600">No grant, no query: a finding makes usage unavailable and nothing is sent to Thanos.</text>
+</g>
+        </svg>
+      </div>
+      <figcaption>The import check (① and ②) decides whether a query is allowed; then the Route lookup (③), the query (④) and the answer (⑤). The three RoleBindings are the reader's grants in openshift-monitoring. A finding stops the path before ③.</figcaption>
+    </figure>
+  </section>
+</div>
