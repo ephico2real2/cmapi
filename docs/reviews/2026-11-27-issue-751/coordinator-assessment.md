@@ -51,3 +51,12 @@ Fetch and quote each source, with the date read. None of the following is assume
 - Kubernetes server-side apply and field ownership;
 - the Argo CD Application sync and health status, and its prune policy;
 - the Flux Kustomization `Ready` condition and its prune behaviour.
+
+## Retracted after the design (2026-11-27)
+
+**Case 2 is retracted.** A newer request cannot supersede an unconfirmed one within an instance:
+- `OPEN_STATES` (`core/db/models.py`) includes `merged`, `awaiting_prune` and `sync_failed`.
+- The partial unique index `uq_cr_open_namespace` allows one open request per namespace.
+- A second request on the namespace is therefore refused with 409 `change-pending` until the first reaches `synced` or ends.
+
+The coordinator checked this in the code after the design's D7 showed it. D7 has the test.
