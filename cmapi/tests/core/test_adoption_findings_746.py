@@ -112,7 +112,8 @@ def test_an_adoption_plan_has_no_policy_finding_on_the_opt_in_label(tmp_path, ky
     files, _ = adopted_files(snap, Owner("CRC", "nonprod", "dev", "custom", "req-1", "ola", "ola@ephico2real.com"), REFERENCE)
     held: list = []
     found = v.validate(files, "CRC", "dev", previous=snap.files("CRC"), held=held)
-    assert [f for f in found if f.severity == "error"] == []
+    # Kyverno's own refusals only, as test_adoption_26's d6a tests: CI's reference job has the Kyverno CLI, not kubeconform.
+    assert [f for f in found if f.source == "kyverno" and f.severity == "error"] == []
     assert [h.message for h in held if "cmapi.net/adopt" in h.message] == []
     assert held == []
 
