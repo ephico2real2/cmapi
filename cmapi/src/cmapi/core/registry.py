@@ -219,6 +219,35 @@ def _size_problem(size: Any) -> str | None:
     return None
 
 
+PLACEMENT_KEYS = {"enabled", "maxNamespaces", "overcommit", "weight"}
+
+
+def _placement_problem(block: Any) -> str | None:
+    """Why a clusters.yaml `placement` block cannot be read, or None (#21; docs/02, "config/clusters.yaml": `enabled`,
+    `maxNamespaces`, `overcommit` "overrides the environment default", `weight` "0 to 2; biases the placement score")."""
+    if not isinstance(block, Mapping):
+        return "must be a mapping"
+    unknown = sorted(set(block) - PLACEMENT_KEYS)
+    if unknown:
+        return f"has unknown keys {unknown}; it takes {sorted(PLACEMENT_KEYS)}"
+    if "enabled" in block and not isinstance(block["enabled"], bool):
+        return f"enabled must be true or false, not {block['enabled']!r}"
+    m = block.get("maxNamespaces")
+    if m is not None and (isinstance(m, bool) or not isinstance(m, int) or m < 1):
+        return f"maxNamespaces must be a whole number, 1 or more, not {m!r}"
+    over = block.get("overcommit")
+    if over is not None:
+        if not isinstance(over, Mapping) or not set(over) <= {"cpu", "memory"} or not over:
+            return f"overcommit must be a mapping of cpu and memory, not {over!r}"
+        for r, v in over.items():
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
+                return f"overcommit.{r} must be a number above 0, not {v!r}"
+    w = block.get("weight", 1.0)
+    if isinstance(w, bool) or not isinstance(w, (int, float)) or not 0 <= w <= 2:
+        return f"weight must be a number from 0 to 2, not {w!r}"
+    return None
+
+
 def load_policies(path: Path, allowed_environments: set[str],
                   token_defaults: TokenPolicy = TokenPolicy()) -> dict[str, ClusterPolicy]:
     raw = yaml.safe_load(path.read_text()) or {}
@@ -234,6 +263,9 @@ def load_policies(path: Path, allowed_environments: set[str],
         size = e.get("simulatedCapacity")
         if size is not None and (why := _size_problem(size)):
             problems.append(f"cluster {cid}: simulatedCapacity {why}")
+            continue
+        if (why := _placement_problem(e.get("placement") or {})) is not None:
+            problems.append(f"cluster {cid}: placement {why}")
             continue
         thanos_url = e.get("thanosUrl")
         if thanos_url is not None:

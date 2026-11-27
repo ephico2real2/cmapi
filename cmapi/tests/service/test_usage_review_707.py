@@ -308,7 +308,8 @@ def test_the_stored_plan_holds_the_facts_and_no_usage_figures():
     stored". The facts (usage, requestToPeakRatio) stay: the approval was decided from them."""
     plan = SimpleNamespace(files={}, prev={}, changes={}, facts={"usage": "ok", "requestToPeakRatio": 3.7},
                            capacity=SimpleNamespace(status="fits", fresh=True, detail={}), spec=None, findings=[],
-                           beyond_tier=None, usage={"cpu": {"now": 123}}, adoption=None)
+                           beyond_tier=None, usage={"cpu": {"now": 123}}, adoption=None,
+                           placement_id=None)
     stored = Plan.stored(plan)
     assert "usage" not in stored and stored["facts"] == {"usage": "ok", "requestToPeakRatio": 3.7}
 

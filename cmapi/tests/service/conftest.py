@@ -464,7 +464,7 @@ def fresh_db(database: Database) -> Database:
     with database.engine.begin() as c:
         # The usage tables of #310 are truncated where the migrations made them: a run of an older src (the before-run of a
         # fix) migrates to its own head, without them.
-        usage = [t for t in ("analysis_sweeps", "namespace_verdicts")
+        usage = [t for t in ("analysis_sweeps", "namespace_verdicts", "capacity_snapshots", "capacity_reservations")
                  if c.execute(text("SELECT to_regclass(:t)"), {"t": t}).scalar() is not None]
         c.execute(text("TRUNCATE change_requests, request_events, approvals, jobs, audit_events, admin_switches, "
                        "approval_notifications, expiration_notices, policy_rejections"

@@ -23,24 +23,30 @@ from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import Depends, Query, Request, Response
+from fastapi.responses import JSONResponse
 
 from cmapi import __version__
+from cmapi.capacity.snapshots import Latest, SnapshotRepo
 from cmapi.core.capacity import NOT_MEASURED, RESOURCES, bound_by, group_figures, resource_figures, worst
 from cmapi.core.capacity_backend import read_snapshot_quotas
+from cmapi.core.db.repo import JobRepo
 from cmapi.core.config import environment_not_served
 from cmapi.core.context import AppContext
 from cmapi.core.docs import CONDITIONAL_READ, DocumentedRouter
 from cmapi.core.errors import Problem
 from cmapi.core.etag import etag_of, not_modified
 from cmapi.core.identity.claims import Identity
-from cmapi.core.models import CapacityPage
+from cmapi.core.models import (CapacityPage, ClusterSnapshot, PlacementRequest, PlacementResult, SnapshotRun)
+from cmapi.plugins.capacity import placement as placing
 from cmapi.core.registry import ClusterState
 from cmapi.core.tiers import qty
-from cmapi.routers import ctx, require
+from cmapi.routers import ClusterId, DryRun, ctx, require
 
 router = DocumentedRouter("capacity", prefix="/api/v1", version=__version__, group="Capacity and placement",
                           description="Each cluster's quota commitment against its size, live from the watch of its quotas and "
-                                      "nodes, and the groups of clusters by clusters.yaml: the Capacity tab.")
+                                      "nodes, and the groups of clusters by clusters.yaml: the Capacity tab. Each cluster's "
+                                      "stored capacity snapshots, and placement: the clusters ranked for a new namespace, and "
+                                      "a 15-minute hold on the first.")
 
 GROUP_KEYS = ("environment", "region")
 LABEL_KEY = re.compile(r"^label:([A-Za-z0-9]([-A-Za-z0-9_./]{0,251}[A-Za-z0-9])?)$")
@@ -85,10 +91,28 @@ def _key_value(st: ClusterState, key: str) -> str | None:
     return str(value) if value is not None else None
 
 
-def cluster_view(c: AppContext, st: ClusterState, env: str) -> dict[str, Any]:
-    """One cluster's figures and its named state. Each figure that is not known is null."""
+def snapshot_state(c: AppContext, latest: Latest | None, now: datetime) -> dict[str, Any]:
+    """A cluster's snapshot freshness, as placement reads it (core/placement.py, the stale-data and partial-data filters)."""
+    limit = c.capacity.stale_after_seconds
+    if latest is None or latest.taken_at is None:
+        return {"state": "none", "takenAt": None, "source": None, "detail": "no snapshot yet"}
+    at = latest.complete_at
+    fresh = at is not None and (now - at).total_seconds() <= limit
+    if not fresh and latest.detail:
+        return {"state": "incomplete", "takenAt": at, "source": latest.source, "detail": latest.detail}
+    if not fresh:
+        when = f"{int((now - at).total_seconds() // 60)} min old" if at else "none complete"
+        return {"state": "stale", "takenAt": at, "source": latest.source,
+                "detail": f"newest complete snapshot {when}, limit {limit // 60} min"}
+    return {"state": "ok", "takenAt": at, "source": latest.source, "detail": None}
+
+
+def cluster_view(c: AppContext, st: ClusterState, env: str, latest: Latest | None = None,
+                 now: datetime | None = None) -> dict[str, Any]:
+    """One cluster's figures and its named state. Each figure that is not known is null. The newest complete snapshot gives
+    the requests and the use, where it measured them (#21)."""
     p = st.policy
-    es = c.capacity.env(env)
+    es = c.capacity.for_cluster(env, p.placement if p else None)
     simulated = {r: qty(p.simulated_capacity[r]) for r in RESOURCES} if p and p.simulated_capacity else None
     view: dict[str, Any] = {"clusterId": st.cluster_id, "env": env, "region": _key_value(st, "region"),
                             "writes": bool(p and p.writes), "state": "ok", "stateDetail": None, "asOf": None, "basis": None,
@@ -139,6 +163,13 @@ def cluster_view(c: AppContext, st: ClusterState, env: str) -> dict[str, Any]:
                                    used_missing=totals.used_missing[r] if totals else None,
                                    simulated=simulated[r] if simulated else None,
                                    allocatable=allocatable[r] if allocatable else None, basis=basis, env=es)
+    row = (latest.rows.get("cluster") if latest is not None else None)
+    for r in RESOURCES:
+        measured = (getattr(row, r) or {}) if row is not None else {}
+        for key in ("requested", "usedAvg", "usedPeak"):
+            v = measured.get(key)
+            view[r][key] = None if v is None else int(round(v * 1000)) if r == "cpu" else int(v)
+    view["snapshot"] = snapshot_state(c, latest, now or datetime.now(timezone.utc))
     view["status"] = worst(view[r]["status"] for r in RESOURCES)
     view["boundBy"] = bound_by(view["cpu"]["commitment"], view["memory"]["commitment"])
     return view
@@ -213,8 +244,16 @@ def capacity(request: Request, group_by: GroupBy = "region,environment", env: En
             continue
         if (env or cenv) == cenv and (cluster_id or st.cluster_id) == st.cluster_id:
             in_scope[st.cluster_id] = st
-    clusters = [cluster_view(c, st, st.environment or "") for st in in_scope.values()]
-    body = {"source": "live", "snapshotState": "not-built", "notMeasured": list(NOT_MEASURED), "groupBy": keys,
+    with c.db.session() as s:
+        latest = SnapshotRepo(s).latest(in_scope)
+    now = datetime.now(timezone.utc)
+    clusters = [cluster_view(c, st, st.environment or "", latest.get(st.cluster_id), now) for st in in_scope.values()]
+    for v in clusters:
+        if v["snapshot"]["takenAt"] is not None:
+            v["snapshot"]["takenAt"] = _minute(v["snapshot"]["takenAt"])
+    measured = () if c.usage.configured else ("requested", "usedAvg", "usedPeak")
+    body = {"source": "live", "snapshotState": "stored", "snapshotIntervalSeconds": c.capacity.snapshot_seconds,
+            "staleAfterSeconds": c.capacity.stale_after_seconds, "notMeasured": [*measured, *NOT_MEASURED], "groupBy": keys,
             "hiddenClusters": hidden, "targets": _targets(c, envs), "groups": groups_of(clusters, in_scope, keys),
             "clusters": clusters}
     data = CapacityPage.model_validate(body).model_dump_json().encode()
@@ -225,3 +264,106 @@ def capacity(request: Request, group_by: GroupBy = "region,environment", env: En
         return Response(status_code=304, headers=headers)
     return Response(data, media_type="application/json", headers=headers)
 
+
+
+# --------------------------------------------------------------------------- one cluster's snapshots (#21)
+
+def _scoped_cluster(c: AppContext, who: Identity, cluster_id: str, permission: str = "capacity:read") -> ClusterState:
+    """The cluster when the caller holds `permission` in its environment. The same 404 for an unknown cluster and one
+    outside the caller's scope, so the scope leaks no cluster's existence (docs/14)."""
+    st = c.registry.clusters.get(cluster_id)
+    env = st.environment if st is not None else None
+    if env is None or env not in c.cfg.allowed_environments or not c.cfg.roles.allowed(who, permission, env):
+        raise Problem(404, "cluster-not-found", f"Unknown cluster {cluster_id}")
+    return st
+
+
+def _amount(resource: str, v: Any) -> int | None:
+    return None if v is None else int(round(v * 1000)) if resource == "cpu" else int(v)
+
+
+@router.read("/clusters/{cluster_id}/capacity", summary="Get a cluster's capacity snapshot",
+             returns="The cluster's newest complete capacity snapshot: the whole cluster, each zone and each node role, with "
+                     "its freshness as placement reads it.",
+             permission="capacity:read", response_model=ClusterSnapshot, problems=["cluster-not-found"])
+def cluster_capacity(cluster_id: ClusterId, who: Identity = Depends(require("capacity:read")),
+                     c: AppContext = Depends(ctx)) -> dict[str, Any]:
+    """The stored rows of the cluster's newest complete snapshot (docs/02, "Cluster snapshots"): one for the cluster, one per
+    zone and one per node role, each with CPU in millicores and memory in bytes. A figure that the snapshot did not measure is
+    null, never 0: with capacity.yaml `usage.source: none` the requests, limits and use are null. The worker stores a
+    snapshot every capacity.yaml `snapshotInterval`; `snapshot.state` says whether placement can use it.
+
+    Gateway scope (docs/02, "Reached only through cmapi"): capacity:read in the cluster's environment. A cluster outside the
+    caller's environments answers 404 `cluster-not-found`, as an unknown one does."""
+    st = _scoped_cluster(c, who, cluster_id)
+    with c.db.session() as s:
+        latest = SnapshotRepo(s).latest([cluster_id])[cluster_id]
+        scopes = [{"scope": row.scope,
+                   **{r: {"unit": "millicores" if r == "cpu" else "bytes",
+                          **{k: _amount(r, (getattr(row, r) or {}).get(k))
+                             for k in ("capacity", "allocatable", "requested", "limits", "usedAvg", "usedPeak",
+                                       "quotaCommitted")}}
+                      for r in RESOURCES},
+                   "pods": dict(row.pods), "nodes": dict(row.nodes)}
+                  for row in sorted(latest.rows.values(), key=lambda r: (r.scope != "cluster", r.scope))]
+    return {"clusterId": cluster_id, "env": st.environment, "intervalSeconds": c.capacity.snapshot_seconds,
+            "staleAfterSeconds": c.capacity.stale_after_seconds,
+            "snapshot": snapshot_state(c, latest, datetime.now(timezone.utc)), "scopes": scopes}
+
+
+@router.write("/clusters/{cluster_id}/capacity/snapshots:run", summary="Run a cluster's capacity snapshot now",
+              permission="operations:run", response_model=SnapshotRun, status_code=202,
+              returns="The run is queued: the worker writes the cluster's snapshot of the current interval again.",
+              problems=["cluster-not-found", "plugin-disabled"])
+def run_snapshot(cluster_id: ClusterId, who: Identity = Depends(require("operations:run")),
+                 c: AppContext = Depends(ctx)) -> dict[str, Any]:
+    """Queues a snapshot of the cluster now, outside the schedule (docs/02, "POST .../capacity/snapshots:run ... Run now
+    (operations:run)"): the worker writes the rows of the current interval again. Needs operations:run in the cluster's
+    environment; a cluster outside it answers 404 `cluster-not-found`. plugins.yaml can stop it in an environment: 422
+    `plugin-disabled`, after the permission check."""
+    st = _scoped_cluster(c, who, cluster_id, "operations:run")
+    c.pipeline.check_plugin_offered("capacity", st.environment)
+    with c.db.session() as s:
+        job = JobRepo(s).enqueue("capacity_snapshot", cluster_id=cluster_id,
+                                 payload={"kind": f"run:{cluster_id}", "clusterId": cluster_id})
+    return {"clusterId": cluster_id, "queued": job is not None}
+
+
+# --------------------------------------------------------------------------- placement (#21, #303)
+
+@router.write("/capacity:place", summary="Place a new namespace: rank the clusters and hold the first",
+              permission="capacity:read", response_model=PlacementResult, status_code=201, dry_run_model=PlacementResult,
+              returns="The placement that holds the first cluster for 15 minutes (created), and the clusters ranked for the "
+                      "namespace.",
+              problems=["validation-failed", "environment-not-served", "environment-forbidden", "plugin-disabled",
+                        "policy-violation", "no-placement"])
+def place(body: PlacementRequest, dry_run: DryRun = False, who: Identity = Depends(require("capacity:read")),
+          c: AppContext = Depends(ctx)) -> Any:
+    """Ranks every cluster of the environment for a namespace of this tier, and holds the first that still fits for 15 minutes
+    (placement.yaml `reservation`): 201 with its `placementId`. The create then sends `placementId`, which turns the hold into the request's own
+    (docs/02, "Placement"). `dryRun=true` ranks and holds nothing: the portal's preview.
+
+    Each cluster is either ranked, best first, or excluded with a named reason: not connected, not writable, placement disabled,
+    outside the region, zones or clusterSelector, stale or partial snapshot data, no size, maxNamespaces reached, no CPU or
+    memory headroom after committed quota and active reservations, and in prod no headroom after losing its largest zone. CPU
+    and memory are checked separately. Nothing calls Thanos: the facts are the stored snapshots, the watch of each cluster and
+    the active holds.
+
+    Ranking needs capacity:read in the environment; the hold needs namespaces:create there too. A team holds at most 3 active
+    placements in an environment: a fourth is 429 rate-limited until one is claimed or lapses. When no cluster can be held,
+    422 `no-placement` lists every exclusion. plugins.yaml can stop placement in an environment: 422 `plugin-disabled`, the dry
+    run too, after the permission check."""
+    raw = body.model_dump(by_alias=True, exclude_none=True)
+    env = body.environment
+    if env not in c.cfg.allowed_environments:
+        raise environment_not_served(c.cfg, env)
+    c.cfg.roles.require(who, "capacity:read", env)
+    if not dry_run:
+        c.cfg.roles.require(who, "namespaces:create", env)
+    c.pipeline.check_plugin_offered("capacity", env)            # after the permission, as each write (docs/02, plugins.yaml)
+    ask = placing.ask_of(c, raw)
+    ranked, excluded, row, now = placing.place(c, ask, c.placement, reserve=not dry_run, placed_by=who.username)
+    result = PlacementResult.model_validate(placing.view(ask, raw, ranked, excluded, row, now)).model_dump(by_alias=True,
+                                                                                                         mode="json")
+    # 201: the hold is a reservation made by this call (RFC 9110, 15.3.2); the dry run makes none, so it is a 200.
+    return JSONResponse(result, status_code=200 if dry_run else 201)

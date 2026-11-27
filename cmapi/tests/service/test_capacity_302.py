@@ -79,8 +79,9 @@ def test_crc_one_group_simulated_basis_with_the_nodes_allocatable_beside_it(worl
     client, ctx, git, kube, validator, keys = world
     load_crc(ctx, kube, CRC_QUOTAS + [quota("openshift-x", {"requests.cpu": "100"}, managed=False)])
     page = body(client, keys)
+    # Since #21 the snapshots are stored: each cluster's is its `snapshot`, none yet in this world.
     assert (page["source"], page["snapshotState"], page["groupBy"], page["hiddenClusters"]) == (
-        "live", "not-built", ["region", "environment"], 0)
+        "live", "stored", ["region", "environment"], 0)
     assert page["notMeasured"] == ["requested", "usedAvg", "usedPeak", "history"]
     assert page["targets"] == [{"env": e, "overcommit": {"cpu": 2.0, "memory": 1.25}, "overcommitDefault": False,
                                 "commitment": {"warn": 0.85, "critical": 0.95}} for e in ("dev", "rnd")]
@@ -166,7 +167,7 @@ def test_without_a_simulated_size_the_basis_is_allocatable_and_over_shows_its_re
     [g] = body(client, keys)["groups"]
     assert g["status"] == "over" and g["cpu"]["headroom"] == 0 and g["cpu"]["largestPlacement"]["value"] == 0
     cap = ctx.pipeline.capacity.check("CRC", "dev", 0, 0)
-    assert cap.status == "unknown", "the plan keeps simulatedCapacity as its basis until cmapi-capacity (#21): the owner, 2026-11-18"
+    assert cap.status == "exceeded" and cap.detail["source"] == "allocatable"
 
 
 def test_without_a_simulated_size_and_with_nodes_forbidden_the_cluster_has_no_size(unsized):

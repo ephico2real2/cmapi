@@ -542,7 +542,8 @@ function capResource(base, { committed, simulated, allocatable, basis, overcommi
     headroom: known ? limit - committed : null, commitment, status: commitment === null ? null : levelOf(commitment), requested: null, usedAvg: null, usedPeak: null };
 }
 /** A cluster of the recorded answer in another state, with its figures: millicores and bytes, null when the API does not know them. */
-export function capacityCluster(base, { clusterId, env = "rnd", region = "us-central", writes = true, state = "ok", stateDetail = null, asOf = "2026-11-18T09:14:00Z",
+const SNAPSHOT_OK = { state: "ok", takenAt: "2026-11-18T09:00:00Z", source: "api", detail: null };
+export function capacityCluster(base, { clusterId, env = "rnd", region = "us-central", writes = true, state = "ok", stateDetail = null, asOf = "2026-11-18T09:14:00Z", snapshot = SNAPSHOT_OK,
   basis = "allocatable", nodesState = "ok", nodesDetail = null, zones = ["us-central-1a", "us-central-1b", "us-central-1c"], cpu = 0, memory = 0,
   simulated = null, allocatable = { cpu: 96000, memory: 384 * GIB }, overcommit = { cpu: 2, memory: 1.25 } }) {
   const committedKnown = ["ok", "stale", "no-size"].includes(state);
@@ -553,7 +554,7 @@ export function capacityCluster(base, { clusterId, env = "rnd", region = "us-cen
   return { ...base, clusterId, env, region, writes, state, stateDetail, asOf: state === "loading" || state === "forbidden" ? null : asOf,
     basis: state === "no-size" ? null : basis, nodesState, nodesDetail, nodes: nodesKnown ? { total: 3, counted: 3, notReady: 0, cordoned: 0, tainted: 0 } : null,
     zones: nodesKnown ? zones : null, managedNamespaces: committedKnown ? 12 : null, scopedQuotas: committedKnown ? 0 : null,
-    status: worstOf([c.status, m.status]), boundBy: boundOf(c.commitment, m.commitment), cpu: c, memory: m, history: null };
+    status: worstOf([c.status, m.status]), boundBy: boundOf(c.commitment, m.commitment), cpu: c, memory: m, history: null, snapshot };
 }
 /** The groups of a set of clusters by region and environment, by the API's rules: included when ok and writable; the ratio from the
  * summed figures; headroom floored at 0 per cluster; the largest placement per resource with its cluster; the worst status. */
@@ -590,13 +591,16 @@ export function capacityFleet() {
     capacityCluster(base, { clusterId: "OCP_GF15", env: "dev", zones: ["us-central-1a", "us-central-1b"], cpu: 170000, memory: 100 * GIB }),
     capacityCluster(base, { clusterId: "OCP_GF6", overcommit: rnd, cpu: 126000, memory: 300 * GIB }),
     capacityCluster(base, { clusterId: "OCP_GF7", overcommit: rnd, state: "stale", stateDetail: "the ResourceQuota watch is stale: no good read for over 1800s",
-      asOf: "2026-11-18T07:30:00Z", cpu: 90000, memory: 300 * GIB }),
+      asOf: "2026-11-18T07:30:00Z", cpu: 90000, memory: 300 * GIB,
+      snapshot: { state: "stale", takenAt: "2026-11-18T07:30:00Z", source: "api", detail: "newest complete snapshot 104 min old, limit 60 min" } }),
     capacityCluster(base, { clusterId: "OCP_GF8", overcommit: rnd, cpu: 886200, memory: 1600 * GIB }),
     capacityCluster(base, { clusterId: "OCP_GF9", overcommit: rnd, state: "unreachable", stateDetail: "the cluster is unreachable: OCP_GF9: ConnectError",
-      nodesState: "unreachable", nodesDetail: "the cluster is unreachable: OCP_GF9: ConnectError", asOf: "2026-11-18T06:02:00Z" }),
+      nodesState: "unreachable", nodesDetail: "the cluster is unreachable: OCP_GF9: ConnectError", asOf: "2026-11-18T06:02:00Z",
+      snapshot: { state: "incomplete", takenAt: "2026-11-18T06:00:00Z", source: "api", detail: "the nodes could not be listed: OCP_GF9: ConnectError" } }),
     // In clusters.yaml with no import Secret, never checked (#404): the API's one detail for its quotas and its nodes, and no time.
     capacityCluster(base, { clusterId: "OCP_GF13", overcommit: rnd, state: "not-imported", stateDetail: "the cluster is not-imported: no import Secret",
-      nodesState: "not-imported", nodesDetail: "the cluster is not-imported: no import Secret", asOf: null }),
+      nodesState: "not-imported", nodesDetail: "the cluster is not-imported: no import Secret", asOf: null,
+      snapshot: { state: "none", takenAt: null, source: null, detail: "no snapshot yet" } }),
     capacityCluster(base, { clusterId: "OCP_GF10", region: "eu-west", overcommit: rnd, state: "loading", stateDetail: "the cluster's ResourceQuotas have not listed yet",
       nodesState: "loading", nodesDetail: "the nodes are being listed" }),
     capacityCluster(base, { clusterId: "OCP_GF11", region: "eu-west", overcommit: rnd, state: "forbidden",
@@ -966,7 +970,12 @@ export function apiHandler({ issuer, portalOrigin }) {
     /** GET /api/v1/capacity (capacityFleet), and how many of its reads were answered 304 Not Modified (#302). */
     capacity: capacityFleet(), notModified: 0,
     /** The namespaces of the Namespaces tab (#484): namespaceRecord, each with Git, the live namespace and the lock. */
-    namespaces: []
+    namespaces: [],
+    /**
+     * POST /api/v1/capacity:place (#303): `placement` ranks an ask, `(ask) => ({ ranked, excluded })`, or null for the
+     * default; `placements` holds each placement made, by id, until a create claims it; `placed` counts them.
+     */
+    placement: null, placements: new Map(), placed: 0
   };
   const problem = (res, body, cors) => {
     res.writeHead(body.status, { ...cors, "content-type": "application/problem+json" });
@@ -1155,6 +1164,18 @@ export function apiHandler({ issuer, portalOrigin }) {
       if (late) return problem(res, refuse(...late), cors);
       const protection = protectionRefusal(body.labels, env);
       if (protection) return problem(res, protection, cors);
+      // core/pipeline.py _placement (#21): an active, unclaimed placement of this cluster, environment and team. The API answers
+      // a replay of a held key before it plans (plugins/namespaces/router.py, _replay), so a create sent again after its answer
+      // was lost gets its request, not placement-not-found.
+      const replaying = url.searchParams.get("dryRun") !== "true" && call.key && state.keys.has(`${user.sub} ${call.key}`);
+      if (body.placementId != null && !replaying) {
+        const p = state.placements.get(body.placementId);
+        if (!p || p.used) return problem(res, refuse(422, "placement-not-found", `No active placement ${body.placementId}: it expired, was used by another create, or never existed. Place again.`), cors);
+        // The team that the namespace will carry: the request's, or the one cmapi fills in (a default), as facts["team"].
+        if (p.clusterId !== clusterId || p.env !== env || p.team !== (made.filled.label["cmapi.net/team"] ?? null)) {
+          return problem(res, refuse(422, "placement-mismatch", `Placement ${body.placementId} was made for another target`), cors);
+        }
+      }
       if (url.searchParams.get("dryRun") === "true") {
         const changes = Object.fromEntries(Object.keys(state.plan.changes).map((path) => [path.replace(/namespaces\/[^/]+\//, `namespaces/${body.namespace}/`).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`), "added"]));
         const files = Object.fromEntries(Object.entries(state.plan.files).map(([path, text]) => [path.replace(/namespaces\/[^/]+\//, `namespaces/${body.namespace}/`).replace(/^clusters\/[^/]+\//, `clusters/${clusterId}/`), text]));
@@ -1173,6 +1194,7 @@ export function apiHandler({ issuer, portalOrigin }) {
       request.clusterId = clusterId;
       state.items = [request, ...state.items];
       state.keys.set(`${user.sub} ${key}`, { fingerprint: fingerprint(body), request });
+      if (body.placementId != null) state.placements.get(body.placementId).used = true;
       return ok(request, 202);
     }
 
@@ -1206,6 +1228,30 @@ export function apiHandler({ issuer, portalOrigin }) {
       const fleet = state.mode === "empty" ? { ...state.policies, items: [] } : state.policies;
       const page = policyResultsPage(fleet, url.searchParams);
       return Array.isArray(page) ? problem(res, refuse(...page), cors) : ok(page);
+    }
+    if (url.pathname === "/api/v1/capacity:place" && req.method === "POST") {
+      // plugins/capacity/router.py place (#21, #303): capacity:read to rank, namespaces:create to hold; the environment's
+      // writable clusters ranked as `state.placement` says (by default each with the recorded figures, first by cluster ID).
+      const dry = url.searchParams.get("dryRun") === "true";
+      const denied = lacks("capacity:read") ?? (dry ? null : lacks("namespaces:create"));
+      if (denied) return problem(res, denied, cors);
+      const env = body?.environment;
+      const region = body?.constraints?.region ?? null;
+      const recorded = SAMPLES.operations["capacity_place:dryRun"].response.body;
+      const ranking = state.placement ?? ((ask) => ({
+        ranked: state.clusters.filter((c) => c.environment === ask.environment && c.writes && (!region || c.labels.region === region))
+          .map((c, i) => ({ ...recorded.ranked[0], clusterId: c.clusterId, score: Math.max(0, recorded.ranked[0].score - 10 * i), reserved: false })),
+        excluded: [] }));
+      const { ranked, excluded } = ranking(body);
+      const asOf = new Date().toISOString();
+      if (dry) return ok({ ...recorded, asOf, request: { ...recorded.request, environment: env, team: body.team ?? null, tier: body.tier ?? "small" }, ranked, excluded });
+      if (!ranked.length) return problem(res, { ...refuse(422, "no-placement", `No ${env} cluster can take this tier: every candidate was excluded`), excluded }, cors);
+      const placementId = `pl-${asOf.slice(0, 10).replaceAll("-", "")}-${String(++state.placed).padStart(8, "0")}`;
+      const top = ranked[0].clusterId;
+      state.placements.set(placementId, { clusterId: top, env, team: body.team ?? null, used: false });
+      return ok({ ...recorded, placementId, clusterId: top, asOf, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+        request: { ...recorded.request, environment: env, team: body.team ?? null, tier: body.tier ?? "small" },
+        ranked: ranked.map((r, i) => ({ ...r, reserved: i === 0 })), excluded }, 201);
     }
     if (url.pathname === "/api/v1/capacity") {
       const denied = lacks("capacity:read");

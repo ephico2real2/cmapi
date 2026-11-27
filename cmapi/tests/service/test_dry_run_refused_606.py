@@ -86,8 +86,10 @@ def test_every_write_without_a_dry_run_refuses_one(world):
             guarded.append(route.path_format)
             assert "refuse_dry_run" in calls, f"{route.path_format} takes no dryRun and does not refuse one"
             assert "dry-run-not-supported" in declared, f"{route.path_format} does not declare 400 dry-run-not-supported"
-    # The namespace writes and, since story #26, the adoption of one namespace.
-    assert len(planned) == 7 and "/api/v1/clusters/{cluster_id}/namespaces/{ns}:adopt" in planned, (planned, guarded)
+    # The namespace writes, the adoption of one namespace (story #26), and POST /api/v1/capacity:place (#21): its dryRun
+    # ranks and holds nothing.
+    assert len(planned) == 8, (planned, guarded)
+    assert {"/api/v1/clusters/{cluster_id}/namespaces/{ns}:adopt", "/api/v1/capacity:place"} <= set(planned), planned
     assert "/api/v1/requests/{request_id}:approve" in guarded, (planned, guarded)
 
 

@@ -2,7 +2,7 @@
 
 This folder holds one figure set. It shows the architecture of cmapi as the portal mockup sees it.
 
-The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 43 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
+The source is `mockups/portal/Main.dc.html`, read in full at commit `ecc5cb3`. The list of built endpoints is `cmapi/contract/openapi.json`, which has 46 operations. `cmapi/tests/service/test_portal_map.py` holds this map to that file: a row that says built names an operation of it, a row that says not built names none, and the counts and the list of unused operations are true.
 
 The map is held to the contract by a test. The portal that calls these endpoints is measured in `docs/09-portal-ui-testing.md`, each result with the cluster or the stand-in it ran on.
 
@@ -22,9 +22,9 @@ The map is held to the contract by a test. The portal that calls these endpoints
 | Actions in the mockup | 64 |
 | Actions that make no call | 16 |
 | Endpoints that the actions need | 26 |
-| Endpoints built, in `openapi.json` | 20 |
+| Endpoints built, in `openapi.json` | 21 |
 | Endpoints built, not in `openapi.json` (`/docs`, `/redoc`) | 2 |
-| Endpoints not built | 4 |
+| Endpoints not built | 3 |
 
 ## How to read the figures
 
@@ -55,11 +55,11 @@ Three boxes were dashed because their state was not certain or not there. Argo C
 
 | No. | Tab | Action | Endpoint | Endpoint status | Figure | Note |
 |---|---|---|---|---|---|---|
-| 1 | New namespace | Open the tab | `GET /api/v1/tiers`<br>`POST /api/v1/capacity:place` | built<br>not built | 2 | The tier list and the placement preview. |
-| 2 | New namespace | Environment buttons | `POST /api/v1/capacity:place` | not built | 2 | The preview changes with the environment. |
-| 3 | New namespace | Tier buttons | `POST /api/v1/capacity:place` | not built | 2 | The preview changes with the tier. |
+| 1 | New namespace | Open the tab | `GET /api/v1/tiers`<br>`POST /api/v1/capacity:place` | built<br>built | 2 | The tier list and the placement preview: `dryRun=true` ranks and holds nothing (#303). |
+| 2 | New namespace | Environment buttons | `POST /api/v1/capacity:place` | built | 2 | The preview changes with the environment. |
+| 3 | New namespace | Tier buttons | `POST /api/v1/capacity:place` | built | 2 | The preview changes with the tier. |
 | 4 | New namespace | Check (dry run) | `POST /api/v1/clusters/{cluster_id}/namespaces` | built | 2 | With `?dryRun=true`. Called "Dry run" before #479; Submit stays off until it passes, and again after any change. |
-| 5 | New namespace | Submit request | `POST /api/v1/capacity:place`<br>`POST /api/v1/clusters/{cluster_id}/namespaces` | not built<br>built | 2 | The create sends the `placementId` from the placement call. |
+| 5 | New namespace | Submit request | `POST /api/v1/capacity:place`<br>`POST /api/v1/clusters/{cluster_id}/namespaces` | built<br>built | 2 | The create sends the `placementId` from the placement call (#303). |
 | 6 | New namespace | Form fields: the keys of `GET /api/v1/metadata-keys`, Region, Namespace (its locked ends), Expires (calendar, No expiry), Justification, Additional labels and annotations | `GET /api/v1/metadata-keys` | built | 2 | The fields, the name's two ends, the team's default, the expiry rules (`x-cmapi-expiration`) and the extra-key rules come from the answer (#336, #479; the form of `mockups/portal/new-namespace-479.html`). Check and Submit send the values. |
 | 7 | New namespace | Links to the other portals | None | No endpoint | 2 | Each link opens the portal of a different instance. |
 | 8 | Workflow | Open the tab | `GET /api/v1/requests/{request_id}`<br>`GET /api/v1/requests/{request_id}/events` | built<br>built | 2 | For one request. The design names no call for the Capacity, Pull request and Argo CD panels. |
@@ -122,7 +122,7 @@ Three boxes were dashed because their state was not certain or not there. Argo C
 
 ## Actions with no endpoint in the design
 
-- **Placement preview.** The design has `POST /api/v1/capacity:place`, which also makes a reservation. It names no call that ranks clusters and reserves nothing. The figure maps the preview to `capacity:place`. This is inferred.
+- **Placement preview.** The design has `POST /api/v1/capacity:place`, which also makes a reservation. It names no call that ranks clusters and reserves nothing. The built call takes `dryRun=true`, as every write of the API does, to rank without a hold (#303).
 - **Pick a suggestion.** The mockup jumps to one row by its key. The design names no parameter for this jump.
 - **Search box of the Expiration tab.** The design's parameter list for `GET /api/v1/expirations` has no search parameter. The built endpoint takes `q`, as `GET /api/v1/quotas` does (#318).
 - **Clusters and Results by policy cards.** The mockup names no call for these two cards. The built `GET /api/v1/policies/results` answers them with its `clusters` and `policies`, so the counts and the rows come from one read (#302).
@@ -131,7 +131,7 @@ Three boxes were dashed because their state was not certain or not there. Argo C
 
 ## Built endpoints that no mockup action calls
 
-The mockup has no action for these 23 operations of `openapi.json`:
+The mockup has no action for these 25 operations of `openapi.json`:
 
 - `GET /api/v1/me`, `GET /api/v1/version`, `GET /api/v1/clusters`
 - `POST /api/v1/clusters/{id}:probe`: recheck a held cluster import (#397); the mockup has no probe action
@@ -141,6 +141,7 @@ The mockup has no action for these 23 operations of `openapi.json`:
 - `GET /api/v1/directory/users` and `GET /api/v1/directory/users/{username}`
 - `GET /api/v1/admin/auto-approval`, and `POST /api/v1/admin/auto-approval:pause` and `:resume`
 - `GET /api/v1/admin/git-log`, `GET /api/v1/admin/integrations`, `POST /api/v1/admin/prune:confirm`, `GET /api/v1/admin/plugins`
+- `GET /api/v1/clusters/{cluster_id}/capacity` and `POST /api/v1/clusters/{cluster_id}/capacity/snapshots:run`: one cluster's stored snapshot, and a run now (#21)
 - `GET /api/v1/clusters/{cluster_id}/adoption/candidates`, `GET /api/v1/clusters/{cluster_id}/adoption/skipped` and `POST /api/v1/clusters/{cluster_id}/namespaces/{ns}:adopt`: story #26. Main.dc.html has no adoption screen; the portal's Adopt view calls them, from its own mockup, mockup-adopt.html in docs/reviews/2026-11-14-issue-26-adoption/
 
 ## Text twins

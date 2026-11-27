@@ -120,6 +120,29 @@ def test_an_override_refuses_each_write_in_that_environment_and_keeps_the_reads(
         assert rows["namespaces"]["enabled"] is True and rows["namespaces"]["disabledEnvironments"] == ["dev"]
 
 
+def test_an_override_of_capacity_refuses_placement_and_the_snapshot_run_and_keeps_the_reads(test_config, tmp_path, fresh_db, keys,
+                                                                                            monkeypatch):
+    """#21 gave the capacity plugin two writes, so it is in WRITERS and an override must stop them, as docs/02 says of each
+    plugin's writes: the placement, its dry run too, and the snapshot run. The reads stay."""
+    d = config_with(test_config, tmp_path, {"enabled": ALL, "overrides": {"nonprod": {"dev": {"disabled": ["capacity"]}}}})
+    operator = dict(roles=["cmapi-operator"], groups=["/cmapi/app-cmapi-rbac-operator"])
+    with build_world(d, keys, monkeypatch) as (client, *_):
+        before = refused("capacity", "dev")
+        ask = {"environment": "dev", "tier": "small", "team": "payments"}
+        calls = [("/api/v1/capacity:place", ask, auth(keys, "ola", **OLA)),
+                 ("/api/v1/capacity:place?dryRun=true", ask, auth(keys, "ola", **OLA)),
+                 ("/api/v1/clusters/CRC/capacity/snapshots:run", None, auth(keys, "opal", **operator))]
+        for path, body, headers in calls:
+            r = client.post(path, json=body, headers=headers)
+            assert r.status_code == 422, f"{path}: {r.status_code} {r.text}"
+            assert (r.json()["code"], r.json()["plugin"], r.json()["environment"]) == ("plugin-disabled", "capacity", "dev")
+        assert refused("capacity", "dev") - before == len(calls)
+        for path in ("/api/v1/capacity", "/api/v1/clusters/CRC/capacity"):
+            assert client.get(path, headers=auth(keys, "ola", **OLA)).status_code == 200, path
+        r = client.post("/api/v1/capacity:place", json=ask, headers=auth(keys, "vic", **VIEWER))
+        assert (r.status_code, r.json()["code"]) == (403, "forbidden"), "the permission is checked before the override"
+
+
 def test_the_permission_is_checked_before_the_override(test_config, tmp_path, fresh_db, keys, monkeypatch):
     """A caller who cannot write learns nothing about plugins.yaml: the answer is the 403 that it was before."""
     d = config_with(test_config, tmp_path, {"enabled": ALL, "overrides": {"nonprod": {"dev": {"disabled": ["namespaces"]}}}})

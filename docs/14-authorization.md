@@ -40,7 +40,7 @@ A role is a client role on the client of the instance: `cmapi-nonprod`, `cmapi-s
 |---|---|---|---|---|---|---|---|---|---|
 | `clusters:read` | yes | yes | yes | yes | yes | yes | yes | | 3 |
 | `objects:read` | yes | yes | yes | yes | yes | yes | yes | | 11 |
-| `capacity:read` | yes | yes | yes | yes | yes | yes | yes | | 1 |
+| `capacity:read` | yes | yes | yes | yes | yes | yes | yes | | 3 |
 | `requests:read` | yes | yes | yes | yes | yes | yes | yes | yes | 6 |
 | `namespaces:create` | | yes | yes | | yes | yes | | | 1 |
 | `requests:cancel` | | yes | yes | | yes | yes | | | 1 |
@@ -53,7 +53,7 @@ A role is a client role on the client of the instance: `cmapi-nonprod`, `cmapi-s
 | `requests:retry` | | | | | yes | yes | | | 2 |
 | `adoption:write` | | | | | yes | yes | | | 0 |
 | `reports:read` | | | | | yes | yes | | | 2 |
-| `operations:run` | | | | | yes | yes | | | 2 |
+| `operations:run` | | | | | yes | yes | | | 3 |
 | `namespaces:protect` | | | | | yes | yes | | | 0 |
 | `config:write` | | | | | | yes | | | 0 |
 | `clusters:onboard` | | | | | | yes | | | 0 |
@@ -63,7 +63,7 @@ A role is a client role on the client of the instance: `cmapi-nonprod`, `cmapi-s
 | `audit:export` | | | | | | | yes | | 0 |
 | `approvals:relay` | | | | | | | | yes | 0 |
 
-`namespaces:protect` is what makes an operator (#366). No route declares it: the routes check it inside, in the environment of the object. It lets a caller set and remove the operator-only labels and annotations of `metadata-keys.yaml` (`cmapi.net/protected` and `do-not-delete`; a requester gets 403), cancel another person's request, and read employee IDs in the directory (`cmapi/src/cmapi/core/authz.py:160-166`, `cmapi/src/cmapi/core/pipeline.py:293`). It is a permission, not a role name: a role of `authz-roles.yaml` that inherits `cmapi-operator` is an operator, and a role that grants it in some environments makes an operator there only. A file that lists `permissions:` for `cmapi-operator` itself must name `namespaces:protect`, or that role is no longer an operator.
+`namespaces:protect` is what makes an operator (#366). No route declares it: the routes check it inside, in the environment of the object. It lets a caller set and remove the operator-only labels and annotations of `metadata-keys.yaml` (`cmapi.net/protected` and `do-not-delete`; a requester gets 403), cancel another person's request, and read employee IDs in the directory (`cmapi/src/cmapi/core/authz.py:160-166`, `cmapi/src/cmapi/core/pipeline.py:295`). It is a permission, not a role name: a role of `authz-roles.yaml` that inherits `cmapi-operator` is an operator, and a role that grants it in some environments makes an operator there only. A file that lists `permissions:` for `cmapi-operator` itself must name `namespaces:protect`, or that role is no longer an operator.
 
 Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin cannot approve with those roles alone: `requests:approve` is only in `cmapi-approver`. On CRC the group `app-cmapi-rbac-operator` also gives `cmapi-approver`.
 
@@ -81,7 +81,7 @@ Each column name has the prefix `cmapi-` in Keycloak. An operator or an admin ca
 
 ### Which route needs which permission
 
-Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:342-347`). A `HEAD` is answered by the route of its `GET`, so it needs the same permission and gets the same 401 or 403 (#605).
+Each route declares one permission. The OpenAPI document shows it as `x-cmapi-permission`, and the description of the route ends with a "Requires" line (`cmapi/src/cmapi/core/docs.py:349-354`). A `HEAD` is answered by the route of its `GET`, so it needs the same permission and gets the same 401 or 403 (#605).
 
 | Permission | Routes |
 |---|---|
@@ -89,7 +89,7 @@ Each route declares one permission. The OpenAPI document shows it as `x-cmapi-pe
 | None, with a valid token | `GET /api/v1/me` |
 | `clusters:read` | `GET /api/v1/clusters`<br>`GET /api/v1/admin/integrations`<br>`GET /api/v1/admin/plugins` |
 | `objects:read` | `GET /api/v1/clusters/{cluster_id}/namespaces`<br>`GET /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`GET /api/v1/directory/users`<br>`GET /api/v1/directory/users/{username}`<br>`GET /api/v1/expirations`<br>`GET /api/v1/metadata-keys`<br>`GET /api/v1/policies/results`<br>`GET /api/v1/quotas`<br>`GET /api/v1/quotas:export`<br>`GET /api/v1/quotas:suggest`<br>`GET /api/v1/tiers` |
-| `capacity:read` | `GET /api/v1/capacity` |
+| `capacity:read` | `GET /api/v1/capacity`<br>`GET /api/v1/clusters/{cluster_id}/capacity`<br>`POST /api/v1/capacity:place` (its hold also needs `namespaces:create` in the environment, #21) |
 | `requests:read` | `GET /api/v1/policies/rejections`<br>`GET /api/v1/requests`<br>`GET /api/v1/requests/{request_id}`<br>`GET /api/v1/requests/{request_id}/events`<br>`GET /api/v1/requests/{request_id}/approval-status`<br>`GET /api/v1/admin/auto-approval` |
 | `namespaces:create` | `POST /api/v1/clusters/{cluster_id}/namespaces` |
 | `namespaces:write` | `GET /api/v1/clusters/{cluster_id}/adoption/candidates`<br>`GET /api/v1/clusters/{cluster_id}/adoption/skipped`<br>`POST /api/v1/clusters/{cluster_id}/namespaces/{ns}:adopt`<br>`PATCH /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`DELETE /api/v1/clusters/{cluster_id}/namespaces/{ns}`<br>`POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:extend`<br>`POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:set`<br>`POST /api/v1/clusters/{cluster_id}/namespaces/{ns}/expiration:makePermanent` |
@@ -97,7 +97,7 @@ Each route declares one permission. The OpenAPI document shows it as `x-cmapi-pe
 | `requests:reject` | `POST /api/v1/requests/{request_id}:reject` |
 | `requests:cancel` | `POST /api/v1/requests/{request_id}:cancel` |
 | `requests:retry` | `POST /api/v1/requests/{request_id}:retry`<br>`POST /api/v1/requests/{request_id}:revert` |
-| `operations:run` | `POST /api/v1/admin/prune:confirm`<br>`POST /api/v1/clusters/{id}:probe` |
+| `operations:run` | `POST /api/v1/admin/prune:confirm`<br>`POST /api/v1/clusters/{id}:probe`<br>`POST /api/v1/clusters/{cluster_id}/capacity/snapshots:run` |
 | `reports:read` | `GET /api/v1/admin/git-log`<br>`GET /api/v1/admin/kpi` |
 | `approvals:pause` | `POST /api/v1/admin/auto-approval:pause`<br>`POST /api/v1/admin/auto-approval:resume` |
 
@@ -175,9 +175,9 @@ A role can have a list of environments. The route checks the permission again wh
 
 | Route group | Where the environment comes from | Source |
 |---|---|---|
-| Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:279`, `:558` |
+| Create, change, delete or extend a namespace, or set or remove its expiry | The cluster's environment | `cmapi/src/cmapi/core/pipeline.py:281`, `:589` |
 | Read the namespaces of a cluster | The cluster's environment | `cmapi/src/cmapi/plugins/namespaces/router.py:196`, `:237` |
-| List the adoption candidates or the skipped namespaces, or adopt a namespace (#739: `namespaces:write`) | The cluster's environment | `cmapi/src/cmapi/plugins/adoption/router.py:57`, `cmapi/src/cmapi/core/pipeline.py:675` |
+| List the adoption candidates or the skipped namespaces, or adopt a namespace (#739: `namespaces:write`) | The cluster's environment | `cmapi/src/cmapi/plugins/adoption/router.py:57`, `cmapi/src/cmapi/core/pipeline.py:706` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:103`, `:116`, `:130` |
 | Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:154`, `:188`, `:206`, `:233`, `:267` |
 | Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:135` |
@@ -186,6 +186,7 @@ A role can have a list of environments. The route checks the permission again wh
 | List expirations | Only the environments where the caller has `objects:read`; where expiration is off, only a namespace that kept a date (#479) | `cmapi/src/cmapi/plugins/expiration/router.py:115` |
 | List policy results (#302) | Only the clusters of the environments where the caller has `objects:read`; of those, only the results on namespaces that cmapi manages, of the bundle's policies that are on the cluster. The rest is counted in `hidden`, with no name | `cmapi/src/cmapi/plugins/policies/router.py`, `results` |
 | Capacity (#302) | Only the clusters of the environments where the caller has `capacity:read`; the groups are summed from those clusters only, and the others are counted in `hiddenClusters`, with no name. No namespace is named. `env` in another environment answers 403 `environment-forbidden`; `clusterId` outside the scope answers 404 `cluster-not-found`, as an unknown cluster does | `cmapi/src/cmapi/plugins/capacity/router.py`, `capacity` |
+| A cluster's snapshot and placement (#21) | `GET /api/v1/clusters/{cluster_id}/capacity` and `.../capacity/snapshots:run` answer 404 `cluster-not-found` for a cluster outside the environments where the caller holds `capacity:read` (or `operations:run`), as for an unknown one. `POST /api/v1/capacity:place` ranks only the clusters of the environment asked, which needs `capacity:read` there (403 `environment-forbidden` otherwise); holding the first needs `namespaces:create` there too | `cmapi/src/cmapi/plugins/capacity/router.py`, `cluster_capacity`, `run_snapshot`, `place` |
 | List refusals (#302) | Only the environments where the caller has `requests:read`, the audience of `GET /api/v1/requests`. A row names who asked by username only, never the email, the employee ID or the justification (the owner, 2026-11-17) | `cmapi/src/cmapi/plugins/policies/router.py`, `rejections` |
 
 The delete that the worker's daily `expire_check` opens after an expiry's grace (#263) has no caller and no token, so no role
@@ -213,7 +214,7 @@ An approval rule names a group by its short name, for example `approver-platform
 
 ### Step 6: the identity of a requester
 
-A write that makes a request also checks who the requester is (`cmapi/src/cmapi/core/identity/checks.py`, called from `pipeline.py:191-193`). These refusals are 422, because the token is valid and the request cannot be recorded:
+A write that makes a request also checks who the requester is (`cmapi/src/cmapi/core/identity/checks.py`, called from `pipeline.py:193-195`). These refusals are 422, because the token is valid and the request cannot be recorded:
 
 | Code | When |
 |---|---|
@@ -312,15 +313,15 @@ The users filter of realm `cmapi` is `(uid=cmapi.*)` (`docs/15`, "The LDAP feder
 
 ### Tools that act for people
 
-A tool signs in with the client credentials grant. It is a service client, or an account that holds a role in `identity.automationRoles`. The default role is `cmapi-onboarding`, and `cmapi-automation` holds it (`checks.py:1-15`; `docs/15`, "The clients"). The tool is the caller. Three cases follow (`checks.py:70-95`, called from `pipeline.py:285`):
+A tool signs in with the client credentials grant. It is a service client, or an account that holds a role in `identity.automationRoles`. The default role is `cmapi-onboarding`, and `cmapi-automation` holds it (`checks.py:1-15`; `docs/15`, "The clients"). The tool is the caller. Three cases follow (`checks.py:70-95`, called from `pipeline.py:287`):
 
 | Case | What cmapi does | Source |
 |---|---|---|
-| The tool sends no `onBehalfOf` | The tool is the requester. The request is recorded as automated. If `identity.requireOnBehalfOf` is `true`, the tool must name a person, and without one the answer is 422 `on-behalf-of-required` | `checks.py:83-88`; `problem_docs.py:99` |
+| The tool sends no `onBehalfOf` | The tool is the requester. The request is recorded as automated. If `identity.requireOnBehalfOf` is `true`, the tool must name a person, and without one the answer is 422 `on-behalf-of-required` | `checks.py:83-88`; `problem_docs.py:105` |
 | The tool sends `onBehalfOf`: a username or an employee ID | cmapi looks the value up in the directory. The person must be enabled, or the answer is 422 `unknown-user`. The person is recorded as the requester and the tool as the caller. The request is recorded as automated | `checks.py:89-95` |
-| A person sends `onBehalfOf` | 422 `on-behalf-of-not-allowed` | `checks.py:74-78`; `problem_docs.py:98` |
+| A person sends `onBehalfOf` | 422 `on-behalf-of-not-allowed` | `checks.py:74-78`; `problem_docs.py:104` |
 
-Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:827`, `approvals.py:355-356`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:247-249`, `approvals.py:353-354`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
+Self-approval uses the requester and the submitter. The ledger refuses the requester as approver: `requester_sub` is the `sub` of the named person (`checks.py:49-53`, `pipeline.py:858`, `approvals.py:355-356`). It also refuses the submitter, which is the `sub` of the tool, unless the approval rule has `selfApproval: true` (`cmapi/src/cmapi/core/db/repo.py:247-249`, `approvals.py:353-354`). The record keeps the submitter in `submittedBySub`, and the response leaves it out (`checks.py:59-64`, `views.py:25-27`).
 
 With `onBehalfOf`, cmapi trusts the tool to name the person. The directory proves that the person exists and is enabled. It does not prove that the person signed in.
 
@@ -393,7 +394,6 @@ A sample 403, taken from a run of the service suite's app on 2026-11-13. A calle
 |---|---|
 | Routes for quotas, service accounts, grants, configuration, cluster onboarding, reload, events and audit export | Not built. Their permissions exist in `authz.py`, and no route uses them |
 | `adoption:write`: the scan of a cluster and the unmanaged-namespaces report (#252's admin operations) | Not built. The adoption of one namespace is self-service: its three routes need `namespaces:write` in the cluster's environment, and the approval rules gate it (#739, the owner's decision of 2026-11-26 on #26). The routes declare and enforce the same permission (`cmapi/src/cmapi/plugins/adoption/router.py`, `ADOPT_PERMISSION`) |
-| The capacity snapshot, and the placement call that reserves capacity | Not built. `capacity:read` has one route, `GET /api/v1/capacity`, live from the watch of each cluster (`cmapi/src/cmapi/plugins/capacity/router.py`). `POST /api/v1/capacity:place` is not in `openapi.json` |
 | The approval relay for email, ServiceNow and chat (`approvals:relay`) | The check exists in `approvals.py:344-347`. No route accepts a relayed approval |
 | A scope by team or by namespace name | Not designed. A role with `namespaces:create` can ask for each name that is not reserved (`authz.py:8-10`) |
 

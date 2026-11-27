@@ -27,6 +27,7 @@ from cmapi.core.identity.keycloak_admin import KeycloakAdminDirectory, split_iss
 from cmapi.core.listquery import Lister, Sorts, severity
 from cmapi.core.observability import AUTO_PAUSED, CONFIG_INFO, POLICY_MODE, VALIDATOR_WAIT
 from cmapi.core.pipeline import Pipeline
+from cmapi.core.placement import PlacementSettings
 from cmapi.core.policybundle import PolicyBundle
 from cmapi.core.policygen import render_bundle
 from cmapi.core.ratelimit import RateLimiter
@@ -58,6 +59,7 @@ class AppContext:
     limiter: RateLimiter = field(default_factory=RateLimiter)   # instance.yaml http.rateLimits, this process's buckets (#689)
     usage: UsageSource = field(default_factory=NoUsage)         # capacity.yaml usage.source: live 14-day usage (#310)
     analysis: AnalysisSettings = field(default_factory=lambda: AnalysisSettings(None, set()))   # analysis.yaml thresholds
+    placement: PlacementSettings = field(default_factory=lambda: PlacementSettings(None))   # placement.yaml (#21)
 
     def auto_paused(self, session: Any = None) -> bool:
         """Whether an admin paused auto-approval. With `session`, read in the caller's transaction: pipeline.submit holds a
@@ -122,6 +124,7 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
     capacity_cfg = _yaml(settings.config_dir / "capacity.yaml")
     capacity_settings = CapacitySettings(capacity_cfg)
     analysis = AnalysisSettings(_yaml(settings.config_dir / "analysis.yaml"), cfg.allowed_environments)
+    placement = PlacementSettings(_yaml(settings.config_dir / "placement.yaml"))
 
     def nodes_for(st: ClusterState, client: KubeClient) -> NodeCache:
         """The nodes of every connected cluster, for its allocatable (#302): a cluster without the grant answers 403, which
@@ -185,7 +188,8 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
                                           "newest": lambda r: r.get("_created", 0.0)})),
                      delivery=DeliveryConfig.from_integrations(integrations), integrations=integrations,
                      capacity_cfg=capacity_cfg, capacity=capacity_settings, issuer=issuer, audience=audience, bundle=policy_bundle,
-                     limiter=RateLimiter(limits=dict(cfg.rate_limits)), usage=usage, analysis=analysis)
+                     limiter=RateLimiter(limits=dict(cfg.rate_limits)), usage=usage, analysis=analysis,
+                     placement=placement)
     reserved = (inst.get("namespaces") or {}).get("reservedPatterns") or []
     ctx.pipeline = Pipeline(cfg, registry, git, validator, capacity, directory, reserved, auto_paused=ctx.auto_paused,
                             usage=usage)
