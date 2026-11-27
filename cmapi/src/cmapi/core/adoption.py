@@ -37,6 +37,20 @@ SYNC_OPTIONS_ANNOTATION = "argocd.argoproj.io/sync-options"
 NAMESPACE_SYNC_OPTIONS = "Prune=confirm,ServerSideApply=true"   # D4: the namespace, as the renderer writes it
 OBJECT_SYNC_OPTIONS = "Prune=confirm"                           # D4: each adopted ResourceQuota and LimitRange (Fable's A2)
 KINDS = ("ResourceQuota", "LimitRange")
+# D2: the kinds that an adoption leaves unmanaged, whose number the plan reports (Pipeline._unadopted_counts). The reader's
+# ClusterRole grants `list` on each (deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml, #748).
+UNADOPTED_KINDS = ("ServiceAccount", "RoleBinding")
+# D10 and #746: the codes that state what the adoption does by design, which a person has nothing to judge in. The plan
+# lists them all; only the others count towards `actionableFindingCount`, which the shipped approval rules read. A code
+# not named here counts, so a new finding adds the approver until it is named here on purpose. The reasons are in the
+# design record, "#746: the findings that add an approver".
+INFORMATIONAL_FINDINGS = frozenset({
+    "skipped-key",          # D3a: left out of Git only when leaving it out changes nothing on the cluster
+    "not-adopted",          # D2: the ServiceAccounts and RoleBindings that stay unmanaged, a statement of scope
+    "adoption-label",       # D7: a provisioner's label, kept as it is
+    "scoped-only",          # D17: a key that only scoped quotas hold, kept and left out of the derived numbers
+    "uninterpreted-key",    # D17: a quota key that cmapi does not model, kept raw and left out of the derived numbers
+})
 
 # D1: never candidates, whatever adoption.yaml says (docs/02, "Adoption plugin").
 BUILT_IN_EXCLUDED = ("default", "openshift", "openshift-*", "kube-*")
@@ -299,9 +313,14 @@ def skipped_keys(obj: Mapping[str, Any], settings: AdoptionSettings) -> list[Key
                 out.append(KeyDecision(kind, key, True, managers, f"{settings.migration_manager} wrote it, and Argo CD's "
                                                                    "client-side apply migration would remove it if Git left "
                                                                    "it out"))
+            elif managers:
+                # Any other manager keeps its share of the key when Argo CD's apply leaves it out ("Server-Side Apply"):
+                # server components, and also a client's Update such as kubectl create's or kubectl label's (#747).
+                out.append(KeyDecision(kind, key, False, managers, f"none of its managers is {settings.migration_manager}, "
+                                                                    "whose fields Argo CD's client-side apply migration "
+                                                                    "takes over, so it stays on the cluster"))
             else:
-                out.append(KeyDecision(kind, key, False, managers, "only server components own it" if managers
-                                       else "no field manager owns it"))
+                out.append(KeyDecision(kind, key, False, managers, "no field manager owns it"))
     return out
 
 
@@ -435,6 +454,22 @@ class AdoptionFinding:
     path: str
     message: str
     key: str | None = None
+
+
+def actionable_count(codes: Iterable[str]) -> int:
+    """D10 (#746): how many findings a person should judge, every code but INFORMATIONAL_FINDINGS."""
+    return sum(1 for code in codes if code not in INFORMATIONAL_FINDINGS)
+
+
+def unmanaged_phrase(counts: Mapping[str, int | None]) -> str | None:
+    """D2: what stays unmanaged, in words ("3 ServiceAccounts and an unknown number of RoleBindings stay unmanaged"), or None
+    when the namespace has none of UNADOPTED_KINDS. A count that could not be read is None: "an unknown number", never 0."""
+    shown = [(kind, n) for kind, n in counts.items() if n != 0]
+    if not shown:
+        return None
+    parts = [f"an unknown number of {kind}s" if n is None else f"{n} {kind}{'' if n == 1 else 's'}" for kind, n in shown]
+    verb = "stays" if len(shown) == 1 and shown[0][1] == 1 else "stay"
+    return f"{' and '.join(parts)} {verb} unmanaged"
 
 
 def unscoped(quota: Mapping[str, Any]) -> bool:

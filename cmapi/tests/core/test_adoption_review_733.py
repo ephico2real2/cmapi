@@ -7,7 +7,7 @@ from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec
 from test_adoption_26 import CATALOG, COMPANY, EX, SAMPLE, SETTINGS, namespace, quota
 
 FACTS = {"plugin": "adoption", "action": "adopt", "environment": "dev", "namespace": "abc-rnd", "findingCount": 0,
-         "capacity": "fits", "capacityFresh": True}
+         "actionableFindingCount": 0, "capacity": "fits", "capacityFresh": True}
 
 
 def test_a_scoped_quota_beyond_the_custom_bounds_is_a_finding_and_a_fact():
@@ -73,7 +73,7 @@ def test_d10_with_the_shipped_rules_a_policy_naming_adoption_still_needs_the_pla
     rules = ApprovalRules(raw, {"rnd", "dev"})
     req = rules.decide(FACTS)
     assert req.auto is None and [(s.group, s.count) for s in req.slots] == [("approver-platform", 1)]
-    req = rules.decide({**FACTS, "findingCount": 2, "warnings": ["a finding"]})
+    req = rules.decide({**FACTS, "findingCount": 2, "actionableFindingCount": 2, "warnings": ["a finding"]})
     assert req.auto is None and [(s.group, s.count) for s in req.slots] == [("approver-platform", 2)]
 
 

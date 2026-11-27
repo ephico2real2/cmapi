@@ -1,5 +1,6 @@
 # The reader baseline as plain YAML: what cmapi needs to read a cluster, and nothing more. From examples/baseline/cmapi-reader-rbac.yaml,
-# cut to what the code calls: core/registry.py's six checks, core/clients/kube.py's WatchCache KINDS, pipeline.workload_counts, the
+# cut to what the code calls: core/registry.py's six checks, core/clients/kube.py's WatchCache KINDS, pipeline.workload_counts and
+# pipeline._unadopted_counts (the adoption plan's ServiceAccounts and RoleBindings, #748), the
 # policy reports and ValidatingPolicies of core/clients/policyreports.py (#302), and the nodes of core/clients/nodes.py for the
 # Capacity tab (#302; the owner, 2026-11-18), and the Thanos Querier of capacity/thanos.py for the live usage (#310, Part of #22)
 # with the import check of its grants (#724).
@@ -33,6 +34,12 @@ rules:
     verbs: [get, list, watch]
   - apiGroups: [""]                      # counted for the delete thresholds (pods > 20, pvcs > 10)
     resources: [pods, persistentvolumeclaims]
+    verbs: [list]
+  - apiGroups: [""]                      # counted for the adoption plan's "not adopted" (D2, Pipeline._unadopted_counts, #748)
+    resources: [serviceaccounts]
+    verbs: [list]
+  - apiGroups: [rbac.authorization.k8s.io] # the same count of RoleBindings; list only, as the code never gets or watches them
+    resources: [rolebindings]
     verbs: [list]
   - apiGroups: [wgpolicyk8s.io]          # Kyverno's policy reports, watched for the Policies tab (#302, core/clients/policyreports.py)
     resources: [policyreports, clusterpolicyreports]

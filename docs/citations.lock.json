@@ -499,27 +499,27 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1405-1405": [
   "            raise Problem.forbidden(f\"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|193-195": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|194-196": [
   "        return resolve_requester(who, on_behalf_of, self.directory, self.identity.get(\"requireEmployeeId\", True),",
   "                                 self.identity.get(\"requireOnBehalfOf\", False),",
   "                                 self.identity.get(\"automationRoles\", [\"cmapi-onboarding\"]))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|281-281": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|282-282": [
   "        self.cfg.roles.require(who, \"namespaces:create\" if action == \"create\" else \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|287-287": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|288-288": [
   "        requester = self.requester_for(who, body.get(\"onBehalfOf\"))"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|295-295": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|296-296": [
   "        operator = self.cfg.roles.is_operator(who, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|589-589": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|590-590": [
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|706-706": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|707-707": [
   "        self.cfg.roles.require(who, ADOPT_PERMISSION, env)"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|858-858": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|862-862": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/problem_docs.py|104-104": [
@@ -1418,6 +1418,9 @@
   "    out[\"coverage\"] = f\"count_over_time(({RUNNING.format(sel=sel)})[{WINDOW}:5m])\"",
   "    return out"
  ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/adoption.py|42-42": [
+  "UNADOPTED_KINDS = (\"ServiceAccount\", \"RoleBinding\")"
+ ],
  "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|124-126": [
   "        self._monitoring: httpx.Client | None = None    # made on the first monitoring_get (#310)",
   "        self._monitoring_lock = threading.Lock()        # a plan's queries run in parallel: one client, made once",
@@ -1535,12 +1538,6 @@
  "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|399-399": [
   "    KINDS = (\"Namespace\", \"ResourceQuota\", \"LimitRange\")"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|40-40": [
-  "    \"ServiceAccount\": (\"/api/v1/serviceaccounts\", True),"
- ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/kube.py|41-41": [
-  "    \"RoleBinding\": (\"/apis/rbac.authorization.k8s.io/v1/rolebindings\", True),"
- ],
  "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/nodes.py|114-114": [
   "        self.watch = WatchCache(client, (KIND,), clock, project=lambda kind, obj: reduce_node(obj), admit=self._admit,"
  ],
@@ -1553,7 +1550,7 @@
  "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/clients/policyreports.py|38-38": [
   "POLICY_KINDS = (\"ValidatingPolicy\",)"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/pipeline.py|255-261": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/pipeline.py|256-262": [
   "    def workload_counts(self, cluster_id: str, ns: str) -> tuple[int, int]:",
   "        \"\"\"Pods and PVCs in a namespace, for the delete thresholds. A live read: unknown is 503, never 0.\"\"\"",
   "        client = self.registry.cache(cluster_id).client",
@@ -1562,7 +1559,7 @@
   "            return (len(client.list(\"Pod\", namespace=ns)[\"items\"]),",
   "                    len(client.list(\"PersistentVolumeClaim\", namespace=ns)[\"items\"]))"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/pipeline.py|453-460": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/pipeline.py|454-461": [
   "        # A quota change on an existing namespace reads its live 14-day usage (docs/01, \"Quota changes on existing namespaces\");",
   "        # nothing else does: \"Never queried while creating a namespace or setting its first quota\" (docs/01, Thanos on onboarding).",
   "        usage_view, usage_facts = None, {}",
@@ -1571,6 +1568,19 @@
   "            # between requests, and a change can move only pods, limits, or another quota resource.",
   "            if old_hard.keys() != hard.keys() or any(qty(old_hard[k]) != qty(hard[k]) for k in hard):",
   "                usage_view, usage_facts = plan_usage(self.usage.namespace(cluster_id, ns), old_hard, hard)"
+ ],
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/pipeline.py|670-680": [
+  "    def _unadopted_counts(self, cluster_id: str, ns: str) -> dict[str, int | None]:",
+  "        \"\"\"D2: how many ServiceAccounts and RoleBindings the namespace has, which the adoption leaves unmanaged. A kind that",
+  "        cannot be read is null (not known), never 0.\"\"\"",
+  "        client = self.registry.cache(cluster_id).client",
+  "        out: dict[str, int | None] = {}",
+  "        for kind in UNADOPTED_KINDS:",
+  "            try:",
+  "                out[kind] = len(client.list(kind, namespace=ns)[\"items\"])",
+  "            except (ClusterUnreachable, KubeError, BadResponse):",
+  "                out[kind] = None",
+  "        return out"
  ],
  "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|142-143": [
   "            if finding == USAGE_NO_MONITORING:",
@@ -1750,17 +1760,17 @@
  "docs/21-usage-from-thanos.md|deploy/baseline-crc.sh|12-12": [
   "oc delete clusterrolebinding cmapi-reader-monitoring --ignore-not-found"
  ],
- "docs/21-usage-from-thanos.md|deploy/crc-proof.sh|228-231": [
+ "docs/21-usage-from-thanos.md|deploy/crc-proof.sh|229-232": [
   "granted cmapi-reader-thanos-route get openshift-monitoring route.openshift.io routes \"\" thanos-querier",
   "granted cmapi-reader-metrics-api get openshift-monitoring monitoring.coreos.com prometheuses api k8s",
   "# The import check's own review of the two (core/registry.py, #724): a LocalSubjectAccessReview in openshift-monitoring.",
   "granted cmapi-reader-grant-check create openshift-monitoring authorization.k8s.io localsubjectaccessreviews \"\" \"\""
  ],
- "docs/21-usage-from-thanos.md|deploy/crc-proof.sh|232-233": [
+ "docs/21-usage-from-thanos.md|deploy/crc-proof.sh|233-234": [
   "scope=$(sar get openshift-user-workload-monitoring monitoring.coreos.com prometheuses api k8s) || fail \"monitoring scope review failed\"",
   "case \"$scope\" in \"false \"*) ;; *) fail \"expected get on prometheuses/api k8s to be refused outside openshift-monitoring: $scope\";; esac"
  ],
- "docs/21-usage-from-thanos.md|deploy/crc-proof.sh|235-263": [
+ "docs/21-usage-from-thanos.md|deploy/crc-proof.sh|236-264": [
   "# Use the CA source of crc-reader-import.sh and the query options of ThanosQuerier.",
   "thanos=$(oc_ get route thanos-querier -n openshift-monitoring -o 'jsonpath={.spec.host}' --as=system:serviceaccount:cmapi-system:cmapi-reader)",
   "[ -n \"$thanos\" ] || fail \"the reader could not discover the Thanos Route host\"",
@@ -1791,7 +1801,7 @@
   "print(count)') || fail \"the Thanos Querier did not return a clean positive quota count for the reader\"",
   "say \"the reader has the two cmapi Thanos grants in openshift-monitoring: count(kube_resourcequota) = $quotas\""
  ],
- "docs/21-usage-from-thanos.md|deploy/crc-proof.sh|264-269": [
+ "docs/21-usage-from-thanos.md|deploy/crc-proof.sh|265-270": [
   "# And cmapi's own import check finds them (#724): CRC is connected, with no finding of the usage grants on GET /api/v1/clusters.",
   "usage_check=$(printf 'header = \"Authorization: Bearer %s\"\\n' \"$tok_viewer\" | c --config - \"$API/api/v1/clusters\" \\",
   "  | python3 -c 'import json,sys; c={i[\"clusterId\"]: i for i in json.load(sys.stdin)[\"items\"]}[\"CRC\"]; print(c[\"status\"], \"; \".join(f for f in c[\"findings\"] if f.startswith(\"usage: \")))') \\",
@@ -1799,8 +1809,7 @@
   "[ \"$usage_check\" = \"connected \" ] || fail \"cmapi's import check of CRC is not connected without usage findings: $usage_check\"",
   "say \"cmapi's import check finds the reader's own usage grants on CRC: no usage finding\""
  ],
- "docs/21-usage-from-thanos.md|deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml|27-42": [
-  "rules:",
+ "docs/21-usage-from-thanos.md|deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml|29-49": [
   "  - apiGroups: [\"\"]",
   "    resources: [namespaces, resourcequotas, limitranges]",
   "    verbs: [get, list, watch]",
@@ -1809,6 +1818,12 @@
   "    verbs: [get, list, watch]",
   "  - apiGroups: [\"\"]                      # counted for the delete thresholds (pods > 20, pvcs > 10)",
   "    resources: [pods, persistentvolumeclaims]",
+  "    verbs: [list]",
+  "  - apiGroups: [\"\"]                      # counted for the adoption plan's \"not adopted\" (D2, Pipeline._unadopted_counts, #748)",
+  "    resources: [serviceaccounts]",
+  "    verbs: [list]",
+  "  - apiGroups: [rbac.authorization.k8s.io] # the same count of RoleBindings; list only, as the code never gets or watches them",
+  "    resources: [rolebindings]",
   "    verbs: [list]",
   "  - apiGroups: [wgpolicyk8s.io]          # Kyverno's policy reports, watched for the Policies tab (#302, core/clients/policyreports.py)",
   "    resources: [policyreports, clusterpolicyreports]",

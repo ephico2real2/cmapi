@@ -210,7 +210,8 @@ fi
 contained "a label on namespace default" "$why"
 say "the worker creates a namespace only with cmapi.net/managed=true, and may not touch one without it (cmapi-deliverer-managed-only, server dry runs)"
 # list and watch nodes: the allocatable of the Capacity tab (#302, core/clients/nodes.py); without it the tab says "nodes not readable".
-for pair in "list namespaces" "list resourcequotas" "list nodes" "watch nodes"; do [ "$(oc_ auth can-i $pair --as=system:serviceaccount:cmapi-system:cmapi-reader 2>/dev/null || true)" = yes ] || fail "the reader may not $pair"; done
+# list serviceaccounts and rolebindings: the adoption plan's count of what stays unmanaged (D2, #748); without it "an unknown number".
+for pair in "list namespaces" "list resourcequotas" "list nodes" "watch nodes" "list serviceaccounts" "list rolebindings.rbac.authorization.k8s.io"; do [ "$(oc_ auth can-i $pair --as=system:serviceaccount:cmapi-system:cmapi-reader 2>/dev/null || true)" = yes ] || fail "the reader may not $pair"; done
 for pair in "get secrets" "create namespaces"; do [ "$(oc_ auth can-i $pair --all-namespaces --as=system:serviceaccount:cmapi-system:cmapi-reader 2>/dev/null || true)" = no ] || fail "the reader may $pair"; done
 say "the reader lists what it needs, and reads no Secret and writes nothing"
 # The live usage (#310, usage.source thanos): the reader's two grants in openshift-monitoring, each by cmapi's own RoleBinding. A

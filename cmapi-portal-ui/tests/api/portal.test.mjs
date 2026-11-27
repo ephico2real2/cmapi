@@ -5436,6 +5436,60 @@ try {
     });
   }
 
+  // #749, seen on CRC in run 46: the candidate cmapi-adopt-demo, whose "Adopt cmapi-adopt-demo" ran past its button at 390 px,
+  // and a reader that could not count ServiceAccounts or RoleBindings, whose "Not adopted" read "and An unknown number of".
+  // The stand-in's own answers, with only the name and the two counts changed (routed in the browser, as the API would send them).
+  const LONG = "cmapi-adopt-demo";
+  // UPDATE_COMMITTED_SCREENSHOTS=1 writes the pull request's pictures to screenshots/749-adopt, as 26-L does to 26-adopt.
+  const shots749 = process.env.UPDATE_COMMITTED_SCREENSHOTS === "1" ? join(app, "screenshots", "749-adopt") : out;
+  mkdirSync(shots749, { recursive: true });
+  async function adoptDemo(page) {
+    await page.route((url) => url.href.startsWith(`${api.url}/api/v1/clusters/CRC/`) && /\/adoption\/candidates$|:adopt$/.test(url.pathname), async (route) => {
+      const req = route.request();
+      if (req.method() === "OPTIONS") return route.continue();
+      const response = await route.fetch({ url: req.url().replace(`/namespaces/${LONG}:adopt`, "/namespaces/abc-rnd:adopt") });
+      const body = await response.json();
+      if (req.url().includes("/adoption/candidates")) body.items = body.items.map((i) => (i.name === "abc-rnd" ? { ...i, name: LONG } : i));
+      else body.adoption = { ...body.adoption, notAdopted: { ServiceAccount: null, RoleBinding: null } };
+      return route.fulfill({ response, json: body });
+    });
+    await open(page, "#namespaces?view=adopt&cluster=CRC");
+    return panel(page).getByRole("button", { name: `Adopt ${LONG}`, exact: true });
+  }
+  await check("749 at 390 px a long candidate's Adopt button keeps its text inside its border, with the full name as its name and tooltip; Not adopted reads as one sentence", async () => {
+    const { context, page, errors } = await fresh({ user: "requester", clusters: NS_CLUSTERS, width: 390 });
+    const button = await adoptDemo(page);
+    await button.waitFor();
+    await settle(page);
+    await page.screenshot({ path: join(shots749, "749-candidates-390-light.png"), fullPage: true });
+    const fit = await button.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const right = Math.max(...[...el.querySelectorAll("*")].map((n) => n.getBoundingClientRect().right));
+      return { over: el.scrollWidth - el.clientWidth, past: right - box.right, page: box.right - document.documentElement.clientWidth,
+        text: el.textContent };
+    });
+    assert.ok(fit.over <= 0, `the button's text overflows it by ${fit.over} px`);
+    assert.ok(fit.past <= 0, `the button's text runs ${fit.past} px past its border`);
+    assert.ok(fit.page <= 0, `the button runs ${fit.page} px past the page`);
+    assert.equal(fit.text, `Adopt ${LONG}`, "the whole text is in the page, cut only by CSS");
+    await button.hover();
+    await page.getByRole("tooltip").getByText(`Adopt ${LONG}`, { exact: true }).waitFor();
+    const scan = await new AxeBuilder({ page }).analyze();
+    assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], "axe at 390");
+    await button.click();
+    await page.getByLabel("Justification (required)").fill("Bring cmapi-adopt-demo under cmapi");
+    await adoptCheck(page).click();
+    await panel(page).locator("#adopt-status").getByText("The check passed (dry run, 200). Nothing is written yet.").waitFor();
+    await panel(page).getByText("An unknown number of ServiceAccounts and an unknown number of RoleBindings stay unmanaged: adoption takes the "
+      + "Namespace, ResourceQuotas and LimitRanges only.", { exact: true }).waitFor();
+    // The phone's view of the plan at its "Not adopted" heading.
+    await panel(page).getByRole("heading", { name: "Not adopted" }).evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await settle(page);
+    await page.screenshot({ path: join(shots749, "749-plan-390-light.png") });
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
   // #739: self-service adoption, and the missing metadata asked for in the Adopt form and later in the Namespaces tab. The
   // candidates sample names what abc-rnd lacks (missingKeys): Team and Team DL required, three optional keys behind "More".
   const TEAM_DL = "abc-team@ephico2real.com";
