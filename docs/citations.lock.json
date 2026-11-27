@@ -1695,10 +1695,10 @@
   "                self._check_import(st, items)",
   "            return st.view()"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/sync.py|118-118": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/sync.py|126-126": [
   "        app = self.client.get(f\"/apis/argoproj.io/v1alpha1/namespaces/{self.namespace}/applications/{self.application}\")"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/jobs/watch_sync.py|171-171": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/jobs/watch_sync.py|179-179": [
   "            app = ArgoCdSignal(reader, ctx.delivery.argocd_namespace,"
  ],
  "docs/21-usage-from-thanos.md|cmapi/tests/service/test_reader_thanos_grants_724.py|428-470": [
