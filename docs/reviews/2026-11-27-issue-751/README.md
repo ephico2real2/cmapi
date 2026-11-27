@@ -174,19 +174,23 @@ delivery:
 
 | Test | Proves |
 |---|---|
-| `test_gitops_an_outside_deliverer_applies_the_folder_and_cmapi_confirms_synced` | The test plays the deliverer: it applies `main`'s folder. cmapi confirms `synced` with no Argo CD |
-| `test_gitops_nothing_applied_waits_then_fails_naming_the_namespace` | Case 1 without a signal: `sync_failed`, the differences named |
+| `test_gitops_an_outside_deliverer_applies_the_folder_and_cmapi_confirms_synced` | The test plays the deliverer: it applies `main`'s folder. cmapi confirms `synced`, by `gitops`, and reads no Argo CD object |
+| `test_gitops_nothing_applied_waits_then_fails_naming_the_namespace` | Case 1 without a signal: `merged` while waiting, then `sync_failed` naming each object, every difference in `sync_differences` |
 | `test_gitops_a_missing_label_stays_unconfirmed_then_fails_naming_it` | A label the plan writes, missing live |
 | `test_gitops_a_differing_limitrange_stays_unconfirmed_then_fails_naming_it` | A LimitRange value that differs |
-| `test_gitops_a_server_defaulted_limitrange_still_confirms` | The API server's defaults are not differences |
-| `test_gitops_a_leftover_removed_object_waits_in_awaiting_prune_then_synced_when_gone` | Case 3, and its end by a read of absence |
+| `test_gitops_server_added_keys_and_defaults_still_confirm` | What the API server and OpenShift add (the `metadata.name` label, SCC annotations, a tracking id, LimitRange defaults) is no difference |
+| `test_gitops_a_leftover_removed_object_waits_in_awaiting_prune_then_synced_when_gone` | Case 3, its notice, and its end by a read of absence |
 | `test_gitops_a_leftover_beside_another_difference_is_sync_failed` | A removal beside a real difference is a failure, not a prune wait |
-| `test_gitops_a_delete_is_confirmed_by_absence` | D6 |
-| `test_gitops_signal_shows_the_deliverers_error_and_never_gates` | Case 1 with Argo CD and with Flux: the error is in the note; an unreadable signal changes nothing |
-| `test_gitops_a_second_request_waits_for_the_first_to_be_confirmed` | Case 2's premise (D7) |
-| `test_gitops_main_changed_after_the_merge_is_refused_with_the_reason` | D3 step 1 |
-| `test_apply_mode_now_reads_the_full_plan` | `apply` refuses to confirm a label the cluster did not take |
-| `test_an_unknown_delivery_mode_stops_the_start` | D1 |
+| `test_gitops_a_retried_change_with_only_removals_left_waits_in_awaiting_prune` | The new `sync_failed` to `awaiting_prune` transition |
+| `test_gitops_a_delete_is_confirmed_by_absence` | D6: no `prune:confirm`, no Argo CD |
+| `test_gitops_signal_shows_the_deliverers_error_and_never_gates` (Argo CD, Flux) | Case 1 with a signal: the deliverer's error in the wait and failure notes, the path read |
+| `test_gitops_a_deliverer_reporting_failure_does_not_stop_a_cluster_that_matches` | The signal never decides |
+| `test_gitops_an_unreadable_signal_is_said_and_changes_nothing` | A forbidden signal read is one phrase |
+| `test_gitops_a_second_request_waits_for_the_first_to_be_confirmed` | Case 2's premise (D7): a change is refused 409 `change-pending` while the first is `merged` and while `sync_failed` |
+| `test_gitops_main_changed_after_the_merge_is_refused_with_the_reason` | D3 step 1; cmapi applies nothing |
+| `test_apply_mode_now_reads_the_full_plan` | `apply` does not confirm a namespace that lost a label |
+| `test_an_unknown_delivery_mode_or_signal_stops_the_start` | D1, in `integrations.yaml` and `clusters.yaml` |
+| `test_the_chart_contains_the_gitops_deliverer_and_writes_its_signal` | D8: the render refuses an empty or malformed identity, binds a valid one, and writes what `DeliveryConfig` reads |
 
 `cmapi/tests/core/test_read_plan_751.py`: the comparison itself (server-only keys, skip prefixes, quantities, defaults,
 renames, a failed read is never absence).

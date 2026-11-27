@@ -239,7 +239,12 @@ The figure is steps 8 and 9 as they are since #286. The nine steps:
 6. **Decide.** The rules engine turns the plan's facts into an ApprovalRequirement. A matching auto-approval policy approves at once (approver auto:\<policy>); otherwise the request waits in pending\_approval and the approval channels tell the eligible approvers.
 7. **Approve.** An eligible approver calls POST /api/v1/requests/{id}:approve, or :reject with a comment, with their own token: from the portal, the CLI, or a channel such as an email link or ServiceNow. When the count is met, capacity is checked again and the request becomes approved.
 8. **Commit.** The worker renders the approved plan, confirms the hash still matches, and opens a bot PR. CI runs the Kyverno bundle, kubeconform and the cmapi check (request ID approved, PR head equal to the approved hash). When CI passes, the bot merges. Nobody reviews in Git. Since #286 the worker does this through Git itself and a thin PR adapter per host: one bare mirror per worker pod, a worktree per request on branch `cmapi/<cluster>/<requestId>` cut from `origin/main`, one commit by the machine user `cmapi-git-bot` whose trailers carry the request ID and the plan hash, a push of that branch alone, then the PR. Host CI is optional and off by default: cmapi's own checks are the gate. Before every apply and every merge, `git merge-tree` and the plan's base are checked; the merge is pinned to a sha. Nothing is ever pushed to `main`.
-9. **Sync.** Argo CD on the target cluster applies the folder. The worker learns the result by polling or from Argo CD Notifications and confirms it with a direct read; then the request is synced and its reservation ends. A delete stops in awaiting\_prune until an operator confirms the prune in Argo CD.
+9. **Sync.** Whatever applies `main` on the target cluster applies the folder: Argo CD, Flux, ACM or a pipeline. It should not matter which (the owner, #751). The worker proves the result with a read of the full approved plan: the Namespace's labels and annotations, every ResourceQuota's hard values, every LimitRange's limits, and the absence of each object the plan removes, leaving out what only the cluster writes (`liveOnlyKeys`, adoption.yaml's skip prefixes, the API server's LimitRange defaults). Then the request is synced and its reservation ends. A deliverer's own status is never the proof: it describes its own desired state, with its own ignore rules. Three delivery modes, per cluster or global (`delivery.mode`):
+   - `gitops`, the mode for a cluster with a deliverer: the read alone confirms. The deliverer's status (an Argo CD Application or a Flux Kustomization, `delivery.signal`) is optional signal, shown beside the differences so that "not applied yet" and "applied and refused" can be told apart. At `syncTimeout` the request is sync\_failed with each difference named, unless the only differences are objects the plan removes that the deliverer did not prune: then it waits in awaiting\_prune with a notice to an operator, not a failure.
+   - `argocd`: as before, the read runs after Argo CD reports this folder Synced at a revision holding the merge.
+   - `apply`, for a cluster with no deliverer, such as CRC: cmapi's worker applies before the merge (#286). GitHub Actions never apply: they only validate.
+
+   A delete stops in awaiting\_prune until a read finds the namespace gone: after an operator confirms the prune in Argo CD (`argocd`), after `POST /admin/prune:confirm` and the worker's delete (`apply`), or whenever the deliverer removes it (`gitops`). The design: `docs/reviews/2026-11-27-issue-751/README.md`.
 
 | State | Entered when | Moves to | Lock | Reservation |
 | --- | --- | --- | --- | --- |
@@ -249,15 +254,39 @@ The figure is steps 8 and 9 as they are since #286. The nine steps:
 | applied | Apply mode: the PR's head is applied and confirmed by a read, not yet merged (#286) | merged, merge\_failed | Held | Held |
 | merge\_failed | Applied, and the merge did not happen. The PR and the branch are kept; `CmapiMergeFailed` fires | merged (:retry merges it) | Held | Held |
 | merged | CI passed and the bot merged | synced, awaiting\_prune, sync\_failed | Held | Held |
-| awaiting\_prune | A delete merged; Argo CD shows the namespace waiting for prune confirmation | synced | Held | None |
-| synced | Argo CD Synced at or after the merge commit, confirmed by a read | End | Released | Released |
+| awaiting\_prune | A delete merged and its namespace is still there; or, in `gitops` mode, a change whose only differences at `syncTimeout` are objects it removes that the deliverer has not pruned (#751) | synced (a read finds them gone), sync\_failed (the cluster cannot be read for `syncTimeout`) | Held | None |
+| synced | The full-plan read matches: after Argo CD Synced at or after the merge commit (`argocd`), after cmapi's apply (`apply`), or whatever applied it (`gitops`) | End | Released | Released |
 | rejected | The plan failed, or an approver rejected | End | Released | Released |
 | cancelled | The requester, or an operator, cancelled before pr\_open | End | Released | Released |
 | timeout | The approval window passed | End | Released | Released |
 | failed | The PR could not be opened after 5 attempts with backoff, CI failed, or someone closed the PR | approved (:retry re-acquires the lock; 409 if another request holds it) | Released | Released |
-| sync\_failed | Merged but not synced within 30 minutes, or Argo CD reports a failed sync | synced (:retry re-watches the sync), or reverted (:revert) | Held until resolved | Released |
+| sync\_failed | Merged but the full-plan read did not match within `syncTimeout` (30 minutes), the differences named | synced (:retry re-watches the sync), awaiting\_prune (a retried `gitops` change with only unpruned removals left), or reverted (:revert) | Held until resolved | Released |
 | superseded | The namespace's files changed in Git after the plan | End; the caller re-plans | Released | Released |
 | reverted | :revert on a sync\_failed request; the revert is a new request through the same approval rules | End | Released, so the revert request can take it | Released |
+
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source srcset="diagrams/gitops-delivery/gitops-read.light.png">
+  <img alt="In gitops mode cmapi merges, whatever deliverer applies main, and watch_sync confirms by read_plan: the live Namespace keys, quota hard values, LimitRange limits and the absence of removed objects against the approved plan. Argo CD's gate runs first only in argocd mode. The deliverer's status is signal only. Matches: synced. Differs at syncTimeout: sync_failed with each difference named. Only unpruned removals: awaiting_prune with an operator's notice, then a read of absence. Built in #751's pull request, not merged, not deployed." src="diagrams/gitops-delivery/gitops-read.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*Built in #751's pull request; not merged, not deployed. One request after the merge, in `gitops` mode, and the read every mode ends with. Shown in its light theme; `gitops-read.dark.png` is beside it.*
+
+```text
+merge (gitops, argocd, every delete) --> main holds the plan's folder --> the deliverer applies main
+watch_sync, every pollInterval:
+  main's folder is not the plan --> sync_failed at once ("Git main's folder differs")
+  argocd mode only: Argo CD Synced at a revision with the merge, first (unchanged)
+  read_plan: Namespace keys, quota hard values by value, LimitRange limits after the server's defaults,
+             each removed object absent; never liveOnlyKeys or adoption.yaml's skip prefixes
+    matches --> synced
+    differs at syncTimeout --> sync_failed, each difference named (event sync_differences)
+    only unpruned removals at syncTimeout --> awaiting_prune, an operator's notice --> prune job reads --> synced
+gitops delete: awaiting_prune at the merge --> synced when a read finds the namespace gone
+the deliverer's status (delivery.signal): beside the differences in the notes, never the proof
+Built in #751's pull request; not merged, not deployed
+```
 
 Reads skip steps 3 to 9. A dry run (?dryRun=true) returns 200 with the plan, the capacity check and the approval that would apply; it skips the idempotency and lock steps, reserves nothing, creates no change request and opens no PR. POST /api/v1/requests/{id}:cancel lets the requester or an operator withdraw before pr\_open; :retry and :revert need requests:retry; a revert is a new request through the same approval rules.
 
@@ -571,7 +600,7 @@ cmapi runs fully with none of these. Each sits behind an extension point with a 
 
 | Capability | Built-in default | With the integration | If the integration fails |
 | --- | --- | --- | --- |
-| Sync signal | Worker polls each cluster's root Application every 30 s while it has merged requests | Argo CD Notifications push results; a 10-minute reconcile pass remains. Per cluster: syncSignal: notify | The reconcile pass catches up |
+| Sync signal | Worker reads each merged request's objects every 30 s (the full-plan read, #751), after the root Application in argocd mode | Argo CD Notifications push results; a 10-minute reconcile pass remains. Per cluster: syncSignal: notify | The reconcile pass catches up |
 | Operations (cluster-onboard, rebuild-verify, adoption-sweep, bulk-migrate, promote) | Built-in engine runs steps in the worker, state in PostgreSQL | Argo Workflows or Tekton run the same steps as cmapi-ops pods, with UI and archive | cmapi stays ready; POST /api/v1/operations returns 503 operations-engine-unavailable |
 | Outbound events | Off | Signed webhook or Kafka topic, from a transactional outbox; Argo Events can consume either | The outbox holds events until the bus recovers |
 | Notifications to people | notify job (chat and email) | Unchanged | — |
@@ -910,5 +939,7 @@ Five phases to launch and one after it. Each phase ends in something a team can 
 | [cmapi Portal mockup](../mockups/portal/README.md) | The portal per instance: Workflow (including the AI agent onboarding scenario), New namespace (any team, any name that is not reserved), Quotas (CPU, memory and pod quota per namespace, with plan and change), Requests (opening at each request's current step), Approvals (approve or reject before anything reaches Git), Expiration (extend, set, make permanent), Policies (Kyverno results), Capacity (CPU and memory) and KPIs, with Swagger and ReDoc links |
 
 ## Diagram sources
+
+The gitops delivery figure (#751) is `docs/diagrams/gitops-delivery/source.html`, written by hand from the diagram-kit template. To render again: `/Users/olasumbo/gitRepos/diagram-kit/.venv/bin/diagram-render docs/diagrams/gitops-delivery/source.html docs/diagrams/gitops-delivery gitops-read`, which writes the light and dark PNGs only when its checks pass. The picture, its text twin and the page change together.
 
 The Git delivery figures (#286) are `docs/diagrams/git-delivery/source.html`. `docs/diagrams/tools/draft-git-delivery.py` writes that page and then runs the kit's renderer, set with `DIAGRAM_RENDER`. To render again: `/Users/olasumbo/gitRepos/diagram-kit/.venv/bin/diagram-render docs/diagrams/git-delivery/source.html docs/diagrams/git-delivery architecture,states,apply-sequence`: diagram-kit at main `548d42f`, whose `pyproject.toml` says 0.2.6 (the installed package's metadata says 0.2.5). It writes the light and dark PNGs only when its checks pass. The picture, its text twin and the page change together.

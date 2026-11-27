@@ -92,8 +92,10 @@ def test_the_sync_check_finds_the_quota_by_kind_in_the_named_files_and_the_old_o
     old = {base + "namespace.yaml": named[base + "namespace.yaml"], base + "resourcequota.yaml": yaml.safe_dump(rq)}
     live = {("Namespace", None, "abc-rnd"): {}, ("ResourceQuota", "abc-rnd", "abc-rnd-quota"): rq}
     get = lambda kind, ns, name: live.get((kind, ns, name))
-    assert confirmed_by_read(get, "abc-rnd", named) == (True, "quota matches the plan")
-    assert confirmed_by_read(get, "abc-rnd", old) == (True, "quota matches the plan")
+    # #751: the full-plan read says what it compared, so the quota counts as read in both layouts.
+    found = "1 Namespace, 1 ResourceQuota and 0 LimitRanges match the plan"
+    assert confirmed_by_read(get, "abc-rnd", named) == (True, found)
+    assert confirmed_by_read(get, "abc-rnd", old) == (True, found)
     live[("ResourceQuota", "abc-rnd", "abc-rnd-quota")] = {"spec": {"hard": {"requests.cpu": "8", "pods": "1"}}}
     ok, why = confirmed_by_read(get, "abc-rnd", named)
-    assert not ok and why.startswith("quota abc-rnd-quota differs"), why
+    assert not ok and "ResourceQuota/abc-rnd-quota spec.hard.pods: plan '50', live '1'" in why, why

@@ -119,7 +119,8 @@ class KpiView(Api):
 def prune_confirm(body: PruneConfirm, who: Identity = Depends(require("operations:run")), c: AppContext = Depends(ctx)) -> dict:
     """An operator confirms that a merged delete may remove the namespace. In `argocd` delivery the
     confirmation happens in Argo CD and the worker observes it; in `apply` delivery this call is the
-    confirmation and the worker's delivery job removes the namespace."""
+    confirmation and the worker's delivery job removes the namespace. In `gitops` delivery the deliverer
+    removes it, and a read of its absence ends the request: this call only makes the worker read again."""
     with c.db.session() as s:
         repo, jobs = RequestRepo(s), JobRepo(s)
         # sync_failed: a delete that failed before anyone confirmed it, still waiting for this call in apply mode.

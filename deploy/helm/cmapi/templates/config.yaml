@@ -47,7 +47,9 @@ data:
     delivery:
       mode: {{ .Values.delivery.mode }}
       syncTimeout: {{ .Values.delivery.syncTimeout }}
+      signal: {{ .Values.delivery.signal | default "none" }}
       argocd: {{ toJson .Values.argocd }}
+      flux: {{ toJson (.Values.delivery.flux | default dict) }}
     syncSignal:
       default: poll
       pollInterval: {{ .Values.delivery.pollInterval }}

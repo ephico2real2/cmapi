@@ -151,9 +151,23 @@ imports:
   namespace: cmapi-imports
   createNamespace: true
 delivery:
-  mode: argocd                     # argocd (the design: cmapi never writes to a cluster) | apply (a deviation)
+  # gitops: any deliverer applies Git main, and cmapi confirms by a read of the full plan (#751; the mode to choose for a
+  # cluster with a deliverer) | argocd: the same, after Argo CD reports the folder Synced | apply: cmapi's worker applies,
+  # for a cluster with no deliverer (a deviation). cmapi never writes to a cluster in gitops or argocd.
+  mode: argocd
   syncTimeout: 30m
   pollInterval: 30s
+  # gitops only: whose status joins a request's notes, never its proof. none | argocd (the argocd block below) | flux.
+  signal: none
+  flux:
+    namespace: flux-system
+    kustomization: cluster-configs-{clusterId}
+  # gitops only: the outside deliverer's identity on this cluster, as system:serviceaccount:<namespace>:<name> (Flux's
+  # kustomize-controller, Argo CD's application controller), so cmapi-deliverer-managed-only contains it. The render fails
+  # on an empty value unless acknowledgeUncontainedDeliverer is true, as for argocd.controllerServiceAccount.
+  gitops:
+    delivererServiceAccount: ""
+    acknowledgeUncontainedDeliverer: false
   # apply mode on the hub: the worker's ServiceAccount gets the cmapi-deliverer ClusterRole, a cluster-wide write
   # identity. A deviation from "cmapi never writes to a cluster directly": the site must say it knows.
   hubDeliverer:

@@ -8,7 +8,7 @@ what succeeded.
        so this request can only reach applied or sync_failed, never failed or superseded, and :cancel is refused.
     3. Server-side apply with the deliverer identity, and the removal of the objects the plan drops; a namespace that exists and
        is not cmapi-managed is refused before the first write.
-    4. confirmed_by_read. Not yet: wait at pollInterval, up to syncTimeout from apply_started. Past it: sync_failed, PR and
+    4. confirmed_by_read, the full-plan read (core/sync.py read_plan, #751). Not yet: wait at pollInterval, up to syncTimeout from apply_started. Past it: sync_failed, PR and
        branch kept, the lock held; :retry runs this job again.
     5. applied, row.pr.applied_head, and the merge job.
 
@@ -65,7 +65,7 @@ def _stop(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow, w
 
 
 def _apply(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) -> None:
-    from cmapi.jobs.watch_sync import _deliverer, _direct, _managed, _NotYet, _reader_cache
+    from cmapi.jobs.watch_sync import _deliverer, _live, _managed, _NotYet, _reader_cache, _rules
 
     head = (job.payload or {}).get("head") or row.pr.get("applied_head") or row.pr["head"]
     started = apply_started(repo, row) == head
@@ -130,7 +130,7 @@ def _apply(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) 
                         obsolete[path] = kube_yaml.dump_all(docs, sort_keys=False)
                 pruned = d.prune_objects(row.namespace, obsolete)
             cache = _reader_cache(ctx, row.cluster_id)
-            ok, why = confirmed_by_read(lambda k, ns, nm: cache.get(k, ns, nm) or _direct(cache, k, ns, nm), row.namespace, files)
+            ok, why = confirmed_by_read(_live(cache), row.namespace, files, row.plan.get("prev") or {}, **_rules(ctx))
             op.set(objects=n, pruned=pruned, confirmed=ok, reason=why)
         if not ok:
             raise _NotYet(why)

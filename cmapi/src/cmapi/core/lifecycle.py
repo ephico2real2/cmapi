@@ -45,7 +45,7 @@ class Event(str, Enum):
     APPLIED = "applied"                           # apply before merge: the PR's head applied and confirmed by a read
     MERGE_FAILED = "merge_failed"                 # the merge after the apply did not happen: attempts spent, or a check refused it
     SYNCED = "synced"                             # Argo CD Synced at or after the merge, confirmed by a read
-    PRUNE_PENDING = "prune_pending"               # a delete merged; Argo CD waits for confirmation
+    PRUNE_PENDING = "prune_pending"               # a delete merged, or a gitops change whose deliverer does not prune (#751)
     PRUNE_CONFIRMED = "prune_confirmed"
     SYNC_TIMEOUT = "sync_timeout"                 # not synced within 30 minutes, or a failed sync
     RETRY = "retry"                               # :retry (requests:retry)
@@ -87,6 +87,7 @@ _T: dict[tuple[State | None, Event], State] = {
     (S.FAILED, E.RETRY): S.APPROVED,              # re-acquires lock and reservation; 409 if another request holds the lock
     (S.SYNC_FAILED, E.RETRY): S.SYNC_FAILED,      # restarts the sync watch; the worker moves it on with SYNCED
     (S.SYNC_FAILED, E.SYNCED): S.SYNCED,
+    (S.SYNC_FAILED, E.PRUNE_PENDING): S.AWAITING_PRUNE,  # a :retry of a gitops change whose only differences are removals (#751)
     (S.SYNC_FAILED, E.REVERT): S.REVERTED,
 }
 

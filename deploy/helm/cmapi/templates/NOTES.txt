@@ -14,3 +14,8 @@ Check it:
 WARNING: argocd.controllerServiceAccount is empty (acknowledged), so no admission policy contains Argo CD's controller: once
 Argo CD applies this cluster's folders it can write any namespace, managed or not. Set it when the controller exists.
 {{- end }}
+{{- if and (eq .Values.delivery.mode "gitops") (not (.Values.delivery.gitops | default dict).delivererServiceAccount) }}
+
+WARNING: delivery.gitops.delivererServiceAccount is empty (acknowledged), so no admission policy contains the deliverer that
+applies Git main: it can write any namespace, managed or not. Set it when the deliverer exists.
+{{- end }}

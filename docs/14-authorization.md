@@ -180,7 +180,7 @@ A role can have a list of environments. The route checks the permission again wh
 | List the adoption candidates or the skipped namespaces, or adopt a namespace (#739: `namespaces:write`) | The cluster's environment | `cmapi/src/cmapi/plugins/adoption/router.py:57`, `cmapi/src/cmapi/core/pipeline.py:707` |
 | Read one request, its events or its approval status | The request's environment | `cmapi/src/cmapi/routers/requests.py:103`, `:116`, `:130` |
 | Approve, reject, cancel, retry or revert a request | The request's environment | `requests.py:154`, `:188`, `:206`, `:233`, `:267` |
-| Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:135` |
+| Confirm a prune | The request's environment | `cmapi/src/cmapi/routers/admin.py:136` |
 | List requests | Only the environments where the caller has `requests:read` | `requests.py:29` |
 | List quotas | Only the environments where the caller has `objects:read` | `cmapi/src/cmapi/plugins/quotas/__init__.py:62` |
 | List expirations | Only the environments where the caller has `objects:read`; where expiration is off, only a namespace that kept a date (#479) | `cmapi/src/cmapi/plugins/expiration/router.py:115` |
@@ -367,7 +367,7 @@ The code `forbidden` has two more causes. Each is a refusal of the code, not of 
 
 | Cause | Detail | Source |
 |---|---|---|
-| A caller cancels a request that is not theirs and does not hold `namespaces:protect` in its environment | "Only the requester or an operator can cancel" | `cmapi/src/cmapi/core/lifecycle.py:124`, `cmapi/src/cmapi/routers/requests.py:211` |
+| A caller cancels a request that is not theirs and does not hold `namespaces:protect` in its environment | "Only the requester or an operator can cancel" | `cmapi/src/cmapi/core/lifecycle.py:125`, `cmapi/src/cmapi/routers/requests.py:211` |
 | A write sets or removes an operator-only label or annotation (`cmapi.net/protected`, `do-not-delete`) and the caller does not hold `namespaces:protect` in the environment | "Needs namespaces:protect in <environment>. Keys: <keys>." (the cluster's environment, #532) | `cmapi/src/cmapi/core/metadata.py:1405` |
 
 The ledger also refuses a relay client without `approvals:relay` with this code ("Relay client lacks approvals:relay", `cmapi/src/cmapi/core/approvals.py:347`), but no route can reach it: the approve route in `routers/requests.py` passes no relay to `ApprovalLedger.approve` (see "What is not built").

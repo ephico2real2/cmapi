@@ -90,9 +90,19 @@ subjects:
 {{- if and (eq .Values.delivery.mode "argocd") (not .Values.argocd.controllerServiceAccount) (not .Values.argocd.acknowledgeUncontainedController) }}
 {{- fail "argocd.controllerServiceAccount is empty: no admission policy would contain Argo CD's controller, which can then write any namespace. Name it (system:serviceaccount:<argo namespace>:<controller>), or set argocd.acknowledgeUncontainedController on a cluster where that is accepted" }}
 {{- end }}
+{{- $gitops := .Values.delivery.gitops | default dict }}
+{{- with $gitops.delivererServiceAccount }}
+{{- if not (regexMatch "^system:serviceaccount:[a-z0-9]([-a-z0-9]*[a-z0-9])?:[a-z0-9]([-.a-z0-9]*[a-z0-9])?$" .) }}
+{{- fail (printf "delivery.gitops.delivererServiceAccount is %q: the policy compares it with the request's username, so it must read system:serviceaccount:<namespace>:<name>, or the policy matches nobody and contains nothing" .) }}
+{{- end }}
+{{- end }}
+{{- if and (eq .Values.delivery.mode "gitops") (not $gitops.delivererServiceAccount) (not $gitops.acknowledgeUncontainedDeliverer) }}
+{{- fail "delivery.gitops.delivererServiceAccount is empty: no admission policy would contain the deliverer that applies Git main, which can then write any namespace. Name it (system:serviceaccount:<namespace>:<name>), or set delivery.gitops.acknowledgeUncontainedDeliverer on a cluster where that is accepted" }}
+{{- end }}
 {{- $writer := "" -}}
 {{- if and (eq .Values.delivery.mode "apply") .Values.delivery.hubDeliverer.enabled }}{{ $writer = printf "system:serviceaccount:%s:%s-worker" .Release.Namespace $name }}{{ end -}}
 {{- if and (eq .Values.delivery.mode "argocd") .Values.argocd.controllerServiceAccount }}{{ $writer = .Values.argocd.controllerServiceAccount }}{{ end -}}
+{{- if and (eq .Values.delivery.mode "gitops") $gitops.delivererServiceAccount }}{{ $writer = $gitops.delivererServiceAccount }}{{ end -}}
 {{- if and (eq .Values.delivery.mode "apply") .Values.delivery.hubDeliverer.enabled }}
 ---
 # The one cluster write path, and only for the worker: server-side apply of the approved plan once Git

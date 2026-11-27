@@ -493,7 +493,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/identity/claims.py|78-78": [
   "            employee_id=claims.get(\"employee_id\"),"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|124-124": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|125-125": [
   "        raise Problem.forbidden(\"Only the requester or an operator can cancel\")"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1405-1405": [
@@ -619,7 +619,7 @@
   "            AUTHZ_DENIED.labels(permission).inc()",
   "            raise"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/routers/admin.py|135-135": [
+ "docs/14-authorization.md|cmapi/src/cmapi/routers/admin.py|136-136": [
   "        c.cfg.roles.require(who, \"operations:run\", row.env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/routers/me.py|22-33": [
@@ -1582,22 +1582,22 @@
   "                out[kind] = None",
   "        return out"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|142-143": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|143-144": [
   "            if finding == USAGE_NO_MONITORING:",
   "                return \"No grant can fix this: the cluster has no OpenShift monitoring, so its usage stays unavailable.\""
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|144-146": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|145-147": [
   "            if finding.startswith(USAGE_UNCHECKED) and GRANT_CHECK not in finding:",
   "                # The API server or one of its authorizers failed, which no grant fixes (#724): the next check asks again.",
   "                return \"Check the cluster's API server and its authorizers; the next import check, or :probe, asks again.\""
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|147-147": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|148-148": [
   "            return USAGE_FIX"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|534-534": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|539-539": [
   "            usage = self._usage_grants(client, st.policy) if self.usage_grants else []"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|540-546": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|545-551": [
   "                cache = WatchCache(client, admit=ledger.admit, dropped=ledger.dropped)",
   "                with self._lock:",
   "                    # Together, under the lock `quota_watch` reads them under: a read never pairs one cache with another's ledger.",
@@ -1606,7 +1606,7 @@
   "                    forms = _diagnostic_forms(secret)",
   "                    st.usage_findings = [redact(f, forms) for f in usage]"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|59-67": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|60-68": [
   "# The reader's reads of the cluster's Thanos Querier for usage.source thanos (#724), each with the grant of the baseline that gives",
   "# it (examples/baseline/cmapi-reader-rbac.yaml). The Route: capacity/thanos.py's ROUTE_PATH, when clusters.yaml has no thanosUrl.",
   "# The query: the Querier's kube-rbac-proxy allows get on prometheuses/api \"k8s\" in openshift-monitoring",
@@ -1617,10 +1617,10 @@
   "QUERY_READ = ({\"verb\": \"get\", \"group\": \"monitoring.coreos.com\", \"resource\": \"prometheuses\", \"subresource\": \"api\", \"name\": \"k8s\"},",
   "              \"get on prometheuses/api k8s (RoleBinding cmapi-reader-metrics-api of Role cluster-monitoring-metrics-api)\")"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|596-596": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|601-601": [
   "            client.list(\"Namespace\")"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|607-635": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|612-640": [
   "    def _usage_grants(client: KubeClient, policy: ClusterPolicy | None) -> list[str]:",
   "        \"\"\"The findings of the reader's own grants for the cluster's Thanos Querier, [] when it holds them (#724).",
   "",
@@ -1651,42 +1651,42 @@
   "            return [USAGE_UNCHECKED + str(exc)[:200]]",
   "        return missing"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|617-618": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|622-623": [
   "            if not client.served(\"monitoring.coreos.com/v1\"):",
   "                return [USAGE_NO_MONITORING]"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|621-621": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|626-626": [
   "        reads = [QUERY_READ] if policy and policy.thanos_url else [ROUTE_READ, QUERY_READ]"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|626-627": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|631-632": [
   "                if allowed is None:          # the authorizer failed to decide: not a missing grant",
   "                    return [USAGE_UNCHECKED + \"the API server reported an authorization evaluation error\"]"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|629-629": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|634-634": [
   "                    missing.append(f\"{USAGE_FINDING}missing grant in {MONITORING_NAMESPACE}: {grant}\")"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|630-632": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|635-637": [
   "        except KubeError as exc:",
   "            cause = f\"missing grant in {MONITORING_NAMESPACE}: {GRANT_CHECK}\" if exc.status == 403 else str(exc)[:200]",
   "            return [USAGE_UNCHECKED + cause]"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|633-634": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|638-639": [
   "        except (ClusterUnreachable, BadResponse) as exc:",
   "            return [USAGE_UNCHECKED + str(exc)[:200]]"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|69-71": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|70-72": [
   "# The reader's groups as a ServiceAccount, without system:authenticated: a grant to every user (on CRC, another project's",
   "# ClusterRoleBinding of cluster-monitoring-view) is not cmapi's and must not hide a missing one of its own (#724).",
   "READER_GROUPS = [\"system:serviceaccounts\", \"system:serviceaccounts:cmapi-system\"]"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|74-74": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|75-75": [
   "USAGE_NO_MONITORING = USAGE_FINDING + \"the cluster serves no monitoring.coreos.com/v1, so it has no OpenShift monitoring\""
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|75-76": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|76-77": [
   "USAGE_FIX = (\"Apply the reader's openshift-monitoring grants of examples/baseline/cmapi-reader-rbac.yaml on the cluster; until \"",
   "             \"then its usage is unavailable.\")"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|763-769": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/registry.py|768-774": [
   "    def probe(self, cluster_id: str) -> dict[str, Any]:",
   "        \"\"\"Recheck this cluster's held import and publish its normal diagnostics before releasing the relist lock.\"\"\"",
   "        with self._refresh_lock:",
@@ -1695,10 +1695,10 @@
   "                self._check_import(st, items)",
   "            return st.view()"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/sync.py|98-98": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/core/sync.py|118-118": [
   "        app = self.client.get(f\"/apis/argoproj.io/v1alpha1/namespaces/{self.namespace}/applications/{self.application}\")"
  ],
- "docs/21-usage-from-thanos.md|cmapi/src/cmapi/jobs/watch_sync.py|138-138": [
+ "docs/21-usage-from-thanos.md|cmapi/src/cmapi/jobs/watch_sync.py|171-171": [
   "            app = ArgoCdSignal(reader, ctx.delivery.argocd_namespace,"
  ],
  "docs/21-usage-from-thanos.md|cmapi/tests/service/test_reader_thanos_grants_724.py|428-470": [
