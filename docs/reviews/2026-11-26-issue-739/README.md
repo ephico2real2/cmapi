@@ -21,7 +21,7 @@ decision left room, and why.
 | The team fact | From the namespace as adopted, with a supplied `cmapi.net/team` | As a change computes it from the result (`_plan_namespace`); D6 "until a request sets the team" |
 | Which value the form offers for the prefix key | The shortest start of the name that keeps the key's own rule (`MetadataKeys.exact_value`) | `_addition` accepts any such start; the shortest is the mnemonic of the company's sample (`abc` of `abc-rnd`). The server computes it, so the portal never guesses |
 | Where the portal gets the keys | The candidates list (`missingKeys` of each candidate) and the namespace read (`git.missingKeys`) | The form shows the fields before the first Check, so the first dry run already carries them: no extra step and no second request |
-| Read-only fields | PatternFly `TextInput` with `readOnlyVariant="default"`, not `isDisabled` | It stays in the tab order and is read by a screen reader, as the create form's automatic fields (#479 P3). PatternFly: "`readOnlyVariant`: Sets the input as readonly and determines the readonly styling" |
+| Read-only fields | PatternFly `TextInput` with `readOnlyVariant="default"`, not `isDisabled`, with an Add `Checkbox`: unselected in the Adopt form, selected when "Add missing metadata" opens. A fixed value is sent only when selected (review of PR #742) | It stays in the tab order and is read by a screen reader, as the create form's automatic fields (#479 P3). PatternFly: "`readOnlyVariant`: Sets the input as readonly and determines the readonly styling" |
 | "Add missing metadata" on the Namespaces tab | An alert over the table opens the same panel over the change's draft; the table's row of each key shows "In Missing metadata above" while it is open | One input for each key on the page, so no two inputs share a name; the change then goes through Check and Submit as any change |
 
 ## Sources, read on 2026-11-26
@@ -50,3 +50,35 @@ Each fails before the change (with `cmapi/src` stashed) and passes after it:
 - `cmapi/tests/service/test_adoption_26.py::test_a_requester_may_adopt` (was `test_only_adoption_write_may_adopt`);
 - `cmapi/tests/core/test_missing_keys_739.py`: 19 tests, all 19 fail before;
 - the portal checks 739-A, 739-B, 739-H, 739-N, 739-F and 739-L in `cmapi-portal-ui/tests/api/portal.test.mjs`.
+
+## Review and the coordinator's rulings (2026-11-26)
+
+**Reviewers:**
+- **Reviewer 1:** Codex gpt-6.2-astra xhigh (`review/reviewer-1-codex.md`). It confirmed that, for the same adoption, base and head give identical files, findings and approval slots.
+- **Reviewer 2:** Opus 5.5 high, on PostgreSQL (`review/reviewer-2-opus.md`).
+
+| Finding | Ruling |
+|---|---|
+| The candidates and skipped lists were not scoped by environment, on a cluster with no `clusters.yaml` entry | **Fixed**: 403 `environment-forbidden` |
+| The Adopt form sent fixed metadata the user had not chosen | **Fixed**: each field has an unselected "Add". A plain adoption is still Justification, Check, Submit, and sends nothing (the owner: never forced, no extra step) |
+| A namespace-suffix key was offered for addition | **Fixed**: `missing_keys` leaves suffix keys out |
+| Reviewer 2: Codex's patch broke the docs/14 citation lock, and `--relocate` would have cited `plan_delete`'s check | **Fixed** by hand |
+| Reviewer 2: D20 and this record said fixed values are always sent | **Corrected** |
+
+**Cut from reviewer 1's patch:**
+- the replay check, which predates this PR and is already #736 B-2;
+- the portal suffix guards, because the server no longer offers the key.
+
+**Requester walk on PostgreSQL** (`ola` supplies `cmapi.net/team` and `cmapi.net/team-dl`):
+- 3 approvals, then the PR, the apply and synced;
+- each write carried the plan's uid and resourceVersion, with no drift;
+- D16 refuses a changed resourceVersion, and the plan hash refuses a supplied value changed after approval.
+
+**Runs:**
+- `tests/core`: 948 passed;
+- 12 service files: 296 passed;
+- portal `npm test`: 213 ok.
+
+**Backlog, to #736:**
+- **B-A:** the #732 rule accepts a derived suffix key whose name does not end with it. The fix and a test are ready in reviewer 2's outputs.
+- **B-B:** `RoleGrant.covers(None)` lets the namespace reads skip the environment limit on a cluster with no `clusters.yaml` entry.

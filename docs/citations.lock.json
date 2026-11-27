@@ -496,7 +496,7 @@
  "docs/14-authorization.md|cmapi/src/cmapi/core/lifecycle.py|124-124": [
   "        raise Problem.forbidden(\"Only the requester or an operator can cancel\")"
  ],
- "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1404-1404": [
+ "docs/14-authorization.md|cmapi/src/cmapi/core/metadata.py|1405-1405": [
   "            raise Problem.forbidden(f\"{_operator_only_reason((sources or {}).get('environment'))} Keys: {keys}.\")"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|191-193": [
@@ -517,7 +517,7 @@
   "        self.cfg.roles.require(who, \"namespaces:write\", env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|675-675": [
-  "        self.cfg.roles.require(who, \"namespaces:write\", env)"
+  "        self.cfg.roles.require(who, ADOPT_PERMISSION, env)"
  ],
  "docs/14-authorization.md|cmapi/src/cmapi/core/pipeline.py|827-827": [
   "            requirement=requirement_to_json(req), requester=plan.requester.record(), requester_sub=plan.requester.sub,"

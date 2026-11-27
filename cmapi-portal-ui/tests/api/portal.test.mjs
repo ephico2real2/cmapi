@@ -5455,8 +5455,13 @@ try {
     await page.locator("#nsx-why").fill("The metadata the adoption lacked");
     await panel(page).getByRole("button", { name: "Check (dry run)" }).click();
     await panel(page).locator("#nsx-status").getByText("The check passed (dry run, 200). Nothing is written yet.").waitFor();
-    const [dry] = api.state.seen.filter((c) => c.method === "PATCH" && c.path === "/api/v1/clusters/CRC/namespaces/abc-legacy-dev");
-    assert.deepEqual(dry.body.labels, { name: "abc-legacy-dev", "company.net/mnemonic": "abc", "company.net/lob": "amgsst" });
+    const patches = () => api.state.seen.filter((c) => c.method === "PATCH" && c.path === "/api/v1/clusters/CRC/namespaces/abc-legacy-dev");
+    assert.deepEqual(patches()[0].body.labels, { name: "abc-legacy-dev", "company.net/mnemonic": "abc", "company.net/lob": "amgsst" });
+    // The owner's decision 2 on #26: a key is added only when someone chooses to. Clearing Add leaves it out, and a finding.
+    await panel(page).getByRole("checkbox", { name: "Add Mnemonic" }).uncheck();
+    await panel(page).getByRole("button", { name: "Check (dry run)" }).click();
+    await panel(page).locator("#nsx-status").getByText("The check passed (dry run, 200). Nothing is written yet.").waitFor();
+    assert.deepEqual(patches()[1].body.labels, { name: "abc-legacy-dev", "company.net/lob": "amgsst" });
     assert.deepEqual(errors, []);
     await context.close();
   });

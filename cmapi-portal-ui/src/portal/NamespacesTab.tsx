@@ -568,7 +568,7 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
           {missingOpen && (
             <div id="nsm-panel" tabIndex={-1} className="cp-gap-below">
               <Panel title="Missing metadata">
-                <Hint>{`The keys that the rules declare and ${ns} lacks in Git. Your change adds what you fill in; a key that cmapi fills in or that starts the name is added with its one value. Then Check (dry run) and Submit, as for any change.`}</Hint>
+                <Hint>{`The keys that the rules declare and ${ns} lacks in Git. Your change adds what you fill in; clear Add beside a read-only value to leave it for later. Then Check (dry run) and Submit, as for any change.`}</Hint>
                 <MissingMetadata fields={lacking} values={Object.fromEntries(lacking.map((f) => [f.id, draft[f.id] ?? ""]))}
                   errors={Object.fromEntries(lacking.map((f) => [f.id, errors[f.id] ?? mapped?.byField[f.field.id] ?? null]))} prefix="nsm"
                   onChange={(f, v) => { const r = rows.find((x) => x.id === f.id); if (r) edit(r, v); }} />

@@ -18,9 +18,13 @@ company's file, with the derived `name` and the `company.net/mnemonic` prefix, i
 """
 from __future__ import annotations
 
+import shutil
+
+import pytest
 import yaml
 from sqlalchemy import text
 
+from conftest import EXAMPLES, build_world
 from test_add_missing_key_732 import company_world  # noqa: F401  (the fixture: the company's metadata-keys.yaml)
 from test_adoption_26 import BASE, LABELS, NS, approve_all, owner_sample, request
 from test_flow import OLA, OPAL, auth, run_jobs
@@ -82,6 +86,18 @@ def test_the_approval_of_a_requesters_adoption_is_the_operators(world):
     mine = adopt(client, keys, dry_run=True).json()["approval"]
     theirs = adopt(client, keys, dry_run=True, who="opal", role=OPAL).json()["approval"]
     assert mine == theirs
+
+
+def test_an_imported_cluster_with_no_environment_lists_no_candidates(world):
+    """docs/14: the adoption lists are scoped to the cluster's environment. A cluster imported with no clusters.yaml entry has
+    none, and RoleGrant.covers(None) would admit a grant limited to any environment, so nobody lists it (:adopt is 422)."""
+    client, ctx, git, kube, validator, keys = world
+    owner_sample(kube)
+    ctx.registry.get("CRC").policy = None
+    for who, role in (("ola", BOT_RND), ("ola", OLA), ("opal", OPAL)):
+        for path in ("candidates", "skipped"):
+            r = client.get(f"/api/v1/clusters/CRC/adoption/{path}", headers=auth(keys, who, **role))
+            assert r.status_code == 403 and r.json()["code"] == "environment-forbidden", (role, path, r.text)
 
 
 def test_without_namespaces_write_in_the_environment_nobody_adopts(world):
@@ -276,3 +292,26 @@ def test_a_key_the_adoption_left_missing_is_named_on_the_namespace_and_added_lat
                      json={"labels": {"name": NS, "company.net/lob": "amgsst"}, "justification": "The metadata the adoption lacked"})
     assert r.status_code == 200, r.text
     assert not [f for f in r.json()["findings"] if f["rule"] == "missing_required_key"], r.json()["findings"]
+
+
+@pytest.fixture
+def suffix_world(test_config, fresh_db, keys, monkeypatch, tmp_path):
+    """The company's keys with CRC's rule for the environment label: filled in by cmapi and the end of the name."""
+    d = tmp_path / "config"
+    shutil.copytree(test_config, d)
+    doc = yaml.safe_load((EXAMPLES / "cluster-configs/policies/metadata-keys.company.yaml").read_text())
+    doc["requiredLabels"]["company.net/app-environment"]["namespaceSuffix"] = True
+    (d / "metadata-keys.yaml").write_text(yaml.safe_dump(doc))
+    with build_world(d, keys, monkeypatch) as world:
+        yield world
+
+
+def test_a_key_that_ends_the_name_is_never_offered(suffix_world):
+    """D20: "A key that the name ends with is never offered", also one that cmapi fills in. abc-rnd on the dev cluster would
+    otherwise be offered company.net/app-environment: dev, a value its name does not end with."""
+    client, keys = company_sample(suffix_world, "name", "company.net/app-environment")
+    item = client.get("/api/v1/clusters/CRC/adoption/candidates", headers=auth(keys, "ola", **OLA)).json()["items"][0]
+    assert [m["key"] for m in item["missingKeys"] if m["kind"] == "label"] == ["name"], item["missingKeys"]
+    plan = adopt(client, keys, dry_run=True).json()
+    assert "company.net/app-environment" not in {m["key"] for m in plan["adoption"]["missingKeys"] if m["kind"] == "label"}
+    assert "label company.net/app-environment" in missing(plan), "it stays a finding (decision 2)"

@@ -1223,10 +1223,11 @@ class MetadataKeys:
         out: list[dict[str, Any]] = []
         for kind in KINDS:
             for key, rule in self.rules[kind].items():
-                if key in maps[kind] or self.classify(key, kind) != "governed":
+                # A key that ends the name is never offered (D20), also one that cmapi fills in (CRC's app-environment).
+                if key in maps[kind] or rule.namespace_suffix or self.classify(key, kind) != "governed":
                     continue
                 value = None
-                if rule.derived or rule.namespace_prefix or rule.namespace_suffix:
+                if rule.derived or rule.namespace_prefix:
                     value = self.exact_value(kind, key, sources)
                     if value is None:
                         continue

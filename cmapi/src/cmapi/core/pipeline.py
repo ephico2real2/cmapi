@@ -20,8 +20,8 @@ import yaml
 
 from cmapi.capacity.usage import NoUsage, UsageSource, plan_usage
 from cmapi.core import kube_yaml
-from cmapi.core.adoption import (INSTANCE_LABEL, SYNC_OPTIONS_ANNOTATION, Owner, Standing, adopted_files, object_findings,
-                                 snapshot, snapshot_hash, standing)
+from cmapi.core.adoption import (ADOPT_PERMISSION, INSTANCE_LABEL, SYNC_OPTIONS_ANNOTATION, Owner, Standing, adopted_files,
+                                 object_findings, snapshot, snapshot_hash, standing)
 from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, Requirement
 from cmapi.core.capacity_backend import CapacityHold, SimulatedCapacity, capacity_exceeded
 from cmapi.core.capacity_ledger import binding_hard, quota_facts, totals_of
@@ -672,7 +672,7 @@ class Pipeline:
         st = self.registry.writable(cluster_id)
         env = st.policy.environment
         self.check_env_served(env)
-        self.cfg.roles.require(who, "namespaces:write", env)
+        self.cfg.roles.require(who, ADOPT_PERMISSION, env)
         self.check_plugin_offered(ADOPTION_PLUGIN, env)
         if not is_label(ns):
             raise Problem(404, "object-not-found", f"{ns!r} is not a namespace name")

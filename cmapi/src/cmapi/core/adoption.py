@@ -27,6 +27,9 @@ from cmapi.core.metadata import MetadataKeys
 from cmapi.core.render.manifests import folder, object_file
 from cmapi.core.tiers import LIMIT_KINDS, TierCatalog, flatten_limits, qty
 
+# Self-service (#739): the permission of every change of a namespace, declared by the three routes and checked in the
+# cluster's environment by the plan. The approval rules gate an adoption (D10).
+ADOPT_PERMISSION = "namespaces:write"
 ADOPT_LABEL = "cmapi.net/adopt"
 TRACKING_ANNOTATION = "argocd.argoproj.io/tracking-id"
 INSTANCE_LABEL = "app.kubernetes.io/instance"

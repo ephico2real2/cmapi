@@ -15,7 +15,7 @@ export interface MissingField {
   id: string;
   field: MetaField;
   required: boolean;
-  /** The one value cmapi accepts (a key it fills in, or the start of the name): shown read-only and always sent. */
+  /** The one value cmapi accepts (a key it fills in, or the start of the name): shown read-only and added when selected. */
   fixed: string | null;
 }
 
@@ -36,11 +36,12 @@ export function missingFields(form: MetaForm, missing: readonly Missing[]): Miss
   return [...out.filter((f) => f.required), ...out.filter((f) => !f.required)];
 }
 
-/** The labels and annotations that the section adds: each fixed value, and each value typed that is not empty. */
+/** The labels and annotations that the section adds: each selected exact value and each nonempty typed value. */
 export function addedOf(fields: readonly MissingField[], typed: Record<string, string>): { labels: Record<string, string>; annotations: Record<string, string> } {
   const out = { labels: {} as Record<string, string>, annotations: {} as Record<string, string> };
   for (const f of fields) {
-    const value = f.fixed ?? typed[f.id] ?? "";
+    const value = typed[f.id] ?? "";
+    if (f.fixed !== null && value !== f.fixed) continue;
     if (value !== "") (f.field.kind === "label" ? out.labels : out.annotations)[f.field.key] = value;
   }
   return out;
@@ -48,4 +49,4 @@ export function addedOf(fields: readonly MissingField[], typed: Record<string, s
 
 /** The required keys that the section leaves missing: those a later request still has to add. */
 export const stillMissing = (fields: readonly MissingField[], typed: Record<string, string>): MissingField[] =>
-  fields.filter((f) => f.required && f.fixed === null && (typed[f.id] ?? "") === "");
+  fields.filter((f) => f.required && (f.fixed === null ? !typed[f.id] : typed[f.id] !== f.fixed));

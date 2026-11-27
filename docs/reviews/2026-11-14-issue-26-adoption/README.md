@@ -503,8 +503,8 @@ required fields."
   keeps the key's own rule). The candidates list carries it for each candidate, the plan for what remains, and
   `GET .../namespaces/{ns}` for what Git lacks (`git.missingKeys`). A key that the name ends with is never offered.
 - **The portal.** The Adopt form shows a "Missing metadata" panel below the plan from the candidate's `missingKeys`: the keys
-  that cmapi fills in or that start the name read-only with their value, the other required ones as inputs, the optional
-  ones behind "More". On the Namespaces tab, a namespace whose Git lacks a required key shows "Add missing metadata", which
+  that cmapi fills in or that start the name read-only with their value and an Add box, unselected (decision 2: added only
+  when someone chooses to), the other required ones as inputs, the optional ones behind "More". On the Namespaces tab, a namespace whose Git lacks a required key shows "Add missing metadata", which
   opens the same panel over the change's draft; its derived and prefix keys are unlocked there with their one value.
 
 The record of the build, its choices and its sources is `docs/reviews/2026-11-26-issue-739/README.md`.

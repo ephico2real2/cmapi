@@ -19,7 +19,7 @@ from fastapi import Depends
 from fastapi.responses import JSONResponse
 
 from cmapi import __version__
-from cmapi.core.adoption import Standing, standing
+from cmapi.core.adoption import ADOPT_PERMISSION, Standing, standing
 from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeError
 from cmapi.core.context import AppContext
 from cmapi.core.docs import DocumentedRouter
@@ -41,8 +41,6 @@ router = DocumentedRouter("adoption", prefix="/api/v1/clusters/{cluster_id}", ve
 LIST_PROBLEMS = ["cluster-not-found", "cluster-unreachable", "environment-forbidden", "git-unavailable"]
 ADOPT_PROBLEMS = [*WRITE_PROBLEMS, "object-not-found", "namespace-not-adoptable", "adoption-key-held", "policy-violation",
                   "validator-unavailable", "validator-busy"]
-# Self-service (#739): the permission of every change of a namespace. The approval rules gate an adoption (D10).
-ADOPT_PERMISSION = "namespaces:write"
 
 
 def _own_application(c: AppContext, cluster_id: str, ns: str) -> str:
@@ -52,8 +50,10 @@ def _own_application(c: AppContext, cluster_id: str, ns: str) -> str:
 
 def _standings(c: AppContext, who: Identity, cluster_id: str) -> list[Standing]:
     """Where each namespace of the cluster stands (D1), read now from the cluster, with the folders of Git."""
-    st = c.registry.get(cluster_id)
-    env = st.policy.environment if st.policy else None
+    env = c.registry.get(cluster_id).environment
+    if env is None:
+        # No clusters.yaml entry, so no environment: RoleGrant.covers(None) would admit a grant limited to any environment.
+        raise Problem.forbidden(f"{cluster_id} has no clusters.yaml entry, so no environment", code="environment-forbidden")
     c.cfg.roles.require(who, ADOPT_PERMISSION, env)
     client = c.registry.cache(cluster_id).client
     try:
@@ -73,12 +73,12 @@ def _standings(c: AppContext, who: Identity, cluster_id: str) -> list[Standing]:
     for ns in namespaces:
         meta = ns.get("metadata") or {}
         name = meta.get("name", "")
-        where = standing(ns, in_git=folders is not None and name in folders, environment=env or "",
+        where = standing(ns, in_git=folders is not None and name in folders, environment=env,
                          cluster_id=cluster_id, settings=c.cfg.adoption, keys=c.cfg.metadata,
                          own_application=_own_application(c, cluster_id, name), reserved_patterns=c.pipeline.reserved)
         if where.state == "candidate":
             # What :adopt may add (#739): the same list as the plan's missingKeys, from the same live keys.
-            sources = {"namespace": name, "environment": env or "", "cluster": cluster_id, "instance": c.cfg.name}
+            sources = {"namespace": name, "environment": env, "cluster": cluster_id, "instance": c.cfg.name}
             where = replace(where, missing_keys=tuple(c.cfg.metadata.missing_keys(meta.get("labels") or {},
                                                                                   meta.get("annotations") or {}, sources)))
         out.append(where)

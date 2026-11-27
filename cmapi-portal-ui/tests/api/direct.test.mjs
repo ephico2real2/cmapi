@@ -833,7 +833,7 @@ test("484-T3 a fresh watch missing the namespace differs from an unavailable wat
 
 // #739: the keys a namespace lacks, from the API's missingKeys and the form's rules; the fields of the Adopt form and of
 // "Add missing metadata", and the table row of a missing derived or prefix key, unlocked with its one value.
-test("739-D missingFields: required first, a derived or prefix key fixed to the API's value, none offered without one; addedOf sends fixed values and typed ones", async () => {
+test("739-D missingFields: required first, a derived or prefix key fixed to the API's value, none offered without one; fixed values may be omitted or selected", async () => {
   const { fieldsOf } = await import("../../src/portal/metadataForm.ts");
   const { addedOf, missingFields, stillMissing } = await import("../../src/portal/missingKeys.ts");
   const form = fieldsOf(KEYS_479);
@@ -844,9 +844,11 @@ test("739-D missingFields: required first, a derived or prefix key fixed to the 
   const fields = missingFields(form, missing);
   assert.deepEqual(fields.map((f) => [f.id, f.required, f.fixed]), [["label:name", true, "abc-legacy-dev"], ["label:company.net/mnemonic", true, "abc"],
     ["label:company.net/lob", true, null], ["label:cmapi.net/app", false, null]], "no field for a fixed key with no value, nor for a key the form does not declare");
-  assert.deepEqual(addedOf(fields, { "label:company.net/lob": "amgsst", "label:cmapi.net/app": "", "label:name": "typed over" }),
+  assert.deepEqual(addedOf(fields, {}), { labels: {}, annotations: {} });
+  assert.deepEqual(addedOf(fields, { "label:name": "typed over" }), { labels: {}, annotations: {} });
+  assert.deepEqual(addedOf(fields, { "label:company.net/mnemonic": "abc", "label:company.net/lob": "amgsst", "label:cmapi.net/app": "", "label:name": "abc-legacy-dev" }),
     { labels: { name: "abc-legacy-dev", "company.net/mnemonic": "abc", "company.net/lob": "amgsst" }, annotations: {} }, "a fixed value is never typed over; an empty field adds nothing");
-  assert.deepEqual(stillMissing(fields, {}).map((f) => f.id), ["label:company.net/lob"]);
+  assert.deepEqual(stillMissing(fields, {}).map((f) => f.id), ["label:name", "label:company.net/mnemonic", "label:company.net/lob"]);
 });
 test("739-T a missing derived or prefix key is a fill row with the read's value; held, or with no value, it stays locked", async () => {
   const { fieldsOf } = await import("../../src/portal/metadataForm.ts");

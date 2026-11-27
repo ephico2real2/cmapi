@@ -802,12 +802,12 @@ export function missingKeysOf(keys, maps, sources) {
   const out = [];
   for (const [kind, map] of MAPS) {
     for (const [key, prop] of Object.entries(keys[map].properties)) {
-      if (key in maps[map] || prop["x-cmapi-operator-only"]) continue;
+      if (key in maps[map] || prop["x-cmapi-operator-only"] || prop["x-cmapi-namespace-suffix"]) continue;
       const from = prop["x-cmapi-derived-from"];
       let value = null;
       if (from) value = sources[from] || null;
       else if (prop["x-cmapi-namespace-prefix"]) value = sources.namespace.includes("-") ? sources.namespace.slice(0, sources.namespace.indexOf("-")) : null;
-      if ((from || prop["x-cmapi-namespace-prefix"] || prop["x-cmapi-namespace-suffix"]) && value === null) continue;
+      if ((from || prop["x-cmapi-namespace-prefix"]) && value === null) continue;
       out.push({ kind, key, required: keys[map].required?.includes(key) ?? false, value });
     }
   }

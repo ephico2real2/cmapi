@@ -1,8 +1,8 @@
 // The "Missing metadata" fields (#739): one input for each required key that the namespace lacks, and the optional ones
 // behind "More". A key that cmapi fills in or that starts the name is shown read-only with the one value the API gives, and
-// is always sent. The Adopt form and the Namespaces tab's "Add missing metadata" show the same fields (missingKeys.ts).
+// can be selected for the request. The Adopt form and the Namespaces tab's "Add missing metadata" show the same fields (missingKeys.ts).
 import {
-  ExpandableSection, FormGroup, FormHelperText, Grid, GridItem, HelperText, HelperTextItem, Label, TextInput
+  Checkbox, ExpandableSection, FormGroup, FormHelperText, Grid, GridItem, HelperText, HelperTextItem, Label, TextInput
 } from "@patternfly/react-core";
 import { useState } from "react";
 import { FieldInput } from "./MetadataFields";
@@ -27,11 +27,14 @@ function One({ f, value, error, prefix, onChange }: { f: MissingField; value: st
       </HelperText>
     </FormHelperText>
   );
-  if (f.fixed !== null) {
+  const fixed = f.fixed;
+  if (fixed !== null) {
     // Read-only, not disabled: it stays in the tab order and a screen reader reads it (WAI-ARIA, aria-readonly).
     return (
       <FormGroup label={label} fieldId={id} labelInfo={<Label isCompact>{f.field.derivedFrom !== null ? "automatic" : "from the name"}</Label>}>
-        <TextInput id={id} readOnlyVariant="default" value={f.fixed} aria-describedby={describedBy} />
+        <Checkbox id={`${id}-include`} label={`Add ${f.field.title ?? f.field.key}`}
+          isChecked={value === fixed} onChange={(_, checked) => onChange(checked ? fixed : "")} />
+        <TextInput id={id} readOnlyVariant="default" value={fixed} aria-describedby={describedBy} />
         {help}
       </FormGroup>
     );

@@ -95,3 +95,8 @@ def test_the_adopted_namespace_gets_the_added_keys_and_its_other_objects_and_the
     assert "cmapi.net/team" not in rq["labels"] and "b" not in rq["annotations"]
     assert replaced == [] and "cmapi.net/team" not in snap.namespace["metadata"]["labels"]
     assert adopted_files(snap, owner, keys)[0] == adopted_files(snap, owner, keys, {"label": {}, "annotation": {}})[0]
+
+
+def test_derived_environment_suffix_is_not_offered():
+    keys = keys_of({"env": {"value": {"from": "environment"}, "namespaceSuffix": True}})
+    assert keys.missing_keys({}, {}, TARGET) == []

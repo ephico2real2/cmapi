@@ -8,7 +8,7 @@
 //   2. "Adopt <ns>" opens AdoptOne, whose address is #namespaces?view=adopt&cluster=<id>&adopt=<ns>.
 //   3. Missing metadata (#739): below the plan, one field for each required key that the namespace lacks (the candidate's
 //      missingKeys), and the optional ones behind "More". A key that cmapi fills in or that starts the name is read-only with
-//      the API's value and always sent; an empty field adds nothing, and its key stays a finding until a request adds it.
+//      the API's value and added only if selected; an empty field adds nothing, and its key stays a finding until a request adds it.
 //   4. Check (dry run): POST .../namespaces/{ns}:adopt?dryRun=true with the keys (useAdoptPlan). The plan shows the objects
 //      read, the keys it adds, its findings, the keys under a skip prefix, what stays unmanaged, the files and the approval.
 //      Nothing is written.
@@ -202,7 +202,7 @@ function AdoptOne({ cluster, ns, form, missing, open }: {
           </Panel>
           <Panel title="Missing metadata">
             <Hint>
-              {`The keys that the rules declare and ${ns} lacks. The adoption adds what you fill in; a key that cmapi fills in or that starts the name is added with its one value. Leave a field empty to add it later: each required key stays a finding until a request adds it.`}
+              {`The keys that the rules declare and ${ns} lacks. The adoption adds what you fill in; select Add beside a read-only value to include it. Leave a field empty to add it later: each required key stays a finding until a request adds it.`}
             </Hint>
             <MissingMetadata fields={fields} values={typed} errors={shownErrors} prefix="adopt" onChange={type} />
             {left.length > 0 && <Small>{`Still missing after this adoption: ${left.map((f) => f.field.title ?? f.field.key).join(", ")}.`}</Small>}
