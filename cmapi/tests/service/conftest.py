@@ -328,7 +328,11 @@ class FakeKube(KubeClient):
 
     #302: `served_groups` is what API discovery serves (empty: Kyverno is not installed, as on CRC), `forbidden_kinds` the
     kinds whose list answers 403, and `calls` each discovery and list call by kind, so a test can show that no call was made.
-    A list with `limit` pages by `continue`, as the API server does."""
+    A list with `limit` pages by `continue`, as the API server does.
+
+    The watch is silent by default: the suite's tests relist the cache (`_list`) where they need it current. A test that holds a
+    cache list across a change, and needs the change seen without a relist, sets `live_watch`: then each apply and delete is a
+    watch event (ADDED, MODIFIED, DELETED) after the resourceVersion the watch gives, as the API server serves one (#751)."""
 
     def __init__(self, cluster_id="CRC", identity="system:serviceaccount:cmapi-system:cmapi-reader"):
         self.cluster_id, self.identity = cluster_id, identity
@@ -339,6 +343,9 @@ class FakeKube(KubeClient):
         self.served_groups: set[str] = set()
         self.forbidden_kinds: set[str] = set()
         self.calls: list[str] = []
+        self.live_watch = False
+        self._events: list[tuple[int, str, dict[str, Any]]] = []    # (resourceVersion, kind, event), only with live_watch
+        self._changed = threading.Condition()
 
     def close(self):
         pass
@@ -382,8 +389,26 @@ class FakeKube(KubeClient):
         return self.objects.get(self._k(kind, namespace, name))
 
     def watch(self, kind, resource_version, timeout_seconds=300):
-        time.sleep(0.05)
-        return iter(())
+        if not self.live_watch:
+            time.sleep(0.05)
+            return iter(())
+        since = int(resource_version or 0)
+
+        def due():
+            return [ev for rv, k, ev in self._events if k == kind and rv > since]
+
+        with self._changed:
+            self._changed.wait_for(due, timeout=0.05)
+            return iter(due())
+
+    def _emit(self, kind: str, kind_of_change: str, obj: dict[str, Any]) -> None:
+        """One watch event at the current resourceVersion, carried in the object's metadata as the API server sets it."""
+        if not self.live_watch:
+            return
+        event = {"type": kind_of_change, "object": {**obj, "metadata": {**obj["metadata"], "resourceVersion": str(self.rv)}}}
+        with self._changed:
+            self._events.append((self.rv, kind, event))
+            self._changed.notify_all()
 
     def apply(self, doc, field_manager="cmapi-deliverer"):
         kind, meta = doc["kind"], doc["metadata"]
@@ -394,17 +419,22 @@ class FakeKube(KubeClient):
         if kind == "Namespace":
             obj = {**doc, "status": {"phase": "Active"}}
             obj["metadata"] = {**doc["metadata"], "creationTimestamp": datetime.now(timezone.utc).isoformat()}
+        existed = key in self.objects
         self.objects[key] = obj
         self.rv += 1
+        self._emit(kind, "MODIFIED" if existed else "ADDED", obj)
         self.applied.append(f"{kind}/{meta.get('namespace', '')}/{meta['name']}")
         return obj
 
     def delete(self, kind, namespace, name):
-        self.objects.pop(self._k(kind, namespace, name), None)
+        obj = self.objects.pop(self._k(kind, namespace, name), None)
+        gone = [] if obj is None else [(kind, obj)]
         if kind == "Namespace":
             for key in [k for k in self.objects if k[1] == name]:
-                del self.objects[key]
+                gone.append((key[0], self.objects.pop(key)))
         self.rv += 1
+        for k, o in gone:
+            self._emit(k, "DELETED", o)
 
     def add_unmanaged_namespace(self, name: str):
         self.objects[self._k("Namespace", None, name)] = {"kind": "Namespace", "metadata": {"name": name, "labels": {}}}
