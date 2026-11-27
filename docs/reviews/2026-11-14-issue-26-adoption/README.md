@@ -140,11 +140,15 @@ The two recommended prefixes are configuration, not code: an organisation that w
 
 So the plan reads `metadata.managedFields` (D2) and records the manager of each label and annotation:
 
-- A key under a skip prefix is left out of the file only when its managers are server components (the API server,
-  OpenShift's controllers) that Argo CD's migration does not take over. Then leaving it out changes nothing on the
-  cluster.
+- A key under a skip prefix is left out of the file only when none of its managers is the client-side apply manager that
+  Argo CD's migration takes over, and not only a delivery's server-side apply owns it. Every other manager keeps its share
+  when the file leaves the key out: the API server, OpenShift's controllers, and also a client's Update, such as `kubectl
+  create`'s `kubectl-create` (#747). Then leaving it out changes nothing on the cluster.
 - A key under a skip prefix that a client-side apply manager wrote stays in the file as it is, with a finding
   `skipped-key-kept` that names the manager, because leaving it out would remove it from the cluster on the first sync.
+  So does a key that only `argocd-controller` or `cmapi-deliverer` owns through `Apply` (#750's review): the next apply of
+  the folder by that manager would remove it ("If the field is not owned by any other field managers, it is either deleted
+  from the live object or reset to its default value", Kubernetes, "Server-Side Apply").
 - cmapi's Applications set the migration as the measurement on kind decides (§5): on, with the rule above, or off, with
   the old manager co-owning each key it wrote. Either way, the plan says for each key whether a later removal from Git
   removes it from the cluster ("removed from Git; stays on the cluster" when another manager still owns it).
@@ -472,7 +476,7 @@ switch says. The switch governs only cmapi's own rendering.
 - **Facts** for `approval-rules.yaml`: `environment`, `findings` (the count by code), `beyondTier`, `beyondTierKeys`,
   `trackedElsewhere` (always false for a request that exists: D1 skips those).
 - **Default rules** in the shipped `approval-rules.yaml`: one approver of `approver-platform` in each environment, and one
-  more when the plan has findings. Auto-approval never covers an adoption unless a rule names it. This replaces docs/02's
+  more when the plan has findings that a person should judge (`actionableFindingCount`, #746; the section "#746" below). Auto-approval never covers an adoption unless a rule names it. This replaces docs/02's
   earlier rule, in which one namespace admin approved in rnd and qa. The new rule is stricter, and the pull request names
   the change.
 
@@ -718,3 +722,137 @@ The choices that most need a second reader:
 - 7 mutants: all caught.
 
 The Backlog, B-1 to B-8, is batched into one issue.
+
+## #746 to #749: what CRC run 46 found, and the decisions (2026-11-27)
+
+OB1 run 46 adopted `cmapi-adopt-demo` on CRC with dry runs only (`workbench/cmapi/ob1-run46/logs/c46-adoption/a-summary.txt`,
+`b-summary.txt`). With the six required keys that this name can take supplied, the plan still had 17 findings and asked for 3
+approvals. The owner, 2026-11-26: "adopting a namespace is very easy and promote self services". Four fixes, one pull request.
+
+### #746: the findings that add an approver
+
+**What was wrong.** The shipped rule was `plugin == "adoption" and findingCount > 0`, and `findingCount` was `len(findings)`
+over every code (`Pipeline.plan_adoption`). Two kinds of finding were on every OpenShift namespace, and no request could clear
+either:
+- a `policy-ratcheted` finding on the opt-in label `cmapi.net/adopt`. cmapi's own check skipped the label
+  (`MetadataKeys.adoption_findings(ignore=...)`), and the rendered prefix policy did not (`_other_key_checks`' `fixed` set);
+- eight `skipped-key` findings for the keys that OpenShift's controllers write on each new namespace, and the `not-adopted`
+  count.
+
+**(a) The policies allow the opt-in label.** `render_bundle` takes adoption.yaml's `selector.label` and `selector.value`
+(`InstanceConfig.adoption`) and allows that label with that value as it allows the keys that cmapi's renderer writes: never
+refused, never counted towards `allowOther.max`. The same key with another value keeps the site's rules (#750's review). The
+API and `cmapi-tools policies` pass the same value, so the plan-time policies and cmapi's check skip the same key. A requester
+still cannot send the label: that stays cmapi's check, as for every system key. This changes the rendered bundles: two
+policies of each environment (`...-label-other-keys-prefix`, `...-label-other-keys-max`). The example bundle is rendered
+again, and CRC's needs its `cmapi-cluster-configs` pull request before the next deploy (docs/13, "cmapi's policy bundle on
+CRC"; `test_crc_bundle_pin_531`).
+
+**(b) Which findings count.** A new fact, `actionableFindingCount`, counts every finding except five codes that state what
+the adoption does by design (`INFORMATIONAL_FINDINGS`, `core/adoption.py`):
+
+| Code | Counted | Why |
+|---|---|---|
+| `skipped-key` | No | D3a leaves a key out of Git only when that changes nothing on the cluster |
+| `not-adopted` | No | D2: a statement of the adoption's scope, the same on every namespace with a ServiceAccount |
+| `adoption-label` | No | D7: a provisioner's label, kept as it is; it marks who made the namespace |
+| `scoped-only` | No | D17: a key that only scoped quotas hold, kept as it is and left out of the derived numbers |
+| `uninterpreted-key` | No | D17: a quota key that cmapi does not model, kept raw and left out of the derived numbers. A bound that tiers.yaml sets on the key (an `overridable` key) is checked as D5 says, and a value beyond it is its own `beyond-custom-bounds` (#750's review) |
+| `missing-required-key`, `empty-value`, `invalid-value`, `derived-mismatch`, `environment-mismatch`, `declared-as-annotation`, `declared-as-label`, `unknown-key` | Yes | D6: the namespace breaks a rule of the instance, and a request can fix it |
+| `beyond-custom-bounds`, `duplicate-default`, `no-resourcequota`, `no-limitrange` | Yes | D5, D17, D16: a value outside the bounds, defaults that Kubernetes picks in no fixed order, or a namespace with no quota or no limits |
+| `skipped-key-kept` | Yes | D3a: Git keeps a key that the configuration says to skip, because a client-side apply wrote it, or only a delivery's server-side apply owns it |
+| `sync-options-replaced`, `system-key-replaced` | Yes | D4: cmapi writes over a value that the live object has |
+| `instance-label` | Yes | D1: another tool may own the namespace |
+| `policy-ratcheted`, and each finding of the validator | Yes | D6a: a rendered policy fails on a value the namespace holds |
+
+A code that is not named in `INFORMATIONAL_FINDINGS` counts, so a finding that a later release adds raises the approval
+until someone decides otherwise. The five codes are cmapi's own: each finding of the validator counts, also when a site's
+policy has the name of one of them (the rule of a validator finding is its policy's name; #750's review). The plan, the portal and `findings` (the count by code) list every finding as before.
+
+**Why a new fact, and not a new meaning of `findingCount`.** A site's `approval-rules.yaml` may read `findingCount`. Changing
+what it counts would loosen that rule without the site's knowledge. So `findingCount` keeps its meaning, every shipped
+`approval-rules.yaml` (the reference instance, Helm, CRC, kind and the examples) reads `actionableFindingCount > 0`, and
+docs/18 records both facts. A site that wants the stricter rule keeps `findingCount > 0`. The facts of a request are decided
+from its plan when it is submitted (`Pipeline.submit`); no stored adoption is decided again from older facts.
+
+**Why this split.** The extra approver exists for a deviation that a person has to judge. A finding that says the same thing
+on every namespace is noise to an approver. Google's SRE book: "Every page should be actionable", and "When pages occur too
+frequently, employees second-guess, skim, or even ignore incoming alerts" (Site Reliability Engineering, "Monitoring
+Distributed Systems", <https://sre.google/sre-book/monitoring-distributed-systems/>, fetched 2026-11-27). The approvers still
+see every finding in the plan.
+
+**Measured** (the service test `tests/service/test_adoption_findings_746.py`, on PostgreSQL): run 46's namespace with the
+required keys supplied lists 9 findings (8 `skipped-key`, 1 `not-adopted`) and needs 1 approval, where `main` needs 2. A real
+unknown key, a required key left out, or a held policy failure each still adds the second.
+
+### #747: the reason of a skipped key
+
+`skipped_keys` said "only server components own it" for every key it left out, also for one that `kubectl create` wrote
+(`kubectl-create`: "--field-manager string Default: "kubectl-create"", kubectl create reference,
+<https://kubernetes.io/docs/reference/kubectl/generated/kubectl_create/>, fetched 2026-11-27). The rule is right, and the
+words were not: a key is left out when none of its managers is the client-side apply manager that Argo CD's migration takes
+over ("Argo CD will use the specified field manager (or default if not specified) to perform migration", Argo CD, "Sync
+Options", fetched 2026-11-27). The reason now says that. D3a's text above is corrected the same way.
+
+### #748: the reader counts ServiceAccounts and RoleBindings
+
+D2: "The plan reports how many of the other kinds the namespace has". CRC's reader had no `list` on `serviceaccounts` or
+`rolebindings`, so each count was null and every plan said "an unknown number". CRC's and kind's readers now grant `list`,
+and only `list`, on both: `Pipeline._unadopted_counts` lists them and never gets or watches them. "Ideally, minimal RBAC rights
+should be assigned to users and service accounts. Only permissions explicitly required for their operation should be used"
+(Kubernetes, "Role Based Access Control Good Practices", <https://kubernetes.io/docs/concepts/security/rbac-good-practices/>,
+fetched 2026-11-27). The same page warns that `list` on Secrets reveals their contents; neither kind holds a Secret's data.
+The baseline already grants both (rules 1 and 3 of `examples/baseline/cmapi-reader-rbac.yaml`). `deploy/crc-proof.sh` asks
+`oc auth can-i list` for both as the reader. The grant reaches CRC with the next deploy's reader step.
+
+### #749: the portal
+
+- At 390 px "Adopt cmapi-adopt-demo" ran past its button. PatternFly's button keeps its text on one line (`white-space:
+  nowrap` in `button.css`, except an inline link). PatternFly's truncate guidelines: "Use truncation when the data within a
+  table overflows its container", and "Truncated items should always include a tooltip on hover, showcasing the full string
+  sequence" (<https://www.patternfly.org/components/truncate/design-guidelines>, fetched 2026-11-27). The button now holds a
+  `Truncate` of its text, whose tooltip is triggered by the button itself (`tooltipProps.triggerRef`), so the row keeps one
+  focus stop and the button's name stays the whole text.
+- "Not adopted" read "and An unknown number of": the portal capitalised each part. It now capitalises the sentence once, and
+  the server and the portal both say "1 ServiceAccount stays unmanaged" for a count of one.
+
+## PR #750 review and the coordinator's rulings (2026-11-27)
+
+**Reviewers:**
+- **Reviewer 1:** Codex gpt-6.2-astra xhigh (`review-750/reviewer-1-codex.md`), with 3 High findings and 1 Medium.
+- **Reviewer 2:** Opus 5.5 high, on PostgreSQL (`review-750/reviewer-2-opus.md`). It confirmed all four, at lower severity.
+
+**The owner's intent holds:** run 46's fixture (8 `skipped-key` and 1 `not-adopted`) needs only the base approval, on head and with the fix.
+
+| Finding | Ruling |
+|---|---|
+| H1: a site policy named like an informational code was dropped from the count | **Fixed** (Medium): the five exceptions apply only to the planner's own findings, and every validator finding counts |
+| H2: a site-bounded quota key that cmapi does not interpret, beyond its bound, got the base approval only (base gave 2) | **Fixed** (Medium, introduced by this PR): D5's `beyond-custom-bounds` with `beyondTierKeys`, so 3 approvals. A value inside the bound stays at 1 |
+| H3: a skip-prefix key owned only by the next server-side applier was left out of Git, with the promise "stays on the cluster" | **Fixed** (Medium). Reviewer 2 keeps such a key in Git through the existing `skipped-key-kept` path, which makes the text and the count true and ends the older omission without a new finding code. **The coordinator accepts this**, though it goes slightly beyond the brief's "PR-introduced only" |
+| M1: the opt-in exemption allowed `cmapi.net/adopt` with any value | **Fixed**: only the configured key and value are allowed. 60 generated-policy cases pass |
+
+**Cut from reviewer 1's patch:**
+- the `custom.step` check: under the shipped steps it gives ordinary quotas 3 approvals, against the owner's "very easy" adoption, so it is an owner question;
+- the delivery-mode plumbing: a fixed set of the two apply managers does the same job safely;
+- the line moves;
+- a Mock-based test file.
+
+**What reviewer 1 missed:** the `test_bundle_hash_244` repin, and a deleted `policygen.py` docstring.
+
+**The hashes:**
+- example dev: `c7869bb7…`;
+- CRC dev pin (`test_crc_bundle_pin_531`, docs/13): `e7716f30…`.
+
+The cluster-configs companion is PR #31.
+
+**Runs (reviewer 2):**
+- 177 service tests passed;
+- `tests/core`: 978 passed;
+- a fresh export patched with `-F0`: 128 service and 67 core passed;
+- 5 of 5 mutants killed;
+- `crc-scripts-test.sh`: 291 ok;
+- render: 0 failed.
+
+**Backlog, to #736:**
+- **B-1:** the opt-in ignore also skips an annotation of the same name;
+- **B-2:** a requester may send a custom selector label under an allowed prefix.

@@ -59,7 +59,7 @@ thresholds:
   add: 1
   group: approver-platform
   reason: Adoption of an existing namespace
-- when: plugin == "adoption" and findingCount > 0
+- when: plugin == "adoption" and actionableFindingCount > 0   # a finding a person should judge (D10, #746)
   add: 1
   group: approver-platform
   reason: Adoption with findings

@@ -265,10 +265,13 @@ def test_an_adoption_is_never_auto_approved_and_always_has_an_approver():
 
 
 def test_the_shipped_rules_ask_one_platform_approver_and_one_more_for_findings():
+    """D10, and #746: the findings that add the approver are those a person should judge (actionableFindingCount)."""
     rules = ApprovalRules.load(EX / "instances/nonprod/approval-rules.yaml", {"rnd", "dev"})
-    facts = {"plugin": "adoption", "action": "adopt", "environment": "dev", "namespace": "abc-rnd", "findingCount": 0}
+    facts = {"plugin": "adoption", "action": "adopt", "environment": "dev", "namespace": "abc-rnd", "findingCount": 0,
+             "actionableFindingCount": 0}
     assert [(s.group, s.count) for s in rules.decide(facts).slots] == [("approver-platform", 1)]
-    assert [(s.group, s.count) for s in rules.decide({**facts, "findingCount": 3}).slots] == [("approver-platform", 2)]
+    assert [(s.group, s.count) for s in rules.decide({**facts, "findingCount": 3, "actionableFindingCount": 3}).slots] == [
+        ("approver-platform", 2)]
 
 
 # --------------------------------------------------------------------------- D6a, #248: the real Kyverno CLI in enforce

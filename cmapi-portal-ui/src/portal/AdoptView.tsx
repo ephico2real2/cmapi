@@ -15,7 +15,7 @@
 //   5. Submit adoption request: the same body with one Idempotency-Key (useSubmitAdoption); a 202 shows the request.
 import {
   ActionGroup, Alert, AlertActionLink, Button, CodeBlock, CodeBlockCode, EmptyState, EmptyStateBody, ExpandableSection, Form, FormGroup, Grid,
-  GridItem, Label, List, ListItem, Skeleton, Stack, TextArea, Title
+  GridItem, Label, List, ListItem, Skeleton, Stack, TextArea, Title, Truncate
 } from "@patternfly/react-core";
 import { LockIcon } from "@patternfly/react-icons";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
@@ -87,13 +87,38 @@ function StandingTable({ result, empty, label, onAdopt }: {
             <Td dataLabel="Namespace"><code>{s.name}</code></Td>
             {onAdopt
               ? <><Td dataLabel="Made by another tool">{recognised(s)}</Td>
-                <Td dataLabel="Actions"><Button variant="secondary" size="sm" onClick={() => onAdopt(s.name)}>{`Adopt ${s.name}`}</Button></Td></>
+                <Td dataLabel="Actions"><AdoptButton ns={s.name} onAdopt={onAdopt} /></Td></>
               : <Td dataLabel="Why it is not adopted" modifier="breakWord">{`${s.rule}: ${s.detail}`}</Td>}
           </Tr>
         ))}
       </Tbody>
     </Table>
   );
+}
+
+/** "Adopt <ns>" in a candidate's row. A button keeps its text on one line (PatternFly's button is nowrap), so a long name is
+ *  truncated, as PatternFly's truncate guidelines ask of data that overflows a table cell, with the full text in a tooltip on the
+ *  button itself (#749). The tooltip's trigger is the button, so the row keeps one focus stop and no focusable span inside it;
+ *  the button's name is its whole text, so the tooltip adds no description to it. */
+function AdoptButton({ ns, onAdopt }: { ns: string; onAdopt: (ns: string) => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const text = `Adopt ${ns}`;
+  return (
+    <Button ref={ref} variant="secondary" size="sm" onClick={() => onAdopt(ns)}>
+      <Truncate content={text} tooltipProps={{ triggerRef: ref, aria: "none" }} />
+    </Button>
+  );
+}
+
+/** What stays unmanaged, as a sentence: "3 ServiceAccounts and an unknown number of RoleBindings stay unmanaged" (#749: one
+ *  capital, at its start). A count that could not be read is null; the server's not-adopted finding says the same words
+ *  (core/adoption.py, unmanaged_phrase). Null when the namespace has none. */
+function unmanagedSentence(counts: Record<string, number | null | undefined>): string | null {
+  const shown = Object.entries(counts).filter(([, n]) => n !== 0);
+  if (shown.length === 0) return null;
+  const parts = shown.map(([kind, n]) => (n == null ? `an unknown number of ${kind}s` : `${n} ${kind}${n === 1 ? "" : "s"}`));
+  const text = `${parts.join(" and ")} ${shown.length === 1 && shown[0][1] === 1 ? "stays" : "stay"} unmanaged`;
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** The plan of one adoption, the metadata it lacks below it, and beside them its Justification, Check and Submit. */
@@ -234,7 +259,7 @@ const addedCount = (plan: Plan): number =>
 /** What the plan read and writes: the objects, the keys it adds, the findings, the skipped keys, what stays unmanaged, and each file. */
 function PlanDetail({ plan }: { plan: Plan }) {
   const adoption = plan.adoption;
-  const unmanaged = Object.entries(adoption?.notAdopted ?? {}).filter(([, n]) => n !== 0);
+  const unmanaged = unmanagedSentence(adoption?.notAdopted ?? {});
   const added = (["labels", "annotations"] as const).flatMap((m) => Object.entries(plan.metadataDiff?.[m] ?? {})
     .map(([key, c]) => ({ kind: m === "labels" ? "label" : "annotation", key, value: c.after ?? "" })));
   return (
@@ -266,8 +291,8 @@ function PlanDetail({ plan }: { plan: Plan }) {
         </List>
       )}
       <Title headingLevel="h3" size="md">Not adopted</Title>
-      <Small>{unmanaged.length > 0
-        ? `${unmanaged.map(([kind, n]) => `${n ?? "An unknown number of"} ${kind}s`).join(" and ")} stay unmanaged: adoption takes the Namespace, ResourceQuotas and LimitRanges only.`
+      <Small>{unmanaged
+        ? `${unmanaged}: adoption takes the Namespace, ResourceQuotas and LimitRanges only.`
         : "No ServiceAccount or RoleBinding: adoption takes the Namespace, ResourceQuotas and LimitRanges only."}</Small>
       <Title headingLevel="h3" size="md">Files</Title>
       {Object.entries(plan.files).map(([path, text]) => (

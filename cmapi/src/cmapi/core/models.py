@@ -523,7 +523,9 @@ class AdoptionKey(Api):
                        examples=[False])
     managers: list[str] = Field(description="The field managers that own it on the live object (metadata.managedFields)",
                                 examples=[["pod-security-admission-label-synchronization-controller"]])
-    why: str = Field(description="Why it is kept or left out, in words", examples=["only server components own it"])
+    why: str = Field(description="Why it is kept or left out, in words",
+                     examples=["none of its managers is kubectl-client-side-apply, whose fields Argo CD's client-side apply "
+                               "migration takes over, so it stays on the cluster"])
 
 
 class PlanAdoption(Api):

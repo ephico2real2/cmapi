@@ -123,6 +123,8 @@ print(json.dumps({"items":items}))'; exit 0;;
   # The reader's list of Kyverno's reports in every namespace (#387), before the wide checks that must answer no.
   "auth can-i list "*"policyreports.wgpolicyk8s.io --all-namespaces --as=system:serviceaccount:cmapi-system:cmapi-reader") echo "${STUB_READER_REPORTS:-yes}"; exit 0;;
   "auth can-i"*"--all-namespaces"*) echo "${STUB_READER_WIDE:-no}"; exit 0;;
+  # The adoption plan's count of ServiceAccounts and RoleBindings (#748).
+  "auth can-i list serviceaccounts --as=system:serviceaccount:cmapi-system:cmapi-reader"|"auth can-i list rolebindings.rbac.authorization.k8s.io --as=system:serviceaccount:cmapi-system:cmapi-reader") echo "${STUB_READER_ADOPTION:-yes}"; exit 0;;
   "auth can-i"*"cmapi-reader"*) echo yes; exit 0;;
   "auth can-i"*) echo "${STUB_WRITER:-no}"; exit 0;;
   # CNPG's peer map on OpenShift: the pod's arbitrary UID signs in as a mapped role, never one named after itself. The read needs
@@ -418,6 +420,10 @@ grep -qxF 'proof: the reader has the two cmapi Thanos grants in openshift-monito
 grep -qxF 'proof: discovery, as cmapi-reader, serves wgpolicyk8s.io/v1alpha2 with clusterpolicyreports policyreports, the reports of the Policies tab; openreports.io: not served' "$W/out" \
   && grep -qxF 'oc get --raw /apis/wgpolicyk8s.io/v1alpha2 --as=system:serviceaccount:cmapi-system:cmapi-reader' "$ARGV_LOG" \
   && ok "the proof records the report groups that discovery serves to the reader" || bad "the report groups' record: $(grep -i 'discovery' "$W/out" | head -1)"
+for res in serviceaccounts rolebindings.rbac.authorization.k8s.io; do
+  grep -qxF "oc auth can-i list $res --as=system:serviceaccount:cmapi-system:cmapi-reader" "$ARGV_LOG" \
+    && ok "the proof asks whether the reader may list $res, the adoption plan's count (#748)" || bad "no can-i list $res as the reader"
+done
 for kind in clusterpolicyreports policyreports; do
   grep -qxF "oc auth can-i list $kind.wgpolicyk8s.io --all-namespaces --as=system:serviceaccount:cmapi-system:cmapi-reader" "$ARGV_LOG" \
     && ok "the proof asks whether the reader may list $kind in every namespace" || bad "no can-i list $kind as the reader in every namespace"
@@ -475,6 +481,8 @@ pstop "the worker refused a managed namespace: nothing could be delivered" STUB_
 pstop "the worker labelling namespace default: not contained" STUB_DEFAULT_RC=0
 pstop "namespace default refused, but not by the policy" "STUB_DEFAULT_ERR=error: unable to connect"
 pstop "a reader reading Secrets" STUB_READER_WIDE=yes
+pstop "a reader that may not count an adoption's ServiceAccounts and RoleBindings (#748)" STUB_READER_ADOPTION=no
+grep -qxF 'FAIL: the reader may not list serviceaccounts' "$W/out" && ok "and it names the missing grant" || bad "the missing grant was not named: $(tail -1 "$W/out")"
 # Each stopped by the discovery check itself, not by something after it that the stub does not answer.
 says() { grep -qxF "$1" "$W/out" && ok "and it says why" || bad "the proof stopped without saying '$1': $(tail -1 "$W/out")"; }
 pstop "wgpolicyk8s.io not served: the Policies tab reads Kyverno not installed" 'STUB_GROUPS={"name":"apps","versions":[{"groupVersion":"apps/v1","version":"v1"}]}'

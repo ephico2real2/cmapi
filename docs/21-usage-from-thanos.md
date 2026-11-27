@@ -115,9 +115,9 @@ from the file. The file also creates the Namespace `cmapi-system` and the Servic
 
 | Rule | API group and resources | Verbs | Why cmapi needs it |
 |---|---|---|---|
-| 1 (`examples/baseline/cmapi-reader-rbac.yaml:23-25`) | core: `namespaces`, `nodes`, `resourcequotas`, `limitranges`, `serviceaccounts` | get, list, watch | Namespaces, ResourceQuotas and LimitRanges are the kinds `WatchCache` watches (`cmapi/src/cmapi/core/clients/kube.py:399`), and check 6 lists Namespaces (`cmapi/src/cmapi/core/registry.py:596`). `NodeCache` watches Nodes (`cmapi/src/cmapi/core/clients/nodes.py:33`, `:114`). ServiceAccount is named in the client's kind table (`cmapi/src/cmapi/core/clients/kube.py:40`), and no code lists it today |
-| 2 (`examples/baseline/cmapi-reader-rbac.yaml:26-28`) | core: `pods`, `persistentvolumeclaims` | list | The delete thresholds count a namespace's pods and PVCs: `Pipeline.workload_counts` (`cmapi/src/cmapi/core/pipeline.py:255-261`) |
-| 3 (`examples/baseline/cmapi-reader-rbac.yaml:29-31`) | `rbac.authorization.k8s.io`: `roles`, `rolebindings`, `clusterroles`, `clusterrolebindings` | get, list, watch | RoleBinding is named in the client's kind table (`cmapi/src/cmapi/core/clients/kube.py:41`); no code reads the other three today |
+| 1 (`examples/baseline/cmapi-reader-rbac.yaml:23-25`) | core: `namespaces`, `nodes`, `resourcequotas`, `limitranges`, `serviceaccounts` | get, list, watch | Namespaces, ResourceQuotas and LimitRanges are the kinds `WatchCache` watches (`cmapi/src/cmapi/core/clients/kube.py:399`), and check 6 lists Namespaces (`cmapi/src/cmapi/core/registry.py:596`). `NodeCache` watches Nodes (`cmapi/src/cmapi/core/clients/nodes.py:33`, `:114`). The adoption plan lists a namespace's ServiceAccounts to count what stays unmanaged: `Pipeline._unadopted_counts` (`cmapi/src/cmapi/core/pipeline.py:670-680`), over `UNADOPTED_KINDS` (`cmapi/src/cmapi/core/adoption.py:42`) |
+| 2 (`examples/baseline/cmapi-reader-rbac.yaml:26-28`) | core: `pods`, `persistentvolumeclaims` | list | The delete thresholds count a namespace's pods and PVCs: `Pipeline.workload_counts` (`cmapi/src/cmapi/core/pipeline.py:256-262`) |
+| 3 (`examples/baseline/cmapi-reader-rbac.yaml:29-31`) | `rbac.authorization.k8s.io`: `roles`, `rolebindings`, `clusterroles`, `clusterrolebindings` | get, list, watch | The adoption plan lists a namespace's RoleBindings in the same count: `Pipeline._unadopted_counts` (`cmapi/src/cmapi/core/pipeline.py:670-680`). No code reads the other three today |
 | 4 (`examples/baseline/cmapi-reader-rbac.yaml:32-34`) | `security.openshift.io`: `securitycontextconstraints` | get, list, watch | No code reads it today |
 | 5 (`examples/baseline/cmapi-reader-rbac.yaml:35-37`) | `user.openshift.io`: `users`, `groups`, `identities` | get, list, watch | The identity check reads `users/~`, which every authenticated user may read (`cmapi/src/cmapi/core/clients/kube.py:261-263`); no code lists the others today |
 | 6 (`examples/baseline/cmapi-reader-rbac.yaml:38-40`) | `quota.openshift.io`: `clusterresourcequotas` | get, list, watch | No code reads it today |
@@ -156,14 +156,16 @@ from the file. The file also creates the Namespace `cmapi-system` and the Servic
   `namespaces`, the gate of the user-defined Prometheus's `/federate` (`docs/reviews/2026-11-26-reader-thanos-baseline/README.md`).
 - **Nothing in the user-workload Prometheus.** No rule or binding of the file is in `openshift-user-workload-monitoring`, and
   the `RoleBinding` of the platform Role is namespaced to `openshift-monitoring`. `deploy/crc-proof.sh` checks it: `get` on
-  `prometheuses/api` `k8s` in `openshift-user-workload-monitoring` must be refused (`deploy/crc-proof.sh:232-233`).
+  `prometheuses/api` `k8s` in `openshift-user-workload-monitoring` must be refused (`deploy/crc-proof.sh:233-234`).
 
 **CRC differs.** The reader of CRC, `deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml`, is cut to what the code
 calls, and is not the baseline:
 
-- Its ClusterRole has five rules (`deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml:27-42`), against twelve. It
-  leaves out `serviceaccounts` (rule 1), the whole of rules 3 to 8, 9 (Argo CD Applications), the other four Kyverno policy
-  kinds of rule 11 and rule 12. Nodes are in a rule of their own, with the same verbs.
+- Its ClusterRole has seven rules (`deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml:29-49`), against twelve. It
+  grants `list` alone on `serviceaccounts` and on `rbac.authorization.k8s.io` `rolebindings`, the adoption plan's count (#748),
+  where the baseline's rules 1 and 3 grant `get`, `list` and `watch`. It leaves out the rest of rule 3, rules 4 to 8, 9 (Argo CD
+  Applications), the other four Kyverno policy kinds of rule 11 and rule 12. Nodes are in a rule of their own, with the same
+  verbs.
 - It adds labels (`app.kubernetes.io/part-of: cmapi`) and has no `cmapi-token-issuer`.
 - Its objects in `openshift-monitoring` give the same grants as the baseline's, which a test holds equal (only labels differ)
   (`cmapi/tests/service/test_reader_thanos_grants_724.py:99-107`). Its `cmapi-reader-renew` is the baseline's.
@@ -213,7 +215,7 @@ they are kept. While any finding stands, `ThanosQuerier.query` refuses before it
 - **The daily usage sweep** reads the same source, every namespace of a cluster at one instant, in batches of eight, with a
   120-second timeout per query (`cmapi/src/cmapi/capacity/usage.py:256-264`, `cmapi/src/cmapi/capacity/sweep.py:87`).
 - **A namespace create never queries Thanos.** Only a quota change on an existing namespace reads usage
-  (`cmapi/src/cmapi/core/pipeline.py:453-460`). A test creates a namespace on PostgreSQL with `usage.source: thanos` and both
+  (`cmapi/src/cmapi/core/pipeline.py:454-461`). A test creates a namespace on PostgreSQL with `usage.source: thanos` and both
   grants missing: it is auto-approved, reaches `synced`, and makes no monitoring call; the quota change after it plans with
   usage `unavailable` (`cmapi/tests/service/test_reader_thanos_grants_724.py:428-470`).
 
@@ -228,11 +230,11 @@ a new client kept private until its grants are checked; and the create and quota
 The reader's checks in `deploy/crc-proof.sh` are:
 
 1. Each of the three grants is allowed for the reader, with its groups and without `system:authenticated`, and by its own
-   RoleBinding of `openshift-monitoring` (`deploy/crc-proof.sh:228-231`).
-2. The same `get` on `prometheuses/api` `k8s` in `openshift-user-workload-monitoring` is refused (`:232-233`).
+   RoleBinding of `openshift-monitoring` (`deploy/crc-proof.sh:229-232`).
+2. The same `get` on `prometheuses/api` `k8s` in `openshift-user-workload-monitoring` is refused (`:233-234`).
 3. The reader discovers the Route host, and one query through it, with the options of `ThanosQuerier`, answers cleanly with a
-   positive `count(kube_resourcequota)` (`:235-263`).
-4. `GET /api/v1/clusters` shows CRC `connected` with no finding that starts `usage: ` (`:264-269`).
+   positive `count(kube_resourcequota)` (`:236-264`).
+4. `GET /api/v1/clusters` shows CRC `connected` with no finding that starts `usage: ` (`:265-270`).
 
 The earlier measurement of #726 is the only live evidence of a query with these grants (CRC 4.22.14); the owner has no 4.18
 cluster, so for 4.18 the sources below are the evidence.

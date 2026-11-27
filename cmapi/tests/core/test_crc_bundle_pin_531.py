@@ -7,8 +7,10 @@ from cmapi.core.policybundle import PolicyBundle
 from cmapi.tools.policies import _render
 from conftest import crc_config_dir
 
-# policybundle.git_hash over policies/env/dev/ of cmapi-cluster-configs at 5926fa2 (its PR #21, the render at cmapi a909074).
-CRC_DEV_HASH = "a2603db2397d043adb27aa2b9886e374e3c09c53bbdc655ab10b4cc5b97e205d"
+# policybundle.git_hash over policies/env/dev/ of cmapi-cluster-configs PR #31, re-rendered for #746's review: the label policies
+# allow the opt-in label with adoption.yaml's value only. Before it: cfd8fa16... of #31's first render (e8c244c, the key with any
+# value), and a2603db2... of 5926fa2 (PR #21, the render at cmapi a909074).
+CRC_DEV_HASH = "e7716f300a89918a1f12d02bf7126cd43831b2c69a10f3646217c1b75020de18"
 
 
 def test_crcs_dev_bundle_is_the_one_merged_in_cmapi_cluster_configs(tmp_path):

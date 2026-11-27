@@ -615,6 +615,10 @@ def test_crc_reader_reads_only_what_the_code_reads():
     from_code = {("", r) for r in ("namespaces", "resourcequotas", "limitranges", "pods", "persistentvolumeclaims")}
     from_code |= {(RESOURCES[k][0].split("/")[2], RESOURCES[k][0].rsplit("/", 1)[1]) for k in REPORT_KINDS + POLICY_KINDS}
     from_code.add(("", RESOURCES[NODE_KIND][0].rsplit("/", 1)[1]))
+    # The adoption plan's count of what stays unmanaged (D2, Pipeline._unadopted_counts, #748).
+    from cmapi.core.adoption import UNADOPTED_KINDS
+    from_code |= {("" if RESOURCES[k][0].startswith("/api/") else RESOURCES[k][0].split("/")[2], RESOURCES[k][0].rsplit("/", 1)[1])
+                  for k in UNADOPTED_KINDS}
     rules = crc("ClusterRole", "cmapi-reader")["rules"]
     assert {(g, r) for rule in rules for g in rule["apiGroups"] for r in rule["resources"]} == from_code
     assert all(set(rule["verbs"]) <= {"get", "list", "watch"} for rule in rules)

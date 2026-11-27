@@ -21,7 +21,9 @@ from cmapi.core.policygen import MARK, environment_of, render_bundle
 
 def _render(config_dir: str, metadata_keys: str) -> tuple[dict[str, str], set[str]]:
     cfg = load_instance(config_dir, metadata_keys)
-    return render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name), cfg.allowed_environments
+    return (render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name, cfg.adoption.label,
+                          cfg.adoption.value),
+            cfg.allowed_environments)
 
 
 def _rendered_on_disk(root: Path, environments: set[str]) -> dict[str, str]:

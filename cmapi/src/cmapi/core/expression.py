@@ -32,6 +32,7 @@ KNOWN_FACTS = frozenset({
     "beyondTier", "beyondTierKeys", "networkExposure",
     "usage",                        # a quota change's live 14-day usage: ok, insufficient-data or unavailable (#310)
     "findingCount", "trackedElsewhere",   # an adoption's findings, all codes together, and D1's skip (story #26, D10)
+    "actionableFindingCount",       # an adoption's findings that a person should judge (D10, #746: core/adoption.py)
 })
 
 

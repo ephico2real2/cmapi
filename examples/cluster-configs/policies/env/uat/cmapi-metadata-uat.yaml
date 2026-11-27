@@ -306,7 +306,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in uat.
     cmapi.net/generated: 'true'
-    cmapi.net/policy-digest: 72812d8d87cd2a526db2f33cb3219d2019c22230c4c859f6d5c4b8272f9b2da2
+    cmapi.net/policy-digest: e88825e99c4030ed7db5ea35df2a908386598129d07578582e18fcae2c89f122
 spec:
   validationActions:
   - Audit
@@ -332,8 +332,8 @@ spec:
   - name: update
     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   - name: labelOutside
-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner", "do-not-delete"] || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))) && !(variables.update && k in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})
-      && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})[k] == (has(object.metadata.labels) ? object.metadata.labels : {})[k]))'
+    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner", "do-not-delete"] || (k == "cmapi.net/adopt" && (has(object.metadata.labels) ? object.metadata.labels : {})[k] == "true") || (!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) || (!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/'')))
+      && !(variables.update && k in (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})[k] == (has(object.metadata.labels) ? object.metadata.labels : {})[k]))'
   validations:
   - expression: size(variables.labelOutside) == 0
     message: a label key is not declared in metadata-keys.yaml, and is outside extraLabels.allowOther.prefixes ["", "*.ephico2real.com/"]
@@ -346,7 +346,7 @@ metadata:
   annotations:
     policies.kyverno.io/description: The labels and annotations that metadata-keys.yaml requires of a managed namespace in uat.
     cmapi.net/generated: 'true'
-    cmapi.net/policy-digest: 78f927db75e1d8c482236e930d82dfbe4e33c5d383e07b088dbee723ada9b505
+    cmapi.net/policy-digest: 0be1d3474f15e4837915e6096577fdf2e431e16b73fa69ca5855e85a5da5a1b1
 spec:
   validationActions:
   - Audit
@@ -369,7 +369,7 @@ spec:
   - name: update
     expression: request.operation == 'UPDATE' && has(oldObject.metadata)
   - name: labelOther
-    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner", "do-not-delete"]) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
+    expression: '(has(object.metadata.labels) ? object.metadata.labels : {}).filter(k, !(k in ["cmapi.net/app", "cmapi.net/beyond-tier", "cmapi.net/cluster-id", "cmapi.net/cost-center", "cmapi.net/env", "cmapi.net/expires-at", "cmapi.net/expiry", "cmapi.net/instance", "cmapi.net/managed", "cmapi.net/protected", "cmapi.net/request-id", "cmapi.net/requested-by", "cmapi.net/requested-by-user", "cmapi.net/rightsizing", "cmapi.net/team", "cmapi.net/tier", "cmapi.net/tier-hash", "company.net/provisioner", "do-not-delete"] || (k == "cmapi.net/adopt" && (has(object.metadata.labels) ? object.metadata.labels : {})[k] == "true")) && !(!k.startsWith(''/'') && k.matches("^(?:kubernetes\\.io|[^/]*\\.kubernetes\\.io|k8s\\.io|openshift\\.io|[^/]*\\.openshift\\.io|argocd\\.argoproj\\.io|[^/]*\\.kyverno\\.io|redhatcop\\.redhat\\.io|olm\\.operatorgroup\\.uid|openshift-pipelines\\.tekton\\.dev)/")) && ((!k.startsWith(''/'') && k.matches("^(?:[^/]*\\.ephico2real\\.com)/")) || (!k.contains(''/'') || k.startsWith(''/''))))'
   validations:
   - expression: size(variables.labelOther) <= 50
     message: more than 50 other labels (keys under extraLabels.allowOther.prefixes; extraLabels.allowOther.max)

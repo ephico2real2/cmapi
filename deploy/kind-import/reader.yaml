@@ -27,6 +27,12 @@ rules:
   - apiGroups: [""]                      # counted for the delete thresholds (pods > 20, pvcs > 10)
     resources: [pods, persistentvolumeclaims]
     verbs: [list]
+  - apiGroups: [""]                      # counted for the adoption plan's "not adopted" (D2, Pipeline._unadopted_counts, #748)
+    resources: [serviceaccounts]
+    verbs: [list]
+  - apiGroups: [rbac.authorization.k8s.io] # the same count of RoleBindings; list only, as the code never gets or watches them
+    resources: [rolebindings]
+    verbs: [list]
   - apiGroups: [""]                      # the owner's grant of 2026-11-18: the import check's zones, capacity
     resources: [nodes]
     verbs: [get, list, watch]

@@ -20,8 +20,9 @@ import yaml
 
 from cmapi.capacity.usage import NoUsage, UsageSource, plan_usage
 from cmapi.core import kube_yaml
-from cmapi.core.adoption import (ADOPT_PERMISSION, INSTANCE_LABEL, SYNC_OPTIONS_ANNOTATION, Owner, Standing, adopted_files,
-                                 object_findings, snapshot, snapshot_hash, standing)
+from cmapi.core.adoption import (ADOPT_PERMISSION, INSTANCE_LABEL, SYNC_OPTIONS_ANNOTATION, UNADOPTED_KINDS, Owner, Standing,
+                                 actionable_count, adopted_files, object_findings, snapshot, snapshot_hash, standing,
+                                 unmanaged_phrase)
 from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, Requirement
 from cmapi.core.capacity_backend import CapacityHold, SimulatedCapacity, capacity_exceeded
 from cmapi.core.capacity_ledger import binding_hard, quota_facts, totals_of
@@ -671,7 +672,7 @@ class Pipeline:
         cannot be read is null (not known), never 0."""
         client = self.registry.cache(cluster_id).client
         out: dict[str, int | None] = {}
-        for kind in ("ServiceAccount", "RoleBinding"):
+        for kind in UNADOPTED_KINDS:
             try:
                 out[kind] = len(client.list(kind, namespace=ns)["items"])
             except (ClusterUnreachable, KubeError, BadResponse):
@@ -766,11 +767,11 @@ class Pipeline:
         kept, beyond = object_findings(snap, cluster_id=cluster_id, environment=env, tiers=self.cfg.tiers)
         findings += [Finding("cmapi", f.code, f.path, f.message, "warning") for f in kept]
         others = self._unadopted_counts(cluster_id, ns)
-        shown = [f"{n if n is not None else 'an unknown number of'} {kind}s" for kind, n in others.items() if n != 0]
+        shown = unmanaged_phrase(others)
         if shown:
             findings.append(Finding("cmapi", "not-adopted", folder(cluster_id, ns),
-                                    f"{' and '.join(shown)} stay unmanaged: adoption takes the Namespace, ResourceQuotas "
-                                    "and LimitRanges only", "warning"))
+                                    f"{shown}: adoption takes the Namespace, ResourceQuotas and LimitRanges only",
+                                    "warning"))
         held: list[Finding] = []
         try:
             validated = self.validator.validate(files, cluster_id, env, previous=base_files, held=held)
@@ -786,6 +787,8 @@ class Pipeline:
                                            [{"code": f.rule, "source": f.source, "path": f.path, "detail": f.message,
                                              "kyvernoRule": f.kyverno_rule} for f in errors],
                                            findings=[f.view() for f in [*findings, *validated] if f.severity != "error"])
+        # D10, #746: every validator finding counts, as its rule is a policy's name and may equal an informational code.
+        actionable = actionable_count(f.rule for f in findings) + len(validated) + len(held)
         findings += validated
         findings += [Finding("cmapi", "policy-ratcheted", h.path, f"{h.rule}: {h.message}", "warning", kyverno_rule=h.kyverno_rule)
                      for h in held]
@@ -796,7 +799,8 @@ class Pipeline:
                  "team": adopted_meta["label"].get("cmapi.net/team"), "tier": tier, "capacity": "fits", "capacityFresh": True,
                  "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,
                  "clusterLabels": dict(st.policy.labels), "warnings": [f.message for f in findings], "reason": None,
-                 "findings": dict(sorted(counts.items())), "findingCount": len(findings), "beyondTier": bool(beyond),
+                 "findings": dict(sorted(counts.items())), "findingCount": len(findings),
+                 "actionableFindingCount": actionable, "beyondTier": bool(beyond),
                  "beyondTierKeys": sorted(beyond), "networkExposure": False, "trackedElsewhere": False}
         requirement = self._decide(facts)
         beyond_view = self.beyond_view(facts, {k: {"tier": v["bound"], "requested": v["requested"]} for k, v in beyond.items()})
