@@ -46,7 +46,7 @@ NOT YET PROVEN LIVE: CRC run 45 (since #726 and #734 merged, nothing has run on 
   client) reads the Route again and a dropped one is forgotten (`:35-36`). A Route that cannot be read, or that has no host,
   makes the usage unavailable, with the cause (`:46-52`).
 - **A `thanosUrl` in `clusters.yaml` overrides the Route** (`:39-40`), and then the Route is neither read nor reviewed
-  (`cmapi/src/cmapi/core/registry.py:621`). `docs/18-configuration.md` ("thanosUrl") says what the value must be: an https
+  (`cmapi/src/cmapi/core/registry.py:626`). `docs/18-configuration.md` ("thanosUrl") says what the value must be: an https
   URL with a host and no user information, because the reader's token goes to it.
 - **Each call is one instant query**, `GET /api/v1/query`, with `partial_response=false`, `dedup=true` and a `timeout`
   parameter equal to the caller's own (`cmapi/src/cmapi/capacity/thanos.py:79-80`). The live timeout is 10 seconds for a plan
@@ -115,7 +115,7 @@ from the file. The file also creates the Namespace `cmapi-system` and the Servic
 
 | Rule | API group and resources | Verbs | Why cmapi needs it |
 |---|---|---|---|
-| 1 (`examples/baseline/cmapi-reader-rbac.yaml:23-25`) | core: `namespaces`, `nodes`, `resourcequotas`, `limitranges`, `serviceaccounts` | get, list, watch | Namespaces, ResourceQuotas and LimitRanges are the kinds `WatchCache` watches (`cmapi/src/cmapi/core/clients/kube.py:399`), and check 6 lists Namespaces (`cmapi/src/cmapi/core/registry.py:596`). `NodeCache` watches Nodes (`cmapi/src/cmapi/core/clients/nodes.py:33`, `:114`). The adoption plan lists a namespace's ServiceAccounts to count what stays unmanaged: `Pipeline._unadopted_counts` (`cmapi/src/cmapi/core/pipeline.py:670-680`), over `UNADOPTED_KINDS` (`cmapi/src/cmapi/core/adoption.py:42`) |
+| 1 (`examples/baseline/cmapi-reader-rbac.yaml:23-25`) | core: `namespaces`, `nodes`, `resourcequotas`, `limitranges`, `serviceaccounts` | get, list, watch | Namespaces, ResourceQuotas and LimitRanges are the kinds `WatchCache` watches (`cmapi/src/cmapi/core/clients/kube.py:399`), and check 6 lists Namespaces (`cmapi/src/cmapi/core/registry.py:601`). `NodeCache` watches Nodes (`cmapi/src/cmapi/core/clients/nodes.py:33`, `:114`). The adoption plan lists a namespace's ServiceAccounts to count what stays unmanaged: `Pipeline._unadopted_counts` (`cmapi/src/cmapi/core/pipeline.py:670-680`), over `UNADOPTED_KINDS` (`cmapi/src/cmapi/core/adoption.py:42`) |
 | 2 (`examples/baseline/cmapi-reader-rbac.yaml:26-28`) | core: `pods`, `persistentvolumeclaims` | list | The delete thresholds count a namespace's pods and PVCs: `Pipeline.workload_counts` (`cmapi/src/cmapi/core/pipeline.py:256-262`) |
 | 3 (`examples/baseline/cmapi-reader-rbac.yaml:29-31`) | `rbac.authorization.k8s.io`: `roles`, `rolebindings`, `clusterroles`, `clusterrolebindings` | get, list, watch | The adoption plan lists a namespace's RoleBindings in the same count: `Pipeline._unadopted_counts` (`cmapi/src/cmapi/core/pipeline.py:670-680`). No code reads the other three today |
 | 4 (`examples/baseline/cmapi-reader-rbac.yaml:32-34`) | `security.openshift.io`: `securitycontextconstraints` | get, list, watch | No code reads it today |
@@ -123,7 +123,7 @@ from the file. The file also creates the Namespace `cmapi-system` and the Servic
 | 6 (`examples/baseline/cmapi-reader-rbac.yaml:38-40`) | `quota.openshift.io`: `clusterresourcequotas` | get, list, watch | No code reads it today |
 | 7 (`examples/baseline/cmapi-reader-rbac.yaml:41-43`) | `redhatcop.redhat.io`: `groupsyncs`, `namespaceconfigs`, `groupconfigs` | get, list | No code reads it today |
 | 8 (`examples/baseline/cmapi-reader-rbac.yaml:44-47`) | `config.openshift.io`: `oauths`, `resourceNames: [cluster]` | get | No code reads it today |
-| 9 (`examples/baseline/cmapi-reader-rbac.yaml:48-50`) | `argoproj.io`: `applications` | get, list, watch | The sync poll reads the root Application: `ArgoCdSignal.status` (`cmapi/src/cmapi/core/sync.py:98`), called from `cmapi/src/cmapi/jobs/watch_sync.py:138` |
+| 9 (`examples/baseline/cmapi-reader-rbac.yaml:48-50`) | `argoproj.io`: `applications` | get, list, watch | The sync poll reads the root Application: `ArgoCdSignal.status` (`cmapi/src/cmapi/core/sync.py:126`), called from `cmapi/src/cmapi/jobs/watch_sync.py:179` |
 | 10 (`examples/baseline/cmapi-reader-rbac.yaml:51-53`) | `wgpolicyk8s.io`: `policyreports`, `clusterpolicyreports` | get, list, watch | The Policies tab's `ReportCache` watches both (`cmapi/src/cmapi/core/clients/policyreports.py:37`) |
 | 11 (`examples/baseline/cmapi-reader-rbac.yaml:54-56`) | `policies.kyverno.io`: `validatingpolicies`, `mutatingpolicies`, `generatingpolicies`, `deletingpolicies`, `imagevalidatingpolicies` | get, list, watch | Only `validatingpolicies` is read (`cmapi/src/cmapi/core/clients/policyreports.py:38`); the other four are not |
 | 12 (`examples/baseline/cmapi-reader-rbac.yaml:57-59`) | `kyverno.io`: `clusterpolicies`, `policies` | get, list | No code reads it today |
@@ -173,14 +173,14 @@ calls, and is not the baseline:
 ## Checked at onboarding
 
 With `usage.source: thanos`, the registry builds its import check with the usage grants on
-(`cmapi/src/cmapi/capacity/usage.py:307-327`, `cmapi/src/cmapi/core/registry.py:534`). After the six checks pass, the
-cluster's import check runs `ClusterRegistry._usage_grants` (`cmapi/src/cmapi/core/registry.py:607-635`):
+(`cmapi/src/cmapi/capacity/usage.py:307-327`, `cmapi/src/cmapi/core/registry.py:539`). After the six checks pass, the
+cluster's import check runs `ClusterRegistry._usage_grants` (`cmapi/src/cmapi/core/registry.py:612-640`):
 
 1. **Discovery** of `monitoring.coreos.com/v1` (`cmapi/src/cmapi/core/clients/kube.py:299-305`).
 2. **One LocalSubjectAccessReview per grant**, in `openshift-monitoring`: `get` on the Route `thanos-querier` (skipped with a
-   `thanosUrl`), and `get` on `prometheuses/api` `k8s` (`cmapi/src/cmapi/core/registry.py:59-67`, `:621`). Each names the
+   `thanosUrl`), and `get` on `prometheuses/api` `k8s` (`cmapi/src/cmapi/core/registry.py:60-68`, `:626`). Each names the
    user `system:serviceaccount:cmapi-system:cmapi-reader` with the groups `system:serviceaccounts` and
-   `system:serviceaccounts:cmapi-system`, and never `system:authenticated` (`:69-71`). The API server judges a review's user
+   `system:serviceaccounts:cmapi-system`, and never `system:authenticated` (`:70-72`). The API server judges a review's user
    and groups as written, so a grant to every user, such as CRC's `cluster-monitoring-view` binding of another project,
    does not count (`cmapi/src/cmapi/core/clients/kube.py:273-283`). A live query could not tell: kube-rbac-proxy reviews
    the token's own user with all its groups.
@@ -189,13 +189,13 @@ The outcomes:
 
 | Outcome | Finding | The cluster | Fix text |
 |---|---|---|---|
-| A grant is missing | `usage: missing grant in openshift-monitoring: <grant and its baseline objects>` (`cmapi/src/cmapi/core/registry.py:629`) | stays `connected`; its usage is unavailable; Thanos is not queried | "Apply the reader's openshift-monitoring grants of examples/baseline/cmapi-reader-rbac.yaml on the cluster; until then its usage is unavailable." (`:75-76`, `:147`) |
-| The review itself is refused (403) | `usage: the reader's grants could not be checked: missing grant in openshift-monitoring: create localsubjectaccessreviews (Role and RoleBinding cmapi-reader-grant-check)` (`:630-632`) | the same | the same: a grant that cannot be checked is not taken as held |
-| The review is inconclusive: an error, or an `evaluationError` with no allow | `usage: the reader's grants could not be checked: ...` (`:626-627`, `:633-634`) | the same | "Check the cluster's API server and its authorizers; the next import check, or :probe, asks again." (`:144-146`); the next check retries, and a `:probe` rechecks (`cmapi/src/cmapi/core/registry.py:763-769`) |
-| No monitoring (kind) | `usage: the cluster serves no monitoring.coreos.com/v1, so it has no OpenShift monitoring` (`:74`, `:617-618`) | the same | "No grant can fix this: the cluster has no OpenShift monitoring, so its usage stays unavailable." (`:142-143`) |
+| A grant is missing | `usage: missing grant in openshift-monitoring: <grant and its baseline objects>` (`cmapi/src/cmapi/core/registry.py:634`) | stays `connected`; its usage is unavailable; Thanos is not queried | "Apply the reader's openshift-monitoring grants of examples/baseline/cmapi-reader-rbac.yaml on the cluster; until then its usage is unavailable." (`:76-77`, `:148`) |
+| The review itself is refused (403) | `usage: the reader's grants could not be checked: missing grant in openshift-monitoring: create localsubjectaccessreviews (Role and RoleBinding cmapi-reader-grant-check)` (`:635-637`) | the same | the same: a grant that cannot be checked is not taken as held |
+| The review is inconclusive: an error, or an `evaluationError` with no allow | `usage: the reader's grants could not be checked: ...` (`:631-632`, `:638-639`) | the same | "Check the cluster's API server and its authorizers; the next import check, or :probe, asks again." (`:145-147`); the next check retries, and a `:probe` rechecks (`cmapi/src/cmapi/core/registry.py:768-774`) |
+| No monitoring (kind) | `usage: the cluster serves no monitoring.coreos.com/v1, so it has no OpenShift monitoring` (`:75`, `:622-623`) | the same | "No grant can fix this: the cluster has no OpenShift monitoring, so its usage stays unavailable." (`:143-144`) |
 
 The registry publishes a cluster's new client and the findings of its own check together, under its lock, so no query uses
-a client whose grants were not yet checked (`cmapi/src/cmapi/core/registry.py:540-546`). The findings are redacted before
+a client whose grants were not yet checked (`cmapi/src/cmapi/core/registry.py:545-551`). The findings are redacted before
 they are kept. While any finding stands, `ThanosQuerier.query` refuses before it reads the Route or sends a request
 (`cmapi/src/cmapi/capacity/thanos.py:66-77`, `:94-98`). With `usage.source: none` (the default) the check is not made
 (`cmapi/src/cmapi/capacity/usage.py:323-324`).

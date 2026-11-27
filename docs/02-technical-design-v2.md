@@ -2306,7 +2306,9 @@ The limitranges plugin is gone: the LimitRange now comes from the tier catalog, 
 | open\_pr | The branch is pushed | Opens the PR, or adopts the open one | 2 |
 | pr\_checks | Every PR open | Runs the validators and the cmapi check, then the merge check; queues apply (apply mode) or merge; failed or superseded otherwise | 2 |
 | apply | Apply mode, a create or a change | `apply_started`, server-side apply of the branch's folder, a confirming read; then applied | 2 |
-| merge | argocd mode, a delete, or applied | The merge check, then the host's merge pinned to a sha; adopts a merge the host already made; merge\_failed after an apply | 2 |
+| merge | gitops or argocd mode, a delete, or applied | The merge check, then the host's merge pinned to a sha; adopts a merge the host already made; merge\_failed after an apply | 2 |
+| watch\_sync | merged, or a :retry from sync\_failed | Waits for the full-plan read (`core/plan_read.py`): after Argo CD's own gate in argocd mode, after cmapi's apply in apply mode, alone in gitops mode (#751). Synced; sync\_failed at `syncTimeout` with the differences named; in gitops, awaiting\_prune when only unpruned removals are left. A delete moves to awaiting\_prune | 2 |
+| prune | awaiting\_prune | A delete: the namespace's absence by a read (apply mode deletes it first, after `POST /admin/prune:confirm`). A gitops change: the full-plan read, until each removed object is gone | 2 |
 | git\_cleanup | A final state, or merged | Closes a PR left open, deletes the branch with a lease, removes the worktree | 2 |
 | git\_reconcile | Every 15 minutes | PRs and branches a crashed worker left | 2 |
 
@@ -2494,13 +2496,79 @@ An independent review of the reference code against this design then found sixte
 - **Cancel by the requester compared the wrong field** of the stored requester record, so a requester could never cancel; it now reads the requester's username.
 - **The access model changed** after running it: Keycloak roles only (authz-roles.yaml), no team or namespace-name gate, cmapi-onboarding for people and bot-user, and namespace-name checks in core/naming.py.
 
+### Delivery modes and the read that ends a request (#751)
+
+The owner, 2026-11-27: "It shouldn't matter what apply the rendered yaml." So a request ends with a read of the live
+cluster against the full approved plan (`read_plan`, `core/plan_read.py`), in every mode, and a deliverer's report is never
+the proof. Argo CD's "Synced" is its own comparison, with its own `ignoreDifferences`, and server-side apply keeps a field
+that another manager co-owns. The design, with its primary sources: `docs/reviews/2026-11-27-issue-751/README.md`.
+
+| `delivery.mode` | Who applies | Before the read | A delete | A removal the deliverer does not prune |
+| --- | --- | --- | --- | --- |
+| `gitops` | Whatever applies `main`: Argo CD, Flux, ACM, a pipeline | Git main's folder is the plan | awaiting\_prune, until a read finds the namespace gone | awaiting\_prune at `syncTimeout`, with an operator's notice |
+| `argocd` | Argo CD | Git main's folder is the plan; Argo CD compared a revision holding the merge; this folder's objects Synced | awaiting\_prune, until the operator's confirmation in Argo CD and a read of absence | sync\_failed at `syncTimeout`, as before |
+| `apply` | cmapi's worker, before the merge, for a cluster with no deliverer (CRC) | The branch's folder is the plan; cmapi's server-side apply | `POST /admin/prune:confirm`, the worker's delete, a read of absence | cmapi deletes it itself |
+
+`gitops` is the mode for a cluster that has a deliverer; `apply` is for one with none; GitHub Actions never apply, they only
+validate (`docs/reviews/2026-11-27-issue-751/should-cmapi-apply-directly.md`). The default stays `argocd`, so a file that
+names no mode keeps its behaviour.
+
+**What the read compares.** The Namespace's labels and annotations that the plan writes, and the absence of each one it
+drops from the previous folder; each ResourceQuota's `spec.hard` in both directions, by value, and its `scopes` and
+`scopeSelector`; each LimitRange's `spec.limits` item by item, after the API server's defaults for a Container item
+(`SetDefaults_LimitRangeItem`); and the absence of each object the previous folder held and the plan does not. A key that
+matches `liveOnlyKeys` or an adoption skip prefix is the cluster's and left out, and a live key that neither the plan nor
+the previous folder holds is the drift view's (#481), not the plan's. A read of one object that fails is a difference that
+names it, never an absence; a cluster that cannot be read is a wait. Each ServiceAccount the plan writes must be there,
+and each RoleBinding with its `roleRef` and `subjects` (the token issuer's binding is on every create). `argocd.argoproj.io/sync-options`,
+cmapi's own prune policy, is compared although `liveOnlyKeys` leaves out the rest of `argocd.argoproj.io/*`. A planned
+object marked for deletion is a difference. Quantities compare as the API server stores them: by value, rounded up to milli
+scale (`SetDefaults_ResourceList`). The reader may list ServiceAccounts and RoleBindings but not get them, so the read lists
+them in the namespace. In gitops mode, `awaiting_prune` reads Git main as `watch_sync` does, and a difference that is not a
+removal ends it at `syncTimeout` in `sync_failed` (review of PR #752).
+
+**The deliverer's status, as signal** (`delivery.signal`, gitops only): `argocd` reads the Application of
+`delivery.argocd`; `flux` reads the Kustomization of `delivery.flux` (`kustomize.toolkit.fluxcd.io/v1`: its `Ready`
+condition, `lastAppliedRevision` and `lastAttemptedRevision`). The phrase joins each `sync_wait` note and the
+`sync_failed` note, so "not applied yet" and "applied and refused" can be told apart; it never confirms and never fails a
+request. A Flux signal needs `get` on that Kustomization for the reader, in its namespace; without it the note says
+"forbidden to the reader".
+
+**A newer request cannot supersede an unconfirmed one.** The namespace's lock (`uq_cr_open_namespace`) is held in
+`merged`, `awaiting_prune` and `sync_failed`, so a later request for the namespace is refused with 409 `change-pending`
+until this one ends. A change of the folder that no request made (a direct commit) is refused at once.
+
+<!-- markdownlint-disable MD033 -->
+<picture>
+  <source srcset="diagrams/gitops-delivery/gitops-read.light.png">
+  <img alt="In gitops mode cmapi merges, whatever deliverer applies main, and watch_sync confirms by read_plan: the live Namespace keys, quota hard values, LimitRange limits and the absence of removed objects against the approved plan. Argo CD's gate runs first only in argocd mode. The deliverer's status is signal only. Matches: synced. Differs at syncTimeout: sync_failed with each difference named. Only unpruned removals: awaiting_prune with an operator's notice, then a read of absence. Built in #751's pull request, not merged, not deployed." src="diagrams/gitops-delivery/gitops-read.light.png">
+</picture>
+<!-- markdownlint-enable MD033 -->
+
+*Built in #751's pull request; not merged, not deployed. One request after the merge, in `gitops` mode, and the read every mode ends with. Shown in its light theme; `gitops-read.dark.png` is beside it.*
+
+```text
+merge (gitops, argocd, every delete) --> main holds the plan's folder --> the deliverer applies main
+watch_sync, every pollInterval:
+  main's folder is not the plan --> sync_failed at once ("Git main's folder differs")
+  argocd mode only: Argo CD Synced at a revision with the merge, first (unchanged)
+  read_plan: Namespace keys, quota hard values by value, LimitRange limits after the server's defaults,
+             each removed object absent; never liveOnlyKeys or adoption.yaml's skip prefixes
+    matches --> synced
+    differs at syncTimeout --> sync_failed, each difference named (event sync_differences)
+    only unpruned removals at syncTimeout --> awaiting_prune, an operator's notice --> prune job reads --> synced
+gitops delete: awaiting_prune at the merge --> synced when a read finds the namespace gone
+the deliverer's status (delivery.signal): beside the differences in the notes, never the proof
+Built in #751's pull request; not merged, not deployed
+```
+
 ## Optional integrations: sync signal, operations, events
 
 cmapi runs fully with no Argo Workflows, no Argo Events and no Argo CD Notifications. Each sits behind an extension point with a built-in default. Turning one on adds capability; turning it off, or losing it, never touches the request path. The reasoning behind each choice is in cmapi — Argo Events and Workflows Technical Review.
 
 | Capability | Built-in default (no Argo) | With the optional integration |
 | --- | --- | --- |
-| Sync status | The worker polls each cluster's root Application every 30 seconds, only for clusters with requests in merged | Argo CD Notifications push results; polling drops to a 10-minute reconcile pass |
+| Sync status | The worker reads each merged request's objects every 30 seconds (the full-plan read, #751); in argocd mode it reads the root Application first | Argo CD Notifications push results; polling drops to a 10-minute reconcile pass |
 | Operations: cluster-onboard, rebuild-verify, adoption-sweep, bulk-migrate, promote | The built-in engine runs the steps inside the cmapi worker, with state in PostgreSQL | Argo Workflows (or Tekton) runs the same steps as pods, with its UI, archive and S3 reports |
 | Fan-out limits | Per-cluster cap enforced through the jobs table | Workflow semaphores |
 | Outbound events | Off, or a signed webhook or Kafka topic that any consumer can read | Argo Events Sensors are one such consumer; cmapi does not know they exist |
@@ -2671,5 +2739,7 @@ Superseded by the resequenced plan in Design and Architecture; kept here for ref
 - **Backlog, in any order.** Change sets and promote, temporary quota bursts, capacity forecasting, showback, ownership attestation, outbound events, tamper-evident audit. SA token guardrails are deferred.
 
 ## Diagram sources
+
+The gitops delivery figure (#751) is `docs/diagrams/gitops-delivery/source.html`, written by hand from the diagram-kit template. To render again: `/Users/olasumbo/gitRepos/diagram-kit/.venv/bin/diagram-render docs/diagrams/gitops-delivery/source.html docs/diagrams/gitops-delivery gitops-read`, which writes the light and dark PNGs only when its checks pass. The picture, its text twin and the page change together.
 
 The Git delivery figures (#286) are `docs/diagrams/git-delivery/source.html`. `docs/diagrams/tools/draft-git-delivery.py` writes that page and then runs the kit's renderer, set with `DIAGRAM_RENDER`. To render again: `/Users/olasumbo/gitRepos/diagram-kit/.venv/bin/diagram-render docs/diagrams/git-delivery/source.html docs/diagrams/git-delivery architecture,states,apply-sequence`: diagram-kit at main `548d42f`, whose `pyproject.toml` says 0.2.6 (the installed package's metadata says 0.2.5). It writes the light and dark PNGs only when its checks pass. The picture, its text twin and the page change together.

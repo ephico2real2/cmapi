@@ -1,19 +1,24 @@
 """How a merged folder reaches the cluster, and how cmapi learns it did (docs/01, Sync).
 
-Two delivery modes, chosen in config/integrations.yaml (`delivery.mode`) or per cluster:
+Three delivery modes, chosen in config/integrations.yaml (`delivery.mode`) or per cluster (#751):
 
-    argocd   The design: each cluster's Argo CD applies clusters/<id>/namespaces; the worker reads
-             the root Application (SyncSignal poll) and confirms with a direct read. Deletes
-             wait in awaiting_prune until an operator confirms the prune in Argo CD.
-    apply    Built-in, for a cluster with no GitOps (CRC): once Git main's folder is seen to equal
-             the approved plan, the worker applies that plan with server-side apply as a separate
-             deliverer identity, confirms with a read, and holds deletes until an operator
+    gitops   For a cluster with a deliverer: whatever applies Git main (Argo CD, Flux, ACM, a pipeline)
+             applies the folder, and cmapi confirms by a read of the full approved plan (read_plan),
+             whoever applied it. The deliverer's own status, when configured and readable, is signal
+             for people (deliverer_signal), never proof. Deletes wait in awaiting_prune for a read of
+             absence.
+    argocd   Each cluster's Argo CD applies clusters/<id>/namespaces; the worker reads the root
+             Application (SyncSignal poll) and then confirms with the same read. Deletes wait in
+             awaiting_prune until an operator confirms the prune in Argo CD.
+    apply    For a cluster with no deliverer (CRC): once Git main's folder is seen to equal the
+             approved plan, the worker applies that plan with server-side apply as a separate
+             deliverer identity, confirms with the read, and holds deletes until an operator
              confirms through POST /admin/prune:confirm. It refuses a namespace that exists and
              is not cmapi-managed. This is the only cluster write cmapi ever makes, and it is
              documented as a deployment choice, not the design's default.
 
-Both end the same way: a request is synced only when a read shows the namespace and its quota
-as planned.
+All three end the same way: a request is synced only when a read shows the cluster as the plan says
+(docs/reviews/2026-11-27-issue-751/README.md, D2).
 """
 from __future__ import annotations
 
@@ -21,31 +26,54 @@ from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
 from cmapi.core import kube_yaml
-from cmapi.core.clients.kube import KubeClient, KubeError
+from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeClient, KubeError
+from cmapi.core.plan_read import Difference, Getter, PlanRead, Unreadable, defaulted_limit, read_plan  # noqa: F401 (the API)
 from cmapi.core.ports import AppStatus
-from cmapi.core.render.manifests import objects_of
-from cmapi.core.tiers import qty
 
-DeliveryMode = Literal["argocd", "apply"]
+DeliveryMode = Literal["argocd", "gitops", "apply"]
+MODES: tuple[str, ...] = ("argocd", "gitops", "apply")
+# Whose status joins a gitops request's notes (#751, D4). Never proof: see read_plan.
+SIGNALS: tuple[str, ...] = ("none", "argocd", "flux")
 
 
 @dataclass(frozen=True)
 class DeliveryConfig:
-    mode: DeliveryMode = "argocd"     # the design's mode; apply is a deployment's explicit choice
+    mode: DeliveryMode = "argocd"     # unchanged for a file that names none; gitops is the mode to choose (#751, D1)
     poll_seconds: int = 30
     sync_timeout_seconds: int = 1800
     argocd_namespace: str = "openshift-gitops"
     argocd_root_application: str = "cluster-configs-{clusterId}"
+    signal: str = "none"
+    flux_namespace: str = "flux-system"
+    flux_kustomization: str = "cluster-configs-{clusterId}"
+
+    def __post_init__(self) -> None:
+        # Before #751 a misspelt mode ran as argocd: the watch's else branch took it. Now it stops the start.
+        if self.mode not in MODES:
+            raise ValueError(f"integrations.yaml: delivery.mode must be one of {', '.join(MODES)}, not {self.mode!r}")
+        if self.signal not in SIGNALS:
+            raise ValueError(f"integrations.yaml: delivery.signal must be one of {', '.join(SIGNALS)}, not {self.signal!r}")
+        # A name template that cannot be filled would raise in the middle of a sync poll, past every handler there.
+        for key, template in (("argocd.rootApplication", self.argocd_root_application),
+                              ("flux.kustomization", self.flux_kustomization)):
+            try:
+                application_name(template, "CLUSTER", "namespace")
+            except (KeyError, IndexError, ValueError, AttributeError) as exc:
+                raise ValueError(f"integrations.yaml: delivery.{key} {template!r} takes only {{clusterId}} and "
+                                 f"{{namespace}}: {type(exc).__name__} {exc}") from None
 
     @classmethod
     def from_integrations(cls, raw: Mapping[str, Any] | None) -> "DeliveryConfig":
         raw = raw or {}
         d = raw.get("delivery") or {}
         s = raw.get("syncSignal") or {}
+        argocd, flux = d.get("argocd") or {}, d.get("flux") or {}
         return cls(mode=d.get("mode", "argocd"), poll_seconds=_seconds(s.get("pollInterval", "30s")),
                    sync_timeout_seconds=_seconds(d.get("syncTimeout", "30m")),
-                   argocd_namespace=d.get("argocd", {}).get("namespace", "openshift-gitops"),
-                   argocd_root_application=d.get("argocd", {}).get("rootApplication", "cluster-configs-{clusterId}"))
+                   argocd_namespace=argocd.get("namespace", "openshift-gitops"),
+                   argocd_root_application=argocd.get("rootApplication", "cluster-configs-{clusterId}"),
+                   signal=d.get("signal", "none"), flux_namespace=flux.get("namespace", "flux-system"),
+                   flux_kustomization=flux.get("kustomization", "cluster-configs-{clusterId}"))
 
 
 def _seconds(v: str | int) -> int:
@@ -136,22 +164,66 @@ def not_synced(app: AppStatus, files: Mapping[str, str], previous: Mapping[str, 
     return out
 
 
-def confirmed_by_read(cache_get: Any, namespace: str, files: Mapping[str, str]) -> tuple[bool, str]:
-    """The read that ends a request: the namespace exists and its quota equals the planned hard values."""
-    ns = cache_get("Namespace", None, namespace)
-    if ns is None:
-        return False, "namespace not found"
-    wanted = objects_of(files, "ResourceQuota")     # by kind, from any file of the folder (#253)
-    if not wanted:
-        return True, "namespace present"
-    for want in wanted:
-        name = want["metadata"]["name"]
-        live = cache_get("ResourceQuota", namespace, name)
-        if live is None:
-            return False, f"resourcequota {name} not found"
-        hard = live.get("spec", {}).get("hard", {})
-        # The API server returns quantities canonicalised (5120Mi reads back as 5Gi): compare values, not spellings.
-        missing = {k: v for k, v in want["spec"]["hard"].items() if k not in hard or qty(hard[k]) != qty(v)}
-        if missing:
-            return False, f"quota {name} differs: {missing}"
-    return True, "quota matches the plan"
+# --------------------------------------------------------------------------- the read that ends a request (#751, D2)
+
+def confirmed_by_read(get: Getter, namespace: str, files: Mapping[str, str | None],
+                      previous: Mapping[str, str | None] | None = None, **rules: Any) -> tuple[bool, str]:
+    """read_plan (core/plan_read.py) as (confirmed, why): the argocd and apply jobs' form of it."""
+    found = read_plan(get, namespace, files, previous, **rules)
+    return found.ok, found.summary()
+
+
+# --------------------------------------------------------------------------- the deliverer's status, as signal (#751, D4)
+
+def _argocd_phrase(name: str, app: Mapping[str, Any]) -> str:
+    st = app.get("status") or {}
+    op = st.get("operationState") or {}
+    sync, health = (st.get("sync") or {}).get("status", "Unknown"), (st.get("health") or {}).get("status", "Unknown")
+    words = f"Argo CD {name}: {sync}, {health}"
+    if op.get("phase"):
+        words += f", last operation {op['phase']}"
+        if op.get("message"):
+            words += f": {op['message']}"
+    errors = [c.get("message", "") for c in st.get("conditions") or [] if str(c.get("type", "")).endswith("Error")]
+    if errors:
+        words += f"; {'; '.join(errors)}"
+    return words
+
+
+def _flux_phrase(name: str, ks: Mapping[str, Any]) -> str:
+    st = ks.get("status") or {}
+    ready = next((c for c in st.get("conditions") or [] if c.get("type") == "Ready"), None)
+    words = f"Flux {name}: " + (f"Ready {ready.get('status')} ({ready.get('reason', '')}): {ready.get('message', '')}"
+                                if ready else "no Ready condition yet")
+    return f"{words}; applied {st.get('lastAppliedRevision') or 'nothing'}, attempted {st.get('lastAttemptedRevision') or 'nothing'}"
+
+
+def deliverer_signal(client: Any, config: DeliveryConfig, cluster_id: str, namespace: str) -> str | None:
+    """One phrase on what the deliverer reports, for a person reading the request, or None when no signal is set.
+
+    It never raises and never decides: a request is confirmed or failed by read_plan alone. A deliverer that is not there,
+    a read the reader may not make, or a cluster that does not answer is said in a phrase, and nothing else changes."""
+    if config.signal == "none":
+        return None
+    if config.signal == "argocd":
+        name = application_name(config.argocd_root_application, cluster_id, namespace)
+        label, path = f"Argo CD {name}", f"/apis/argoproj.io/v1alpha1/namespaces/{config.argocd_namespace}/applications/{name}"
+    else:
+        name = application_name(config.flux_kustomization, cluster_id, namespace)
+        label = f"Flux {name}"
+        path = f"/apis/kustomize.toolkit.fluxcd.io/v1/namespaces/{config.flux_namespace}/kustomizations/{name}"
+    try:
+        if client is None:
+            raise ClusterUnreachable("no reader")
+        found = client.get(path)
+    except KubeError as exc:
+        return f"{label}: {'forbidden to the reader' if exc.status == 403 else f'unreadable ({exc.status})'}"
+    except (ClusterUnreachable, BadResponse) as exc:
+        return f"{label}: unreadable ({type(exc).__name__})"
+    if found is None:
+        return f"{label}: not found"
+    try:
+        phrase = _argocd_phrase(name, found) if config.signal == "argocd" else _flux_phrase(name, found)
+    except (AttributeError, TypeError):           # a status of another shape: still only a phrase, never a failed job
+        return f"{label}: a status cmapi cannot read"
+    return phrase[:300]

@@ -51,6 +51,7 @@ from cmapi.core.cluster_tokens import READER_IDENTITY, ReaderGrant, TokenPolicy
 from cmapi.core.config import ConfigError
 from cmapi.core.errors import Problem
 from cmapi.core.observability import CLUSTER_STATUS, CLUSTER_TLS_INSECURE, cluster_http_call, log, set_token_expiry
+from cmapi.core.sync import MODES as DELIVERY_MODES
 from cmapi.core.tiers import qty
 
 STATUSES = ("connected", "not-imported", "invalid-secret", "unreachable", "cert-verify-failed", "auth_failed",
@@ -266,6 +267,10 @@ def load_policies(path: Path, allowed_environments: set[str],
             continue
         if (why := _placement_problem(e.get("placement") or {})) is not None:
             problems.append(f"cluster {cid}: placement {why}")
+            continue
+        if e.get("delivery") is not None and e.get("delivery") not in DELIVERY_MODES:
+            # Before #751 another value ran as argocd: the watch's else branch took it.
+            problems.append(f"cluster {cid}: delivery must be one of {', '.join(DELIVERY_MODES)}, not {e.get('delivery')!r}")
             continue
         thanos_url = e.get("thanosUrl")
         if thanos_url is not None:

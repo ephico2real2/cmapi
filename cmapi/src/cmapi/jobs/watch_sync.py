@@ -1,14 +1,15 @@
-"""watch_sync: the request is merged. Deliver (apply mode) or wait for Argo CD (argocd mode), then
-confirm by a read; a delete stops in awaiting_prune. Re-enqueues itself every poll interval until
-synced, or sync_failed after the timeout. prune: an operator confirmed; in apply mode remove the
-namespace, then confirm it is gone."""
+"""watch_sync: the request is merged. Deliver (apply mode), wait for Argo CD (argocd mode), or wait for whatever
+applies Git main (gitops mode, #751), then confirm by a read of the full plan; a delete stops in awaiting_prune.
+Re-enqueues itself every poll interval until synced, or sync_failed after the timeout; a gitops change whose only
+differences are objects its deliverer did not prune goes to awaiting_prune instead. prune: in apply mode an operator
+confirmed, so remove the namespace; in every mode, confirm by a read that what the plan removes is gone."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from cmapi.core.clients.kube import ClusterUnreachable, KubeError
+from cmapi.core.clients.kube import BadResponse, ClusterUnreachable, KubeError
 from cmapi.core.context import AppContext
 from cmapi.core.db.models import JobRow
 from cmapi.core.db.repo import JobRepo, RequestRepo
@@ -17,7 +18,8 @@ from cmapi.core.git.base import GitUnavailable, as_plan
 from cmapi.core.lifecycle import Event as E, State as S
 from cmapi.core.observability import LEAD_TIME, log
 from cmapi.core.render.manifests import folder
-from cmapi.core.sync import ApplyDelivery, ArgoCdSignal, application_name, confirmed_by_read, not_synced
+from cmapi.core.sync import (ApplyDelivery, ArgoCdSignal, PlanRead, Unreadable, application_name, confirmed_by_read,
+                             deliverer_signal, not_synced, read_plan)
 from cmapi.jobs.delivery import ADOPTION_STALE, adoption_stored, adoption_writes
 
 
@@ -55,6 +57,38 @@ def _managed(obj: dict | None) -> bool:
     return ((obj or {}).get("metadata", {}).get("labels") or {}).get("cmapi.net/managed") == "true"
 
 
+# Who a move is recorded by, in each mode.
+ACTOR = {"apply": "cmapi-deliverer", "argocd": "argocd", "gitops": "gitops"}
+
+
+# The kinds the reader may list in a namespace but not get (deploy/manifests/environments/crc/reader, #748).
+_LISTED = ("ServiceAccount", "RoleBinding")
+
+
+def _live(cache):
+    """read_plan's Getter on a watch cache: the cached object, else a direct read of the reader. A read of one object that
+    fails is Unreadable, never an absence; a cluster that cannot be read raises ClusterUnreachable, a wait (#751, D2)."""
+    def get(kind: str, ns: str | None, name: str):
+        hit = cache.get(kind, ns, name) if kind in cache.kinds else None
+        if hit is not None:
+            return hit
+        try:
+            if kind in _LISTED:
+                # One list of the namespace, unpaged: without `limit` the API server answers in one response.
+                return next((o for o in cache.client.list(kind, namespace=ns)["items"]
+                             if (o.get("metadata") or {}).get("name") == name), None)
+            return cache.client.get_object(kind, ns, name)
+        except (KubeError, BadResponse, KeyError) as exc:       # KeyError: a kind the reader has no path for (RESOURCES)
+            raise Unreadable(str(exc) or type(exc).__name__) from exc
+    return get
+
+
+def _rules(ctx: AppContext) -> dict:
+    """read_plan's skip rules from this instance's files: liveOnlyKeys (metadata-keys.yaml) and the D3 skip prefixes
+    (adoption.yaml)."""
+    return {"live_only": ctx.cfg.metadata.live_only, "skip_prefixes": ctx.cfg.adoption.skip_prefixes}
+
+
 def _reader_cache(ctx: AppContext, cluster_id: str):
     """The watch cache; a cluster whose import is not connected is something to wait for, not a job failure."""
     try:
@@ -78,11 +112,13 @@ def watch_sync(ctx: AppContext, s: Session, job: JobRow) -> None:
     mode = _mode(ctx, row.cluster_id)
     if row.action == "delete":
         if row.status == S.MERGED.value:
-            repo.move(row, E.PRUNE_PENDING, "argocd" if mode == "argocd" else "cmapi-deliverer",
-                      "Prune=confirm: waiting for an operator to confirm the prune")
+            note = ("waiting for the deliverer to remove the namespace; a read of its absence ends the request, and a "
+                    "deliverer that does not prune waits for an operator to remove it" if mode == "gitops"
+                    else "Prune=confirm: waiting for an operator to confirm the prune")
+            repo.move(row, E.PRUNE_PENDING, ACTOR[mode], note)
         jobs.done(job)
-        if mode == "argocd":
-            # The confirmation happens in Argo CD, with no call to cmapi: only a watch of the namespace ends the request.
+        if mode in ("argocd", "gitops"):
+            # The confirmation happens in the deliverer, with no call to cmapi: only a watch of the namespace ends the request.
             jobs.enqueue("prune", request_id=row.request_id, cluster_id=row.cluster_id, delay=ctx.delivery.poll_seconds)
         return
     try:
@@ -124,6 +160,11 @@ def watch_sync(ctx: AppContext, s: Session, job: JobRow) -> None:
                         obsolete[path] = kube_yaml.dump_all(docs, sort_keys=False)
                 d.prune_objects(row.namespace, obsolete)
             repo.event(row, "applied", "cmapi-deliverer", f"server-side applied {n} objects from Git {row.merge_sha[:8] if row.merge_sha else 'main'}")
+        elif mode == "gitops":
+            # Whatever applies the folder applies main: a folder that is not the plan cannot reach the cluster as approved,
+            # so a later change of it is refused at once, as in argocd mode (#751, D3 step 1; D7).
+            if not as_plan(lambda: ctx.git.read_folder(folder(row.cluster_id, row.namespace))[0] == files):
+                return _refuse(repo, jobs, row, job, "Git main's folder differs from the approved plan")
         else:
             # Three things must hold before a read can confirm: Git main still carries the approved plan (a later
             # change to the folder is a new request, not this one), Argo CD has compared a revision at or after the
@@ -146,20 +187,34 @@ def watch_sync(ctx: AppContext, s: Session, job: JobRow) -> None:
             if waiting:
                 raise _NotYet(f"Argo CD reports {waiting[:3]}")
         cache = _reader_cache(ctx, row.cluster_id)
-        ok, why = confirmed_by_read(lambda k, ns, n: cache.get(k, ns, n) or _direct(cache, k, ns, n), row.namespace, files)
-        if not ok:
-            raise _NotYet(why)
+        previous = row.plan.get("prev") or {}
+        if mode == "gitops":
+            found = read_plan(_live(cache), row.namespace, files, previous, **_rules(ctx))
+            if not found.ok:
+                raise _Differs(found, deliverer_signal(cache.client, ctx.delivery, row.cluster_id, row.namespace))
+            why = found.summary()
+        else:
+            ok, why = confirmed_by_read(_live(cache), row.namespace, files, previous, **_rules(ctx))
+            if not ok:
+                raise _NotYet(why)
     except (_NotYet, ClusterUnreachable, KubeError, GitUnavailable) as exc:
         if waited > ctx.delivery.sync_timeout_seconds:
+            if isinstance(exc, _Differs) and exc.found.only_removals:
+                return _await_prune(ctx, repo, jobs, row, job, exc)
+            if isinstance(exc, _Differs):
+                # Every difference in the event's detail (request_events.detail, docs/16); the move's note names the first ones.
+                repo.event(row, "sync_differences", "worker", str(exc)[:500],
+                           {"differences": [d.view() for d in exc.found.differences], "signal": exc.signal})
             if row.status == S.MERGED.value:
-                repo.move(row, E.SYNC_TIMEOUT, "worker", f"not synced after {int(waited)} s: {str(exc)[:160]}")
+                repo.move(row, E.SYNC_TIMEOUT, "worker",
+                          f"not synced after {int(waited)} s: {str(exc)[:500 if isinstance(exc, _Differs) else 160]}")
             jobs.done(job)
             return
-        repo.event(row, "sync_wait", "worker", str(exc)[:200])
+        repo.event(row, "sync_wait", "worker", str(exc)[:500 if isinstance(exc, _Differs) else 200])
         jobs.retry(job, str(exc)[:300], ctx.delivery.poll_seconds)
         job.attempts = 0                                  # waiting is not a failure
         return
-    repo.move(row, E.SYNCED, "cmapi-deliverer" if mode == "apply" else "argocd", f"confirmed by a read: {why}")
+    repo.move(row, E.SYNCED, ACTOR[mode], f"confirmed by a read: {why}")
     approval = "auto" if (row.requirement or {}).get("auto") else "human"
     LEAD_TIME.labels(row.plugin, row.action, approval).observe((datetime.now(timezone.utc) - row.created_at).total_seconds())
     jobs.done(job)
@@ -174,11 +229,48 @@ def _refuse(repo: RequestRepo, jobs: JobRepo, row, job: JobRow, why: str) -> Non
     jobs.done(job)
 
 
-def _direct(cache, kind: str, ns: str | None, name: str):
+def _await_prune(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow, exc: "_Differs") -> None:
+    """#751, D5: at the timeout every difference is an object the plan removes, still on the cluster. The deliverer does not
+    prune (Argo CD's automated sync does not by default; Flux with prune: false never does), so this is an operator's wait,
+    not a failure: awaiting_prune, with a notice that names each object, and the prune job reads until they are gone."""
+    names = ", ".join(d.object for d in exc.found.differences)
+    note = (f"the deliverer has not removed {len(exc.found.differences)} object(s) this plan removes: {names}. Remove them, "
+            f"or prune in the deliverer; a read of their absence ends the request")
+    if exc.signal:
+        note += f" ({exc.signal})"
+    log.warning("prune_waiting", job=job.job_id, request_id=row.request_id, reason=note[:200])
+    repo.move(row, E.PRUNE_PENDING, "gitops", note)      # whole: the operator acts on every name (request_events.note is text)
+    jobs.done(job)
+    jobs.enqueue("prune", request_id=row.request_id, cluster_id=row.cluster_id, delay=ctx.delivery.poll_seconds)
+
+
+def _prune_change(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) -> None:
+    """A gitops change in awaiting_prune (D5): synced once the full-plan read matches, which is when each removed object is
+    gone. While only removed objects are left, the operator's wait, unbounded, with the reason on the request once
+    (CmapiPruneStuck after a day). Anything else, a cluster or an object that cannot be read or a difference that is no
+    removal, is bounded by syncTimeout, as for a delete (_cannot_read): awaiting_prune has no :retry or :revert of its own.
+    Git main is read first, as watch_sync does (D3 step 1): the deliverer applies main, not this plan."""
+    files = {p: t for p, t in row.plan["files"].items() if t is not None}
     try:
-        return cache.client.get_object(kind, ns, name)
-    except (ClusterUnreachable, KubeError):
-        return None
+        if not as_plan(lambda: ctx.git.read_folder(folder(row.cluster_id, row.namespace))[0] == files):
+            repo.move(row, E.SYNC_TIMEOUT, "worker", "Git main's folder differs from the approved plan")
+            jobs.done(job)
+            return
+        cache = _reader_cache(ctx, row.cluster_id)
+        found = read_plan(_live(cache), row.namespace, files, row.plan.get("prev") or {}, **_rules(ctx))
+    except (_NotYet, ClusterUnreachable, GitUnavailable) as exc:
+        _cannot_read(ctx, repo, jobs, row, job, f"{type(exc).__name__}: {exc}")
+        return
+    if not found.ok and not found.only_removals:
+        _cannot_read(ctx, repo, jobs, row, job, found.summary(), failing="the plan did not match in more than removals")
+        return
+    if (job.payload or {}).get("unreachable_since"):
+        job.payload = {k: v for k, v in job.payload.items() if k != "unreachable_since"}
+    if not found.ok:
+        _prune_wait(repo, jobs, row, job, ctx.delivery.poll_seconds, found.summary())
+        return
+    repo.move(row, E.PRUNE_CONFIRMED, "gitops", f"absence confirmed by a successful read: {found.summary()}")
+    jobs.done(job)
 
 
 def _prune_wait(repo: RequestRepo, jobs: JobRepo, row, job: JobRow, poll: int, why: str) -> None:
@@ -191,7 +283,8 @@ def _prune_wait(repo: RequestRepo, jobs: JobRepo, row, job: JobRow, poll: int, w
     job.attempts = 0
 
 
-def _cannot_read(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow, why: str) -> None:
+def _cannot_read(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow, why: str,
+                 failing: str = "the cluster could not be read") -> None:
     """A cluster that cannot be read, unreachable or its reader not connected (never connecting included), is a wait
     bounded by time, not by attempts: one clock from the first failed read, running for the design's syncTimeout, the
     bound watch_sync gives the same failure. The registry's relist, up to five minutes away, never decides the outcome.
@@ -206,7 +299,7 @@ def _cannot_read(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: Jo
     if waited < ctx.delivery.sync_timeout_seconds:
         _prune_wait(repo, jobs, row, job, ctx.delivery.poll_seconds, why)
         return
-    note = f"the cluster could not be read for {int(waited)} s: {why[:160]}"
+    note = f"{failing} for {int(waited)} s: {why[:160]}"
     if row.status == S.AWAITING_PRUNE.value:
         repo.move(row, E.SYNC_TIMEOUT, "worker", note)
     else:
@@ -232,6 +325,8 @@ def prune(ctx: AppContext, s: Session, job: JobRow) -> None:
     if row.status != S.AWAITING_PRUNE.value and not retrying:
         jobs.done(job)
         return
+    if row.action != "delete":
+        return _prune_change(ctx, repo, jobs, row, job)
     mode = _mode(ctx, row.cluster_id)
     if retrying:
         # A delete is done when its folder has left Git and its namespace the cluster. A sync_failed delete may have failed on
@@ -275,9 +370,17 @@ def prune(ctx: AppContext, s: Session, job: JobRow) -> None:
         _prune_wait(repo, jobs, row, job, ctx.delivery.poll_seconds, f"namespace still present ({live.get('status', {}).get('phase', 'Unknown')})")
         return
     event = E.SYNCED if retrying else E.PRUNE_CONFIRMED
-    repo.move(row, event, "cmapi-deliverer" if mode == "apply" else "argocd", "absence confirmed by a successful read")
+    repo.move(row, event, ACTOR[mode], "absence confirmed by a successful read")
     jobs.done(job)
 
 
 class _NotYet(RuntimeError):
     pass
+
+
+class _Differs(_NotYet):
+    """gitops: the full-plan read is not the plan yet. Carries what was found and the deliverer's signal, for the timeout."""
+
+    def __init__(self, found: PlanRead, signal: str | None):
+        super().__init__(found.summary() + (f"; deliverer: {signal}" if signal else ""))
+        self.found, self.signal = found, signal

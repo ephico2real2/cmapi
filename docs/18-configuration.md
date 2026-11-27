@@ -26,6 +26,7 @@ cmapi targets **OpenShift 4.18 and later** on the hub and onboarded OpenShift cl
 | `database.cnpg.enabled` (CloudNativePG, installed by the site) | Certified bundle metadata lists CloudNativePG 1.30.1 and 1.30.2 for 4.18–4.22. CRC ran 1.30.1. The 4.20–5.0 listing belongs to 1.31.0-rc1, which cmapi has never run. A production CNPG combination for 4.23 remains unverified. Alternatively, disable `database.cnpg.enabled` and configure an [existing PostgreSQL](12-existing-postgresql.md). |
 | `instance.policy.engine: kyverno` (Kyverno, installed by the site) | Community Kyverno v1.20 covers Kubernetes 1.34–1.37. For 4.18 (Kubernetes 1.31), use `instance.policy.engine: none` to run without the Kyverno bundle and reports, or establish support separately for the chosen operator. |
 | `delivery.mode: argocd` (OpenShift GitOps) | GitOps 1.22.0 lists 4.18–4.22. Compatibility with 4.23 is unverified. |
+| `delivery.mode: gitops` | No OpenShift dependency of its own: cmapi reads Namespaces, ResourceQuotas and LimitRanges (`v1`). The deliverer's own support matrix applies to the deliverer |
 
 ## How cmapi reads its configuration
 
@@ -952,11 +953,13 @@ Optional. The code that reads it is `cmapi/src/cmapi/core/sync.py` (`DeliveryCon
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `delivery.mode` | `argocd` or `apply` | `argocd` | `argocd`: Argo CD on each cluster applies the folder, and cmapi only reads. `apply`: the worker applies the approved folder itself, with server-side apply. `apply` is a deviation that a site must accept (`core/sync.py`) |
-| `delivery.syncTimeout` | duration | `30m` | The wait for a merged request to be `Synced` before it becomes `sync_failed` |
-| `delivery.argocd.namespace` | text | `openshift-gitops` | The namespace of the Argo CD root Application |
-| `delivery.argocd.rootApplication` | text | `cluster-configs-{clusterId}` | The name of the root Application. `{clusterId}` becomes the cluster ID in lower case with `_` as `-` |
-| `syncSignal.pollInterval` | duration | `30s` | How often the worker reads the Application |
+| `delivery.mode` | `gitops`, `argocd` or `apply` | `argocd` | `gitops` (#751), the mode for a cluster with a deliverer: whatever applies Git main (Argo CD, Flux, ACM, a pipeline) applies the folder, and cmapi confirms by a read of the full approved plan alone. `argocd`: Argo CD applies the folder, and cmapi reads after Argo CD reports it Synced. `apply`: the worker applies the approved folder itself, with server-side apply, for a cluster with no deliverer; a deviation that a site must accept. In every mode cmapi ends a request with the same read (`core/plan_read.py`; docs/02, "Delivery modes and the read that ends a request"). Another value stops the start (`core/sync.py`). Without the key, `argocd`, so a file written before #751 keeps its behaviour |
+| `delivery.syncTimeout` | duration | `30m` | The wait for a merged request's full-plan read to match before it becomes `sync_failed`, with each difference named. In `gitops` mode, a request whose only differences then are objects it removes that the deliverer has not pruned becomes `awaiting_prune` instead, with a notice for an operator |
+| `delivery.signal` | `none`, `argocd` or `flux` | `none` | `gitops` only: whose status joins a request's notes beside the differences, so that "not applied yet" and "applied and refused" can be told apart. It never confirms or fails a request. `argocd` reads the Application of `delivery.argocd`; `flux` reads the Kustomization of `delivery.flux`, and the reader then needs `get` on it in its namespace. Not readable: the note says so, and nothing else changes. Another value stops the start |
+| `delivery.flux.namespace`, `delivery.flux.kustomization` | text | `flux-system`, `cluster-configs-{clusterId}` | The Flux Kustomization that `delivery.signal: flux` reads. `{clusterId}` as for `rootApplication` |
+| `delivery.argocd.namespace` | text | `openshift-gitops` | The namespace of the Argo CD root Application: the gate in `argocd` mode, the signal in `gitops` mode with `delivery.signal: argocd` |
+| `delivery.argocd.rootApplication` | text | `cluster-configs-{clusterId}` | The name of the root Application. `{clusterId}` becomes the cluster ID in lower case with `_` as `-`, and `{namespace}` the request's namespace. Any other placeholder in this template or in `delivery.flux.kustomization` stops the start (`core/sync.py`) |
+| `syncSignal.pollInterval` | duration | `30s` | How often the worker reads a merged request's objects (and the Application in `argocd` mode, or the signal) |
 | `syncSignal.default`, `syncSignal.reconcileInterval` | text | None. With no `syncSignal` key the route reports `{default: poll}` | Reported by `GET /api/v1/admin/integrations`. No other code reads them. The value `notify` is not built |
 | `operations.*` | mapping | `engine: builtin` | Reported by `GET /api/v1/admin/integrations`. No built code runs an operation engine |
 | `events.*` | mapping | `publisher: none` | Reported by the same route. No built code publishes events |
@@ -982,7 +985,7 @@ A duration is a number with `s`, `m` or `h`, or a whole number of seconds (`_sec
 | `gitopsPath` | text | `clusters/<clusterId>` | Shown in `GET /api/v1/clusters`. No built code uses it for the folder: the folder is always `clusters/<clusterId>/namespaces/<namespace>/` (`folder`, `core/render/manifests.py`) |
 | `writes` | boolean | `true` | `false` makes the cluster read only |
 | `syncSignal` | text | `poll` | No built code reads it. `notify` is not built |
-| `delivery` | `argocd` or `apply` | The `delivery.mode` of `integrations.yaml` | The delivery mode of this cluster (`jobs/watch_sync.py`) |
+| `delivery` | `gitops`, `argocd` or `apply` | The `delivery.mode` of `integrations.yaml` | The delivery mode of this cluster (`jobs/watch_sync.py`). Another value stops the start (`load_policies`) |
 | `thanosUrl` | text | None | The Thanos Querier of the cluster, read when `capacity.yaml` `usage.source` is `thanos`. Without it, the host of the Route `thanos-querier` in `openshift-monitoring` (`capacity/thanos.py`, #310). An https URL with a host and no userinfo, because the reader's token goes to it; another value stops the start. It is verified with the cluster's own trust mode, as the Route is |
 | `labels` | mapping | `{}` | Labels that `match.clusterSelector` reads. `GET /api/v1/clusters` shows them |
 | `metadata` | mapping | `{}` | No built code reads it |
@@ -1108,7 +1111,8 @@ environments:
 | `git.bootstrap.enabled`, `.clusterIds` | | `false`, `[CRC]` | On CRC and kind: creates the organisation, the repository, its seed and the branch protection |
 | `clusters` | mapping | One entry, `CRC` | `clusters.yaml` |
 | `imports.namespace`, `imports.createNamespace` | | `cmapi-imports`, `true` | `CMAPI_IMPORTS_NAMESPACE`, and whether the chart creates it |
-| `delivery.mode`, `.syncTimeout`, `.pollInterval` | | `argocd`, `30m`, `30s` | `integrations.yaml` `delivery` and `syncSignal` |
+| `delivery.mode`, `.syncTimeout`, `.pollInterval`, `.signal`, `.flux` | | `argocd`, `30m`, `30s`, `none`, `{namespace: flux-system, kustomization: cluster-configs-{clusterId}}` | `integrations.yaml` `delivery` and `syncSignal` |
+| `delivery.gitops.delivererServiceAccount`, `.acknowledgeUncontainedDeliverer` | text, boolean | `""`, `false` | Needed in `gitops` mode: `system:serviceaccount:<namespace>:<name>` of the deliverer that applies Git main on the hub (Flux's `kustomize-controller`, Argo CD's application controller). `cmapi-deliverer-managed-only` then contains it as it contains Argo CD's controller in `argocd` mode. The chart refuses an empty value unless `acknowledgeUncontainedDeliverer` is `true`, and refuses a value of another form |
 | `delivery.hubDeliverer.enabled`, `.acknowledgeDirectWrites` | boolean | `false`, `false` | `delivery.mode: apply` makes the worker a cluster-wide writer. The chart refuses `apply` unless `acknowledgeDirectWrites` is `true`. `enabled` gives the worker the writer ClusterRole (`templates/rbac.yaml`) |
 | `argocd.namespace`, `argocd.rootApplication` | text | `openshift-gitops`, `cluster-configs-{clusterId}` | `integrations.yaml` `delivery.argocd` |
 | `argocd.controllerServiceAccount` | text | `""` | Needed in `argocd` mode: `system:serviceaccount:<namespace>:<name>` of the Argo CD controller. The chart refuses an empty value unless `argocd.acknowledgeUncontainedController` is `true` |

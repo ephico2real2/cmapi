@@ -212,6 +212,9 @@ def write(client, keys, path: str, body: dict, etag: str | None, *, dry: bool = 
 
 def test_set_gives_a_permanent_namespace_a_date_and_the_list_shows_the_date_that_git_holds(world):
     client, ctx, git, kube, validator, keys = world
+    # The cache listed payments-dev after the create; the request's confirming read must see the change through the watch,
+    # as on a cluster, not that list (#751: the full-plan read compares the Namespace's labels and annotations).
+    kube.live_watch = True
     etag = created_namespace(client, ctx, keys)
     until = (utc_today() + timedelta(days=20)).isoformat()
     dry = write(client, keys, "set", {"until": until, "justification": "One sprint"}, etag, dry=True)
@@ -254,6 +257,9 @@ def test_extend_has_a_dry_run_and_the_list_follows_the_extension(world):
 
 def test_make_permanent_needs_approver_platform_and_removes_the_date(world):
     client, ctx, git, kube, validator, keys = world
+    # The cache listed payments-dev after the create; the request's confirming read must see the change through the watch,
+    # as on a cluster, not that list (#751: the full-plan read compares the Namespace's labels and annotations).
+    kube.live_watch = True
     etag = created_namespace(client, ctx, keys, expiresAt=(utc_today() + timedelta(days=10)).isoformat())
     dry = write(client, keys, "makePermanent", {}, etag, dry=True)
     assert dry.status_code == 200, dry.text

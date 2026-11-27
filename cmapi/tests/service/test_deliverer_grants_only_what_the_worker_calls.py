@@ -3,7 +3,8 @@
 The deliverer client (jobs/watch_sync.py, _deliverer) is used for one Namespace read (watch_sync: the live check before the apply),
 server-side apply (core/sync.py ApplyDelivery.apply_folder: PATCH application/apply-patch+yaml, which is RBAC patch, and create
 when the object is new) and delete (ApplyDelivery.prune_objects, prune's namespace delete). The watch cache and every confirming
-read go through the reader import (registry.cache), never the deliverer. So list and watch, granted cluster-wide on
+read go through the reader import (registry.cache), never the deliverer: the full-plan read of #751 lists ServiceAccounts and
+RoleBindings with the reader (jobs/watch_sync.py _live), and the deliverer is granted no list for it. So list and watch, granted cluster-wide on
 serviceaccounts and rolebindings among others, read every project's ServiceAccounts and RoleBindings on a shared cluster for no
 caller. Each call the full flow makes is recorded as the RBAC verb the API server checks, and the ClusterRole (the plain file and
 the chart, held equal by test_crc_deliverer_is_the_charts) must grant exactly the verbs that some call needs.
@@ -44,7 +45,9 @@ class RecordingDeliverer:
 
     def apply(self, doc, field_manager="cmapi-deliverer"):
         m = doc["metadata"]
-        exists = self.kube.get_object(doc["kind"], m.get("namespace"), m["name"]) is not None
+        # The fake's state, not get_object: whether SSA creates is the API server's knowledge, not a call of the deliverer, and
+        # the fake's get_object answers as the reader, which may list ServiceAccounts and RoleBindings but not get them (#748).
+        exists = self.kube._k(doc["kind"], m.get("namespace"), m["name"]) in self.kube.objects
         self.calls.add(("patch", RESOURCE[doc["kind"]]))
         if not exists:              # server-side apply that creates: create as well as patch
             self.calls.add(("create", RESOURCE[doc["kind"]]))
