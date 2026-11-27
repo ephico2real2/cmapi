@@ -503,7 +503,7 @@ pstop "a connection that does not verify the server" STUB_SSLMODE=prefer
 pstop "a container that cannot say how it connects" STUB_SSLMODE_RC=1
 # The reader's Thanos grants (#310), each by cmapi's own RoleBinding, proven without system:authenticated, and its own token's query.
 pstop "the reader without its Route grant" 'STUB_SAR_ROUTE=false '
-pstop "Thanos allowed to the reader only through a binding to everyone" 'STUB_SAR_API=true RBAC: allowed by ClusterRoleBinding "openshift-coo-cluster-monitoring-view" of ClusterRole "cluster-monitoring-view" to Group "system:authenticated"'
+pstop "Thanos allowed to the reader only through a binding to everyone" 'STUB_SAR_API=true RBAC: allowed by ClusterRoleBinding "monitoring-view-for-everyone" of ClusterRole "cluster-monitoring-view" to Group "system:authenticated"'
 # The import check's own grant and its outcome (#724), each stopped by its own line, not by an earlier step.
 pstop "the reader without the import check's review" 'STUB_SAR_CHECK=false '
 grep -q '^FAIL: the reader may not create localsubjectaccessreviews/ in openshift-monitoring by RoleBinding cmapi-reader-grant-check' "$W/out" && ok "the missing review grant is named" || bad "the missing review grant was not named: $(tail -1 "$W/out")"
