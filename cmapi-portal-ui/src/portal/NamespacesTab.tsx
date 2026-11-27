@@ -13,6 +13,9 @@
 //      reads the namespace again, so the strip says Pending.
 //   6. A 412 reads the namespace again; rebase puts the draft on the new Git and asks about each key that both sides changed.
 //      A 409 shows the holder, and Submit stays off until Reload.
+//   7. Add missing metadata (#739): a namespace whose Git lacks a required key (an adopted one, git.missingKeys) shows the
+//      action; it opens the Adopt form's Missing metadata fields over the same draft, with each key that cmapi fills in or
+//      that starts the name added with its one value (the #732 rule). The change then goes through steps 4 and 5.
 import {
   ActionGroup, Alert, AlertActionLink, Button, EmptyState, EmptyStateBody, Flex, FlexItem, Form, FormGroup, FormHelperText, FormSelect,
   FormSelectOption, Grid, GridItem, HelperText, HelperTextItem, Label, List, ListItem, Skeleton, Stack, TextArea, TextInput, ToggleGroup,
@@ -33,6 +36,8 @@ import { fieldName, FieldInput } from "./MetadataFields";
 import { checkExtras, checkExtraValue, checkField, errorsByField, nameEnds, valueKey } from "./metadataForm";
 import type { ExtraCheck, ExtraRow, Kind, MetaForm } from "./metadataForm";
 import { AdoptView } from "./AdoptView";
+import { MissingMetadata } from "./MissingMetadata";
+import { missingFields } from "./missingKeys";
 import { NamespaceLookup } from "./NamespaceLookup";
 import { changeLines, isEditable, patchOf, rebase, rowsOf, valueNow, withValue } from "./namespaceChange";
 import type { ChangeLine, Draft, GitEdits, KeyRow, Maps } from "./namespaceChange";
@@ -118,7 +123,7 @@ export function NamespacesTab({ params, setParams, open }: TabProps) {
           </FormGroup>
         </Panel>
         {cluster
-          ? <AdoptView cluster={cluster} adopt={params.get("adopt") ?? ""} open={open} onAdopt={(name) => setParams({ view: "adopt", cluster: clusterId, adopt: name })} />
+          ? <AdoptView cluster={cluster} adopt={params.get("adopt") ?? ""} form={form} open={open} onAdopt={(name) => setParams({ view: "adopt", cluster: clusterId, adopt: name })} />
           : <EmptyState titleText="Choose a cluster to see the namespaces that can be adopted." headingLevel="h2" variant="sm" />}
       </Stack>
     );
@@ -150,7 +155,8 @@ async function checkDraft(form: MetaForm, ns: string, rows: KeyRow[], draft: Dra
   const out: DraftCheck = { rows: {}, extras: {} };
   for (const r of rows) {
     const value = draft[r.id];
-    if (!(r.id in draft) || value === null) continue;
+    // A fill row takes only the value that the read gave (#739): nothing typed to check.
+    if (!(r.id in draft) || value === null || r.access === "fill") continue;
     out.rows[r.id] = r.field ? await checkField(r.field, value, { namespace: ns, labelValue: form.labelValue }, sharedPatternTest, true)
       : await checkExtraValue(form, r.kind, value, sharedPatternTest);
   }
@@ -205,6 +211,8 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
   const [draft, setDraft] = useState<Draft>({});
   const [added, setAdded] = useState<Record<Kind, ExtraRow[]>>(NO_ROWS);
   const [addOpen, setAddOpen] = useState(false);
+  // "Add missing metadata" opened (#739): the Missing metadata fields over the draft.
+  const [missingOpen, setMissingOpen] = useState(false);
   const rowIds = useRef(0);
   const [why, setWhy] = useState("");
   // After a 412: the keys that both sides changed, still to choose for, and that the namespace was read again.
@@ -251,7 +259,11 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
   const canChange = grantsIn(me.access, PATCH_NAMESPACE, env) && data?.git != null;
   // namespaces:protect in this environment, as the Quotas tab's protection control decides it (#366): design section 3, row 4.
   const operator = canChange && operatorIn(me, env);
-  const rows = data ? rowsOf(form, git, live, data.git?.edits ?? NO_EDITS, operator, data.sync.driftedKeys) : null;
+  const missingKeys = data?.git?.missingKeys ?? [];
+  const rows = data ? rowsOf(form, git, live, data.git?.edits ?? NO_EDITS, operator, data.sync.driftedKeys, missingKeys) : null;
+  // The keys that Git lacks, as the Adopt form asks for them; the required ones are what "Add missing metadata" offers.
+  const lacking = canChange ? missingFields(form, missingKeys) : [];
+  const lackingRequired = lacking.filter((f) => f.required);
 
   // Step 3: the checks of the draft, CHECK_AFTER_MS after the last change; a result shows only while the draft is that one.
   const inputs = JSON.stringify([draft, added, etag]);
@@ -305,9 +317,26 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
 
   const reset = () => {
     setDraft({}); setAdded(NO_ROWS); setConflicts([]); setRebased(false); setHeld(false); setPlanned(null); setBlocked(false); setDone(null); setNotSent(null);
+    setMissingOpen(false);
   };
   const reload = () => { reset(); view.reload(); };
   const edit = (r: KeyRow, value: string | null) => { setDraft((d) => withValue(d, r, value)); setDone(null); setNotSent(null); };
+  /** Step 7: the Missing metadata fields, with each key that has one value added to the draft at once. */
+  const openMissing = () => {
+    setDraft((d) => {
+      let next = d;
+      for (const f of lacking) {
+        const r = rows.find((x) => x.id === f.id);
+        if (r && f.fixed !== null && !(f.id in next)) next = withValue(next, r, f.fixed);
+      }
+      return next;
+    });
+    setMissingOpen(true);
+    setDone(null);
+    const first = lackingRequired.find((f) => f.fixed === null);
+    requestAnimationFrame(() => document.getElementById(first ? `nsm-${first.field.id}` : "nsm-panel")?.focus());
+  };
+  const inMissing = new Set(missingOpen ? lacking.map((f) => f.id) : []);
 
   /** The problems that stop Check before anything is sent, each with the id of the control that it names. */
   const problemsOf = (found: DraftCheck): { text: string; focus: string }[] => {
@@ -462,6 +491,23 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
       );
     }
     const lock = <Small><LockIcon aria-hidden="true" /> {r.edit.reason ?? "Read only."}</Small>;
+    if (canChange && inMissing.has(r.id)) return <Small>{r.id in draft ? `${draft[r.id]}, in Missing metadata above` : "In Missing metadata above"}</Small>;
+    // A key that cmapi fills in or that starts the name, which Git lacks: added with its one value, or not at all (#732).
+    if (canChange && r.access === "fill") {
+      return r.id in draft
+        ? (
+          <Flex gap={{ default: "gapSm" }} alignItems={{ default: "alignItemsCenter" }}>
+            <code>{r.fill}</code><Label isCompact color="purple">added</Label>
+            <Button variant="link" isInline onClick={() => edit(r, null)} aria-label={`Do not add ${nameOf(r)}`}>↺ Undo</Button>
+          </Flex>
+        )
+        : (
+          <Stack>
+            <Small>{r.edit.mode === "automatic" ? "cmapi fills it in: a change can add it with this value." : "The start of the name: a change can add it with this value."}</Small>
+            <FlexItem><Button variant="link" isInline onClick={() => edit(r, r.fill)} aria-label={`Add ${nameOf(r)} as ${r.fill}`}>{`Add ${r.fill}`}</Button></FlexItem>
+          </Stack>
+        );
+    }
     // Design section 3, row 3 (#492 M2): a key that no rule admits may be removed, never set or changed.
     if (canChange && r.access === "remove") {
       return (
@@ -511,8 +557,24 @@ function NamespaceChange({ cluster, ns, form, me, open }: { cluster: Cluster; ns
     <Stack hasGutter>
       <SyncStrip view={data} held={held} onReload={reload} onOpen={(id) => open("workflow", { request: id })} />
       {data.git === null && <Callout tone="warn" title="Git holds no folder for this namespace, so it cannot be changed here." />}
+      {lackingRequired.length > 0 && !missingOpen && (
+        <Alert variant="warning" isInline title={`${ns} lacks ${lackingRequired.length} required key${lackingRequired.length > 1 ? "s" : ""}`}
+          actionLinks={<AlertActionLink onClick={openMissing}>Add missing metadata</AlertActionLink>}>
+          {`${lackingRequired.map((f) => f.field.title ?? f.field.key).join(", ")}: each plan lists it as a finding until a request adds it.`}
+        </Alert>
+      )}
       <Grid hasGutter>
         <GridItem md={7}>
+          {missingOpen && (
+            <div id="nsm-panel" tabIndex={-1} className="cp-gap-below">
+              <Panel title="Missing metadata">
+                <Hint>{`The keys that the rules declare and ${ns} lacks in Git. Your change adds what you fill in; clear Add beside a read-only value to leave it for later. Then Check (dry run) and Submit, as for any change.`}</Hint>
+                <MissingMetadata fields={lacking} values={Object.fromEntries(lacking.map((f) => [f.id, draft[f.id] ?? ""]))}
+                  errors={Object.fromEntries(lacking.map((f) => [f.id, errors[f.id] ?? mapped?.byField[f.field.id] ?? null]))} prefix="nsm"
+                  onChange={(f, v) => { const r = rows.find((x) => x.id === f.id); if (r) edit(r, v); }} />
+              </Panel>
+            </div>
+          )}
           <Panel>
             <Table aria-label={`Labels and annotations of ${ns}`} variant="compact" gridBreakPoint="grid-lg">
               <Thead><Tr><Th width={25}>Key</Th><Th width={20}>Git (desired)</Th><Th width={20}>Live (cluster)</Th><Th width={35}>Your change</Th></Tr></Thead>

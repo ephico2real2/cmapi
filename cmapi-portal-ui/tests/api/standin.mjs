@@ -797,13 +797,34 @@ function prefixOf(keys, maps) {
   for (const [, map] of MAPS) for (const [key, prop] of Object.entries(keys[map].properties)) if (prop["x-cmapi-namespace-prefix"]) return maps?.[map][key] ?? null;
   return null;
 }
+/**
+ * metadata.py missing_keys (#739): each declared key that the maps lack and a request may add, required ones first, with the
+ * one value of a key that cmapi fills in or that starts the name. The shortest start of the name stands for the prefix key's
+ * value: no configured pattern runs here (changeRefusal says why), and the stand-in's mnemonics have no "-".
+ */
+export function missingKeysOf(keys, maps, sources) {
+  const out = [];
+  for (const [kind, map] of MAPS) {
+    for (const [key, prop] of Object.entries(keys[map].properties)) {
+      if (key in maps[map] || prop["x-cmapi-operator-only"] || prop["x-cmapi-namespace-suffix"]) continue;
+      const from = prop["x-cmapi-derived-from"];
+      let value = null;
+      if (from) value = sources[from] || null;
+      else if (prop["x-cmapi-namespace-prefix"]) value = sources.namespace.includes("-") ? sources.namespace.slice(0, sources.namespace.indexOf("-")) : null;
+      if ((from || prop["x-cmapi-namespace-prefix"]) && value === null) continue;
+      out.push({ kind, key, required: keys[map].required?.includes(key) ?? false, value });
+    }
+  }
+  return [...out.filter((m) => m.required), ...out.filter((m) => !m.required)];
+}
 /** NamespaceView of a record: the list's (no Git, no etag) or the detail's (router.py _namespace_view and get_namespace). */
 export function namespaceViewOf(keys, rec, withGit, environment = rec.env) {
   const live = rec.live ?? { labels: {}, annotations: {} };
   return { clusterId: rec.clusterId, name: rec.name, env: live.labels["cmapi.net/env"] ?? null, team: live.labels["cmapi.net/team"] ?? null, tier: live.labels["cmapi.net/tier"] ?? null,
     labels: live.labels, annotations: live.annotations, managed: live.labels["cmapi.net/managed"] === "true", expiresAt: live.annotations["cmapi.net/expires-at"] ?? null,
     etag: withGit ? recordEtag(rec) : null, openRequest: rec.openRequest?.requestId ?? null, mnemonic: prefixOf(keys, rec.live),
-    git: withGit ? { ...rec.git, edits: gitEditsOf(keys, rec.git, environment) } : null,
+    git: withGit ? { ...rec.git, edits: gitEditsOf(keys, rec.git, environment),
+      missingKeys: missingKeysOf(keys, rec.git, { namespace: rec.name, environment, cluster: rec.clusterId, instance: "nonprod" }) } : null,
     sync: syncOf(keys, rec, withGit), protected: withGit ? false : null, protectedBy: withGit ? [] : null };
 }
 /** GET /api/v1/clusters/{id}/namespaces (router.py _namespace_page): a page, or a problem as [status, code, detail]. */
@@ -856,6 +877,17 @@ function changeRefusal(keys, rec, sent, environment) {
     }
   }
   return errors;
+}
+/**
+ * The recorded plan of an adoption with the keys that a request adds (#739, pipeline.py _plan_adoption): their
+ * missing-required-key findings go, metadataDiff and adoption.supplied list them, and adoption.missingKeys loses them.
+ */
+function adoptionPlanWith(plan, supplied) {
+  const adds = MAPS.flatMap(([kind, map]) => Object.keys(supplied[map]).map((key) => `${kind} ${key}`));
+  if (!adds.length) return plan;
+  const metadataDiff = metadataDiffOf({ labels: {}, annotations: {} }, supplied);
+  return { ...plan, metadataDiff, findings: plan.findings.filter((f) => !(f.rule === "missing-required-key" && adds.some((a) => f.message.startsWith(`${a}:`)))),
+    adoption: { ...plan.adoption, supplied, missingKeys: (plan.adoption.missingKeys ?? []).filter((m) => !adds.includes(`${m.kind} ${m.key}`)) } };
 }
 const mergePatch = (current, patch) => {
   const out = { ...current };
@@ -1305,10 +1337,10 @@ export function apiHandler({ issuer, portalOrigin }) {
     }
     // Story #26: the adoption plugin (cmapi/src/cmapi/plugins/adoption/router.py), answered from its recorded samples. The
     // candidates are abc-rnd (the owner's sample); any other namespace is 409 namespace-not-adoptable, as the API says of one
-    // without the opt-in label.
+    // without the opt-in label. Self-service (#739): namespaces:write, the permission of every change of a namespace.
     const adoptionList = /^\/api\/v1\/clusters\/([^/]+)\/adoption\/(candidates|skipped)$/.exec(url.pathname);
     if (adoptionList && req.method === "GET") {
-      const denied = lacks("adoption:write");
+      const denied = lacks("namespaces:write");
       if (denied) return problem(res, denied, cors);
       const sample = SAMPLES.operations[`adoption_${adoptionList[2]}`].response.body;
       return ok(state.mode === "empty" ? { ...sample, items: [], total: 0 } : sample);
@@ -1316,11 +1348,14 @@ export function apiHandler({ issuer, portalOrigin }) {
     const adoptPath = /^\/api\/v1\/clusters\/([^/]+)\/namespaces\/([^/:]+):adopt$/.exec(url.pathname);
     if (adoptPath && req.method === "POST") {
       const [, clusterId, ns] = adoptPath;
-      const denied = lacks("adoption:write");
+      const denied = lacks("namespaces:write");
       if (denied) return problem(res, denied, cors);
       const dry = url.searchParams.get("dryRun") === "true";
       if (!dry && !call.key) return problem(res, SAMPLES.problems["idempotency-key-required"].response.body, cors);
-      const print = fingerprint({ namespace: ns, clusterId, action: "adopt", justification: body?.justification ?? null });
+      // Only a body that adds keys carries them in the fingerprint (router.py adopt), as the service records it.
+      const supplied = { labels: body?.labels ?? {}, annotations: body?.annotations ?? {} };
+      const print = fingerprint({ namespace: ns, clusterId, action: "adopt", justification: body?.justification ?? null,
+        ...(Object.keys(supplied.labels).length ? { labels: supplied.labels } : {}), ...(Object.keys(supplied.annotations).length ? { annotations: supplied.annotations } : {}) });
       const held = dry ? null : state.keys.get(`${user.sub} ${call.key}`);
       if (held) return held.fingerprint === print ? replayed(held) : problem(res, replayRefused(held), cors);
       const candidates = SAMPLES.operations.adoption_candidates.response.body.items.map((i) => i.name);
@@ -1329,7 +1364,15 @@ export function apiHandler({ issuer, portalOrigin }) {
         return problem(res, { ...refusal, detail: `${ns} is not a candidate for adoption: ${ns} does not carry cmapi.net/adopt: "true"`,
           rule: "not-labelled", state: "unlabelled" }, cors);
       }
-      if (dry) return ok(SAMPLES.operations["adoption_adopt:dryRun"].response.body);
+      // #739: a key that the candidate does not lack is held (pipeline.py refuse_held_keys); the stand-in knows the namespace
+      // by its recorded missingKeys, which is what the portal offers.
+      const lacking = SAMPLES.operations.adoption_candidates.response.body.items.find((i) => i.name === ns)?.missingKeys ?? [];
+      const heldKeys = MAPS.flatMap(([kind, map]) => Object.keys(supplied[map]).sort().filter((key) => !lacking.some((m) => m.kind === kind && m.key === key)).map((key) => ({ kind, key })));
+      if (heldKeys.length) {
+        return problem(res, { ...SAMPLES.problems["adoption-key-held"].response.body, keys: heldKeys,
+          detail: `${ns} already has the ${heldKeys.map((h) => `${h.kind} ${h.key}`).join(", ")}: an adoption keeps each key it finds as it is. Leave it out, and change it with a request after the adoption` }, cors);
+      }
+      if (dry) return ok(adoptionPlanWith(SAMPLES.operations["adoption_adopt:dryRun"].response.body, supplied));
       const sample = SAMPLES.operations.adoption_adopt.response.body;
       const now = new Date().toISOString();
       const requestId = `req-${now.slice(0, 10).replaceAll("-", "")}-8${String(++state.created).padStart(3, "0")}`;

@@ -34,8 +34,9 @@ def test_requester_reads_operator_only_reason_from_namespace_clusters_environmen
     doc = {"apiVersion": "v1", "kind": "Namespace",
            "metadata": {"name": "payments-dev", "labels": {"shield": "true", "cmapi.net/env": "old"}}}
     files = {"clusters/cluster/namespaces/payments-dev/namespace.yaml": yaml.safe_dump(doc)}
+    # name: InstanceConfig.name, which the read passes as the "instance" source of a derived key's value (#739).
     context = SimpleNamespace(
-        cfg=SimpleNamespace(metadata=metadata, roles=roles,
+        cfg=SimpleNamespace(name="nonprod", metadata=metadata, roles=roles,
                             approvals=SimpleNamespace(protected_by=lambda labels: [])),
         registry=SimpleNamespace(get=lambda cluster: SimpleNamespace(policy=SimpleNamespace(environment=environment))),
         pipeline=SimpleNamespace(_read_folder=lambda cluster, ns: (files, "revision")),

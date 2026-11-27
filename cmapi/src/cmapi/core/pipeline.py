@@ -20,8 +20,8 @@ import yaml
 
 from cmapi.capacity.usage import NoUsage, UsageSource, plan_usage
 from cmapi.core import kube_yaml
-from cmapi.core.adoption import (INSTANCE_LABEL, SYNC_OPTIONS_ANNOTATION, Owner, Standing, adopted_files, object_findings,
-                                 snapshot, snapshot_hash, standing)
+from cmapi.core.adoption import (ADOPT_PERMISSION, INSTANCE_LABEL, SYNC_OPTIONS_ANNOTATION, Owner, Standing, adopted_files,
+                                 object_findings, snapshot, snapshot_hash, standing)
 from cmapi.core.approvals import BEYOND_FACTS, ApprovalLedger, Requirement
 from cmapi.core.capacity_backend import CapacityHold, SimulatedCapacity, capacity_exceeded
 from cmapi.core.capacity_ledger import binding_hard, quota_facts, totals_of
@@ -678,22 +678,32 @@ class Pipeline:
                 out[kind] = None
         return out
 
-    def plan_adoption(self, who: Identity, cluster_id: str, ns: str, *, own_application: str | None) -> Plan:
+    def plan_adoption(self, who: Identity, cluster_id: str, ns: str, *, own_application: str | None,
+                      labels: Mapping[str, str] | None = None, annotations: Mapping[str, str] | None = None) -> Plan:
         try:
-            return self._plan_adoption(who, cluster_id, ns, own_application=own_application)
+            return self._plan_adoption(who, cluster_id, ns, own_application=own_application, labels=labels,
+                                       annotations=annotations)
         except Problem as exc:
             count_refusal(exc)
             raise
 
-    def _plan_adoption(self, who: Identity, cluster_id: str, ns: str, *, own_application: str | None) -> Plan:
+    def _plan_adoption(self, who: Identity, cluster_id: str, ns: str, *, own_application: str | None,
+                       labels: Mapping[str, str] | None = None, annotations: Mapping[str, str] | None = None) -> Plan:
         """The plan of one adoption: the live objects as they are (D3), cmapi's system keys (D4), tier custom (D5), one file
         for each object (D8), and each difference from the rules as a finding, never a change (D6, D17). The rendered
         policies run with the snapshot as their base (D6a, #248), so a value the namespace already holds is reported, not
-        refused, in enforce too. Nothing is written to the cluster or to Git."""
+        refused, in enforce too. Nothing is written to the cluster or to Git.
+
+        `labels` and `annotations` (#739, D20 of the design): keys the live namespace lacks, which the request adds. Each is
+        checked as a change of an existing namespace checks a key it adds (a derived or prefix key only with its one value,
+        #732), and a key the namespace has is refused, since the adoption keeps every key as it is (D3). None adds nothing.
+
+        Self-service (#739): namespaces:write in the cluster's environment, as for any change of a namespace; the approval
+        rules gate the adoption (D10)."""
         st = self.registry.writable(cluster_id)
         env = st.policy.environment
         self.check_env_served(env)
-        self.cfg.roles.require(who, "adoption:write", env)
+        self.cfg.roles.require(who, ADOPT_PERMISSION, env)
         self.check_plugin_offered(ADOPTION_PLUGIN, env)
         if not is_label(ns):
             raise Problem(404, "object-not-found", f"{ns!r} is not a namespace name")
@@ -711,21 +721,33 @@ class Pipeline:
             user = label_value_of(requester.person.username)
         except ValueError as exc:
             raise Problem.unprocessable("validation-failed", str(exc)[:300]) from exc
+        sources = {"namespace": ns, "environment": env, "cluster": cluster_id, "instance": self.cfg.name}
+        added = {"label": dict(labels or {}), "annotation": dict(annotations or {})}
+        live_meta = metadata_of(live)
+        refuse_held_keys(ns, added, live_meta)
         tier = next((r.name for r in self.cfg.tiers.offered(env) if r.custom), None)
         if tier is None:
             # D5 adopts under the custom tier; an environment that offers none cannot hold an adopted namespace.
             raise TierError("tier-not-offered", f"No custom tier is offered in {env}: an adopted namespace takes the custom tier",
                             offered=[r.name for r in self.cfg.tiers.offered(env)])
         snap, decisions = snapshot(live, quotas, limits, settings)
+        held_meta = metadata_of(snap.namespace)
+        if added["label"] or added["annotation"]:
+            # The rules of a change that adds a key to an existing namespace (#732), over what the adoption writes to Git.
+            refusal = self._metadata_refusal(added["label"], added["annotation"], operator=self.cfg.roles.is_operator(who, env),
+                                             current_labels=held_meta["label"], current_annotations=held_meta["annotation"],
+                                             sources=sources, existing=True)
+            if refusal is not None:
+                raise refusal
+        adopted_meta = {kind: {**held_meta[kind], **added[kind]} for kind in held_meta}
         owner = Owner(cluster_id, self.cfg.name, env, tier, "(planned)", user, requester.email)
-        files, replaced = adopted_files(snap, owner, self.cfg.metadata)
+        files, replaced = adopted_files(snap, owner, self.cfg.metadata, added)
         base_files = snap.files(cluster_id)
         path = folder(cluster_id, ns) + "namespace.yaml"
-        held_meta = metadata_of(snap.namespace)
-        sources = {"namespace": ns, "environment": env, "cluster": cluster_id, "instance": self.cfg.name}
+        # The findings of the namespace as adopted: a key that the request adds is no longer missing (#739).
         findings: list[Finding] = [
             Finding("cmapi", f["code"], path, f"{f['kind']} {f['key']}: {f['detail']}", "warning")
-            for f in self.cfg.metadata.adoption_findings(held_meta["label"], held_meta["annotation"], sources,
+            for f in self.cfg.metadata.adoption_findings(adopted_meta["label"], adopted_meta["annotation"], sources,
                                                           ignore=frozenset({settings.label}))]
         for d in decisions:
             managers = f" (managers: {', '.join(d.managers)})" if d.managers else ""
@@ -771,7 +793,7 @@ class Pipeline:
         for f in findings:
             counts[f.rule] = counts.get(f.rule, 0) + 1
         facts = {"plugin": ADOPTION_PLUGIN, "action": "adopt", "environment": env, "namespace": ns, "clusterId": cluster_id,
-                 "team": held_meta["label"].get("cmapi.net/team"), "tier": tier, "capacity": "fits", "capacityFresh": True,
+                 "team": adopted_meta["label"].get("cmapi.net/team"), "tier": tier, "capacity": "fits", "capacityFresh": True,
                  "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,
                  "clusterLabels": dict(st.policy.labels), "warnings": [f.message for f in findings], "reason": None,
                  "findings": dict(sorted(counts.items())), "findingCount": len(findings), "beyondTier": bool(beyond),
@@ -783,15 +805,22 @@ class Pipeline:
                     "label": settings.label, "value": settings.value, "recognised": list(where.recognised),
                     "keys": [{"kind": d.kind, "key": d.key, "kept": d.kept, "managers": list(d.managers), "why": d.why}
                              for d in decisions],
-                    "notAdopted": others}
+                    "notAdopted": others,
+                    "supplied": {"labels": added["label"], "annotations": added["annotation"]},
+                    "missingKeys": self.cfg.metadata.missing_keys({**live_meta["label"], **added["label"]},
+                                                                  {**live_meta["annotation"], **added["annotation"]}, sources)}
+        metadata_diff = None
+        if added["label"] or added["annotation"]:
+            metadata_diff = self.cfg.metadata.metadata_diff(held_meta, adopted_meta, added)
 
         def rerender(request_id: str) -> dict[str, str | None]:
-            return dict(adopted_files(snap, replace(owner, request_id=request_id), self.cfg.metadata)[0])
+            return dict(adopted_files(snap, replace(owner, request_id=request_id), self.cfg.metadata, added)[0])
 
         cap = CapacityResult("fits", True, None, {"source": "adoption"})
         return Plan(cluster_id, ns, env, "adopt", ADOPTION_PLUGIN, None, dict(files), prev_files, {p: "added" for p in files},
                     requirement, cap, facts, requester, findings, base_sha, etag=folder_etag(prev_files),
-                    warnings=[f.message for f in findings], beyond_tier=beyond_view, adoption=adoption, rerender=rerender)
+                    warnings=[f.message for f in findings], beyond_tier=beyond_view, adoption=adoption, rerender=rerender,
+                    metadata_diff=metadata_diff)
 
     # ---- record it
     def submit(self, who: Identity, plan: Plan, repo: RequestRepo, jobs: JobRepo, *, idempotency_key: str | None,
@@ -993,10 +1022,26 @@ def not_adoptable(ns: str, where: Standing) -> Problem:
 
 
 def adoption_view(stored: Mapping[str, Any]) -> dict[str, Any]:
-    """PlanAdoption: what an approver reads of an adoption's plan. The snapshot's files stay in the stored plan."""
+    """PlanAdoption: what an approver reads of an adoption's plan. The snapshot's files stay in the stored plan. A plan stored
+    before #739 has no supplied keys and no missingKeys: it added none, and it is read with empty ones."""
+    supplied = stored.get("supplied") or {}
     return {"objects": [dict(i) for i in stored.get("identity") or []], "label": stored.get("label"),
             "recognised": list(stored.get("recognised") or []), "keys": [dict(k) for k in stored.get("keys") or []],
-            "notAdopted": dict(stored.get("notAdopted") or {}), "snapshotHash": stored.get("snapshotHash")}
+            "notAdopted": dict(stored.get("notAdopted") or {}), "snapshotHash": stored.get("snapshotHash"),
+            "supplied": {"labels": dict(supplied.get("labels") or {}), "annotations": dict(supplied.get("annotations") or {})},
+            "missingKeys": [dict(m) for m in stored.get("missingKeys") or []]}
+
+
+def refuse_held_keys(ns: str, added: Mapping[str, Mapping[str, str]], live: Mapping[str, Mapping[str, str]]) -> None:
+    """422 adoption-key-held: the request adds a key that the live namespace already has, with any value, also an empty one
+    or one under a skip prefix. The adoption keeps every key it finds as it is (the design's D3 and D6), so it never changes
+    one; a change request after the adoption does, by the rules of a change (#739)."""
+    held = [{"kind": kind, "key": key} for kind in ("label", "annotation") for key in sorted(added[kind]) if key in live[kind]]
+    if held:
+        names = ", ".join(f"{h['kind']} {h['key']}" for h in held)
+        raise Problem.unprocessable("adoption-key-held", f"{ns} already has the {names}: an adoption keeps each key it finds as "
+                                                         "it is. Leave it out, and change it with a request after the adoption",
+                                    keys=held)
 
 
 def count_refusal(problem: Problem) -> None:

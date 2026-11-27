@@ -16,6 +16,8 @@
 .cp-mono { font-family: var(--pf-t--global--font--family--mono); }
 /* The New namespace preview and the Namespaces change box (issue 484) stay in view beside a long form, as the mockups' (issue 479, P6); below md (48rem, PatternFly's grid) the one column keeps it in flow. */
 @media (min-width: 48rem) { .cp-sticky { position: sticky; inset-block-start: var(--pf-t--global--spacer--md); } }
+/* The Missing metadata panel above the namespace table (issue 739): the space PatternFly puts between stacked items. */
+.cp-gap-below { margin-block-end: var(--pf-t--global--spacer--md); }
 /* A row of the New namespace tab's Placement preview (issue 303), as the mockup's .place: rank, cluster, score. The first is
    the one Submit holds; an excluded cluster is dashed. */
 .cp-place { display: grid; grid-template-columns: var(--pf-t--global--spacer--xl) minmax(0, 1fr) auto; gap: var(--pf-t--global--spacer--sm); align-items: center;

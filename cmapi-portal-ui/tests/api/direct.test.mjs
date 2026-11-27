@@ -831,6 +831,41 @@ test("484-T3 a fresh watch missing the namespace differs from an unavailable wat
   assert.deepEqual(view().sync, { state: "unknown", openRequest: null, driftedKeys: [] });
 });
 
+// #739: the keys a namespace lacks, from the API's missingKeys and the form's rules; the fields of the Adopt form and of
+// "Add missing metadata", and the table row of a missing derived or prefix key, unlocked with its one value.
+test("739-D missingFields: required first, a derived or prefix key fixed to the API's value, none offered without one; fixed values may be omitted or selected", async () => {
+  const { fieldsOf } = await import("../../src/portal/metadataForm.ts");
+  const { addedOf, missingFields, stillMissing } = await import("../../src/portal/missingKeys.ts");
+  const form = fieldsOf(KEYS_479);
+  const missing = [{ kind: "label", key: "cmapi.net/app", required: false, value: null },
+    { kind: "label", key: "name", required: true, value: "abc-legacy-dev" }, { kind: "label", key: "company.net/mnemonic", required: true, value: "abc" },
+    { kind: "label", key: "company.net/lob", required: true, value: null }, { kind: "label", key: "company.net/app-environment", required: true, value: null },
+    { kind: "label", key: "not.declared/key", required: true, value: null }];
+  const fields = missingFields(form, missing);
+  assert.deepEqual(fields.map((f) => [f.id, f.required, f.fixed]), [["label:name", true, "abc-legacy-dev"], ["label:company.net/mnemonic", true, "abc"],
+    ["label:company.net/lob", true, null], ["label:cmapi.net/app", false, null]], "no field for a fixed key with no value, nor for a key the form does not declare");
+  assert.deepEqual(addedOf(fields, {}), { labels: {}, annotations: {} });
+  assert.deepEqual(addedOf(fields, { "label:name": "typed over" }), { labels: {}, annotations: {} });
+  assert.deepEqual(addedOf(fields, { "label:company.net/mnemonic": "abc", "label:company.net/lob": "amgsst", "label:cmapi.net/app": "", "label:name": "abc-legacy-dev" }),
+    { labels: { name: "abc-legacy-dev", "company.net/mnemonic": "abc", "company.net/lob": "amgsst" }, annotations: {} }, "a fixed value is never typed over; an empty field adds nothing");
+  assert.deepEqual(stillMissing(fields, {}).map((f) => f.id), ["label:name", "label:company.net/mnemonic", "label:company.net/lob"]);
+});
+test("739-T a missing derived or prefix key is a fill row with the read's value; held, or with no value, it stays locked", async () => {
+  const { fieldsOf } = await import("../../src/portal/metadataForm.ts");
+  const { isEditable, rowsOf, withValue } = await import("../../src/portal/namespaceChange.ts");
+  const form = fieldsOf(KEYS_479);
+  const missing = [{ kind: "label", key: "name", required: true, value: "abc-legacy-dev" }, { kind: "label", key: "company.net/mnemonic", required: true, value: "abc" }];
+  const rows = rowsOf(form, maps({ "company.net/cl": "1" }), maps(), { labels: {}, annotations: {} }, false, [], missing);
+  const row = (key) => rows.find((r) => r.kind === "label" && r.key === key);
+  assert.deepEqual([row("name").access, row("name").fill], ["fill", "abc-legacy-dev"]);
+  assert.deepEqual([row("company.net/mnemonic").access, row("company.net/mnemonic").fill], ["fill", "abc"]);
+  assert.equal(row("company.net/app-environment").access, "locked", "a key the read gives no value for stays locked");
+  assert.equal(isEditable(row("name")), false, "nothing is typed in a fill row");
+  assert.deepEqual(withValue({}, row("name"), "abc-legacy-dev"), { "label:name": "abc-legacy-dev" });
+  const held = rowsOf(form, maps({ name: "aao-rnd" }), maps(), { labels: {}, annotations: {} }, false, [], missing);
+  assert.equal(held.find((r) => r.key === "name").access, "locked", "a key that Git holds is never offered again (#732)");
+});
+
 let failed = 0;
 for (const [name, run] of tests) {
   try { await run(); console.log(`ok - ${name}`); }

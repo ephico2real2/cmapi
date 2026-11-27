@@ -285,9 +285,11 @@ export interface paths {
          * @description The candidates of the adoption design's D1, read now from the cluster: not a built-in or configured exclusion (adoption.yaml),
          *     not Terminating, not managed (`cmapi.net/managed`, or a folder in Git), not tracked by another Argo CD Application, and
          *     labelled `cmapi.net/adopt: "true"`. `recognised` lists the adoptionLabels of metadata-keys.yaml that a namespace carries:
-         *     a mark of another tool, which never selects a namespace by itself.
+         *     a mark of another tool, which never selects a namespace by itself. `missingKeys` lists each declared label and annotation
+         *     that a candidate lacks, which `:adopt` may add (#739), with the one value of a key that cmapi fills in or that starts the
+         *     name.
          *
-         *     **Requires** `adoption:write`.
+         *     **Requires** `namespaces:write`.
          */
         get: operations["adoption_candidates"];
         put?: never;
@@ -310,7 +312,7 @@ export interface paths {
          * @description The namespaces that carry the opt-in label and are not candidates: `rule` is `excluded`, `terminating`, `managed`
          *     (already adopted: the label stays and is ignored) or `tracked-elsewhere` (with the Application in `application`).
          *
-         *     **Requires** `adoption:write`.
+         *     **Requires** `namespaces:write`.
          */
         get: operations["adoption_skipped"];
         put?: never;
@@ -428,7 +430,8 @@ export interface paths {
          *     metadata-keys.yaml does not declare, so a form can lock it or offer its removal: `mode`, the `reason` to show,
          *     `sensitive`, and `removable` for a key that no rule admits, which a change may remove and never set (#484). An
          *     operator-only key's reason names this cluster's environment (#532). The other keys' `x-cmapi-edit` are in
-         *     `GET /api/v1/metadata-keys`. `sync` compares Git with the live namespace (#481): `pending` while a request holds it,
+         *     `GET /api/v1/metadata-keys`. Its `missingKeys` list each declared key that Git lacks, as an adopted namespace may, which a
+         *     change can add, with the one value of a key that cmapi fills in or that starts the name (#732, #739). `sync` compares Git with the live namespace (#481): `pending` while a request holds it,
          *     `drift` when a governed, extra or operator-only key differs (each in `driftedKeys`), `in-sync` when none does, and
          *     `unknown` when the cluster's watch is not fresh.
          *
@@ -591,13 +594,19 @@ export interface paths {
          *     its name, in its own file. Each difference from the instance's rules is a finding of the plan, never a change: a wrong or
          *     missing key, a value beyond the custom bounds, a policy failure that the namespace already holds (`policy-ratcheted`).
          *
+         *     `labels` and `annotations` add keys that the namespace lacks (#739), so a team can supply the required metadata with the
+         *     adoption: the candidates list and the plan's `adoption.missingKeys` name them. Each is checked as a change request checks
+         *     a key it adds: by its rule, and a key that cmapi fills in or that starts the name only with its one `value`. A key the
+         *     namespace already has is 422 `adoption-key-held`. Each key added is written to `namespace.yaml`, listed in `metadataDiff`
+         *     and `adoption.supplied`, and a required one drops its `missing-required-key` finding. Leave both out to add nothing.
+         *
          *     The request needs one approver of approver-platform, and one more when the plan has findings; no automatic approval covers
          *     it. After approval the bot opens the pull request. cmapi reads the objects again before it pushes the branch and in the pull
          *     request's check: a change since the plan fails the request (`adoption-plan-stale`), and the label removed cancels it.
          *
          *     `dryRun=true` answers 200 with the plan, its files, findings and approval, and opens no request.
          *
-         *     **Requires** `adoption:write`.
+         *     **Requires** `namespaces:write`.
          */
         post: operations["adoption_adopt"];
         delete?: never;
@@ -1147,11 +1156,29 @@ export interface components {
         /** AdoptBody */
         AdoptBody: {
             /**
+             * Annotations
+             * @description Annotations that the live namespace lacks, to add at the adoption, by the same rules as `labels`
+             * @example null
+             */
+            annotations?: {
+                [key: string]: string;
+            } | null;
+            /**
              * Justification
              * @description Why the namespace is adopted, which the approvers read
              * @example Bring the team's namespace under cmapi
              */
             justification?: string | null;
+            /**
+             * Labels
+             * @description Labels that the live namespace lacks, to add at the adoption (#739). Each is checked by the rules of a create (GET /api/v1/metadata-keys): a key that cmapi fills in or that starts the name only with its `value` in `missingKeys`. A key that the namespace already has is 422 `adoption-key-held`: the adoption keeps every key it finds as it is. Each required key added drops its `missing-required-key` finding. Leave it out to add none
+             * @example {
+             *       "cmapi.net/team": "payments"
+             *     }
+             */
+            labels?: {
+                [key: string]: string;
+            } | null;
         };
         /** AdoptedObject */
         AdoptedObject: {
@@ -1257,6 +1284,18 @@ export interface components {
              * @example true
              */
             labelled: boolean;
+            /**
+             * Missingkeys
+             * @description For a candidate: each declared label and annotation it lacks, which the adoption may add (`labels` and `annotations` of `:adopt`), required ones first. Null for a namespace that is not a candidate
+             * @example [
+             *       {
+             *         "key": "cmapi.net/team",
+             *         "kind": "label",
+             *         "required": true
+             *       }
+             *     ]
+             */
+            missingKeys?: components["schemas"]["MissingKey"][] | null;
             /**
              * Name
              * @description The namespace
@@ -2698,6 +2737,12 @@ export interface components {
             labels: {
                 [key: string]: string;
             };
+            /**
+             * Missingkeys
+             * @description Each declared key that Git lacks and a change request can add, required ones first, with the only value it may take where cmapi fills it in or the name starts with it (#732, #739): what an adopted namespace lacks
+             * @example []
+             */
+            missingKeys: components["schemas"]["MissingKey"][];
         };
         /** IdentityRecord */
         IdentityRecord: {
@@ -3203,6 +3248,34 @@ export interface components {
              * @example abc
              */
             value: string;
+        };
+        /** MissingKey */
+        MissingKey: {
+            /**
+             * Key
+             * @description A key that metadata-keys.yaml declares and the namespace lacks
+             * @example cmapi.net/team
+             */
+            key: string;
+            /**
+             * Kind
+             * @description Whether the key is a label or an annotation
+             * @example label
+             * @enum {string}
+             */
+            kind: "label" | "annotation";
+            /**
+             * Required
+             * @description Whether the rules require it: until a request adds it, each plan lists it as a finding
+             * @example true
+             */
+            required: boolean;
+            /**
+             * Value
+             * @description The only value a request may add for a key that cmapi fills in (value.from) or that starts the namespace name (namespacePrefix), as at create; null for a key whose value the requester chooses by its rule in GET /api/v1/metadata-keys
+             * @example null
+             */
+            value: string | null;
         };
         /** NamespaceCreate */
         NamespaceCreate: {
@@ -3930,6 +4003,12 @@ export interface components {
              */
             label: string;
             /**
+             * Missingkeys
+             * @description Each declared key that the adopted namespace will still lack, which a later change request can add, required ones first
+             * @example []
+             */
+            missingKeys: components["schemas"]["MissingKey"][];
+            /**
              * Notadopted
              * @description How many objects of the other kinds the namespace has, which stay unmanaged; null when they could not be counted
              * @example {
@@ -3959,6 +4038,8 @@ export interface components {
              * @example 5d1f0c9e2b7a4c3d8e6f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d
              */
             snapshotHash: string;
+            /** @description The labels and annotations that the request adds to the namespace (#739), which it lacked: empty maps when it adds none */
+            supplied: components["schemas"]["SuppliedMetadata"];
         };
         /** PlanMetadata */
         PlanMetadata: {
@@ -5333,6 +5414,27 @@ export interface components {
              */
             items: components["schemas"]["Suggestion"][];
         };
+        /** SuppliedMetadata */
+        SuppliedMetadata: {
+            /**
+             * Annotations
+             * @description Each annotation that the request adds, by key
+             * @example {}
+             */
+            annotations: {
+                [key: string]: string;
+            };
+            /**
+             * Labels
+             * @description Each label that the request adds, by key
+             * @example {
+             *       "cmapi.net/team": "payments"
+             *     }
+             */
+            labels: {
+                [key: string]: string;
+            };
+        };
         /** SwitchBody */
         SwitchBody: {
             /**
@@ -5605,7 +5707,7 @@ export interface operations {
                      * @example {
                      *       "paused": true,
                      *       "reason": "incident 1234",
-                     *       "setAt": "2026-11-26T21:29:19.819711+00:00",
+                     *       "setAt": "2026-11-27T00:02:19.388357+00:00",
                      *       "setBy": "ada"
                      *     }
                      */
@@ -5737,7 +5839,7 @@ export interface operations {
                      * @example {
                      *       "paused": false,
                      *       "reason": "incident 1234 closed",
-                     *       "setAt": "2026-11-26T21:29:19.829731+00:00",
+                     *       "setAt": "2026-11-27T00:02:19.338151+00:00",
                      *       "setBy": "ada"
                      *     }
                      */
@@ -5859,7 +5961,7 @@ export interface operations {
                     /**
                      * @example {
                      *       "log": [
-                     *         "cb5c898b Merge cmapi/CRC/req-20261126-0001",
+                     *         "80f4f1ba Merge cmapi/CRC/req-20261127-0001",
                      *         "aaaaaaaa initial"
                      *       ]
                      *     }
@@ -6069,18 +6171,18 @@ export interface operations {
                      *           "cpuThrottledPeriods": null,
                      *           "cpuThrottledSeconds": null,
                      *           "cpuUsageSeconds": null,
-                     *           "measuredAt": 1795728550.649558,
+                     *           "measuredAt": 1795737734.571193,
                      *           "memoryBytes": null,
                      *           "memoryLimitBytes": null
                      *         }
                      *       ],
                      *       "database": {
-                     *         "connections": 12,
+                     *         "connections": 9,
                      *         "connectionsMax": 100,
                      *         "oldestTransactionSeconds": 0,
                      *         "poolInUse": 0,
                      *         "poolSize": 5,
-                     *         "sizeBytes": 9976855,
+                     *         "sizeBytes": 8903703,
                      *         "walBytes": 83886080
                      *       },
                      *       "instance": "nonprod",
@@ -6092,7 +6194,7 @@ export interface operations {
                      *           "target": "under 10 min",
                      *           "targetStatus": "proposed",
                      *           "unit": "seconds",
-                     *           "value": 0.508825
+                     *           "value": 1.025376
                      *         },
                      *         {
                      *           "id": "lead-time-approved-p90",
@@ -6413,7 +6515,7 @@ export interface operations {
                      *       "approval": {
                      *         "approvals": [
                      *           {
-                     *             "at": "2026-11-26T21:29:27.483037Z",
+                     *             "at": "2026-11-27T00:02:23.199675Z",
                      *             "comment": "",
                      *             "relayedBy": null,
                      *             "sub": "sub-amy",
@@ -6437,77 +6539,77 @@ export interface operations {
                      *         ],
                      *         "timeoutHours": 8
                      *       },
-                     *       "baseSha": "f2384f006831a8a6663be5efae93955878f7cae8",
+                     *       "baseSha": "479aab8dca85cfbd40e9c4c4b791535b8a69d428",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:27.340680Z",
+                     *       "createdAt": "2026-11-27T00:02:23.111763Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:27.361637Z",
+                     *           "at": "2026-11-27T00:02:23.122590Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:27.506122Z",
+                     *           "at": "2026-11-27T00:02:23.219283Z",
                      *           "by": "amy",
                      *           "event": "approval",
                      *           "note": "",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:27.529881Z",
+                     *           "at": "2026-11-27T00:02:23.234612Z",
                      *           "by": "amy",
                      *           "event": "approved",
                      *           "note": "approval count met",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:27.723576Z",
+                     *           "at": "2026-11-27T00:02:23.372140Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
-                     *           "note": "cmapi/CRC/req-20261126-0008 at 89561eb2 on f2384f00 (created)",
+                     *           "note": "cmapi/CRC/req-20261127-0008 at a539f2ec on 479aab8d (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:27.935135Z",
+                     *           "at": "2026-11-27T00:02:23.506876Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
-                     *           "note": "cmapi/CRC/req-20261126-0008 #7",
+                     *           "note": "cmapi/CRC/req-20261127-0008 #7",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:28.112503Z",
+                     *           "at": "2026-11-27T00:02:23.592114Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:28.323531Z",
+                     *           "at": "2026-11-27T00:02:23.676428Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
-                     *           "note": "merged 89561eb2; the folder at it is the plan's",
+                     *           "note": "merged a539f2ec; the folder at it is the plan's",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:28.342302Z",
+                     *           "at": "2026-11-27T00:02:23.686986Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
-                     *           "note": "merged 89561eb2",
+                     *           "note": "merged a539f2ec",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:28.537793Z",
+                     *           "at": "2026-11-27T00:02:23.780949Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "prune_pending",
                      *           "note": "Prune=confirm: waiting for an operator to confirm the prune",
                      *           "status": "awaiting_prune"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:29.397031Z",
+                     *           "at": "2026-11-27T00:02:24.214457Z",
                      *           "by": "opal",
                      *           "event": "prune_confirm",
                      *           "note": "operator confirmed the prune",
@@ -6524,22 +6626,22 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": null,
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0008/events",
+                     *         "events": "/api/v1/requests/req-20261127-0008/events",
                      *         "pr": "https://git.test/pulls/7",
-                     *         "self": "/api/v1/requests/req-20261126-0008"
+                     *         "self": "/api/v1/requests/req-20261127-0008"
                      *       },
-                     *       "mergeSha": "89561eb2",
+                     *       "mergeSha": "a539f2ec",
                      *       "namespace": "search-dev",
                      *       "planHash": "c490196334dad591c3196aa59224d119861392145360aee1d428c93109235dbe",
                      *       "plugin": "namespaces",
                      *       "pr": {
-                     *         "branch": "cmapi/CRC/req-20261126-0008",
-                     *         "head": "89561eb2",
+                     *         "branch": "cmapi/CRC/req-20261127-0008",
+                     *         "head": "a539f2ec",
                      *         "number": 7,
                      *         "url": "https://git.test/pulls/7"
                      *       },
                      *       "reason": null,
-                     *       "requestId": "req-20261126-0008",
+                     *       "requestId": "req-20261127-0008",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -6557,7 +6659,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "awaiting_prune",
-                     *       "updatedAt": "2026-11-26T21:29:29.266005Z"
+                     *       "updatedAt": "2026-11-27T00:02:24.078773Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -6706,7 +6808,7 @@ export interface operations {
                      * @example {
                      *       "clusters": [
                      *         {
-                     *           "asOf": "2026-11-26T21:29:00Z",
+                     *           "asOf": "2026-11-27T00:02:00Z",
                      *           "basis": "simulated",
                      *           "boundBy": "cpu",
                      *           "clusterId": "CRC",
@@ -7001,7 +7103,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "asOf": "2026-11-26T21:29:38Z",
+                     *       "asOf": "2026-11-27T00:02:29Z",
                      *       "clusterId": null,
                      *       "excluded": [],
                      *       "expiresAt": null,
@@ -7034,7 +7136,7 @@ export interface operations {
                      *           },
                      *           "reserved": false,
                      *           "score": 39,
-                     *           "snapshotAt": "2026-11-26T21:00:00Z"
+                     *           "snapshotAt": "2026-11-27T00:00:00Z"
                      *         }
                      *       ],
                      *       "request": {
@@ -7063,11 +7165,11 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "asOf": "2026-11-26T21:29:38Z",
+                     *       "asOf": "2026-11-27T00:02:29Z",
                      *       "clusterId": "CRC",
                      *       "excluded": [],
-                     *       "expiresAt": "2026-11-26T21:44:38.342666Z",
-                     *       "placementId": "pl-20261126-e4546b12",
+                     *       "expiresAt": "2026-11-27T00:17:29.813599Z",
+                     *       "placementId": "pl-20261127-131fd316",
                      *       "ranked": [
                      *         {
                      *           "basis": "simulated",
@@ -7096,7 +7198,7 @@ export interface operations {
                      *           },
                      *           "reserved": true,
                      *           "score": 29,
-                     *           "snapshotAt": "2026-11-26T21:00:00Z"
+                     *           "snapshotAt": "2026-11-27T00:00:00Z"
                      *         }
                      *       ],
                      *       "request": {
@@ -7220,7 +7322,7 @@ export interface operations {
                      * @example {
                      *       "items": [
                      *         {
-                     *           "checkedAt": "2026-11-26T21:29:06.728312Z",
+                     *           "checkedAt": "2026-11-27T00:02:11.387507Z",
                      *           "clusterId": "CRC",
                      *           "environment": "dev",
                      *           "findingDetails": [],
@@ -7229,11 +7331,11 @@ export interface operations {
                      *           "labels": {
                      *             "region": "us-central"
                      *           },
-                     *           "lastProbeAt": "2026-11-26T21:29:06.728312Z",
+                     *           "lastProbeAt": "2026-11-27T00:02:11.387507Z",
                      *           "secretName": "cmapi-cluster-crc",
                      *           "serverVersion": "v1.35.6-fake",
                      *           "status": "connected",
-                     *           "statusSince": "2026-11-26T21:29:06.728312Z",
+                     *           "statusSince": "2026-11-27T00:02:11.387507Z",
                      *           "tokenExpiresAt": null,
                      *           "trust": {
                      *             "downgrade": false,
@@ -7331,6 +7433,38 @@ export interface operations {
                      *           "application": null,
                      *           "detail": "",
                      *           "labelled": true,
+                     *           "missingKeys": [
+                     *             {
+                     *               "key": "cmapi.net/team",
+                     *               "kind": "label",
+                     *               "required": true,
+                     *               "value": null
+                     *             },
+                     *             {
+                     *               "key": "cmapi.net/team-dl",
+                     *               "kind": "annotation",
+                     *               "required": true,
+                     *               "value": null
+                     *             },
+                     *             {
+                     *               "key": "cmapi.net/cost-center",
+                     *               "kind": "label",
+                     *               "required": false,
+                     *               "value": null
+                     *             },
+                     *             {
+                     *               "key": "cmapi.net/app",
+                     *               "kind": "label",
+                     *               "required": false,
+                     *               "value": null
+                     *             },
+                     *             {
+                     *               "key": "cmapi.net/rightsizing",
+                     *               "kind": "label",
+                     *               "required": false,
+                     *               "value": null
+                     *             }
+                     *           ],
                      *           "name": "abc-rnd",
                      *           "recognised": [
                      *             "company.net/provisioner=cluster-configs"
@@ -7468,6 +7602,7 @@ export interface operations {
                      *           "application": "legacy-tools",
                      *           "detail": "The Argo CD Application legacy-tools tracks legacy-tools",
                      *           "labelled": true,
+                     *           "missingKeys": null,
                      *           "name": "legacy-tools",
                      *           "recognised": [],
                      *           "rule": "tracked-elsewhere",
@@ -7641,7 +7776,7 @@ export interface operations {
                      *         "detail": null,
                      *         "source": "api",
                      *         "state": "ok",
-                     *         "takenAt": "2026-11-26T21:00:00Z"
+                     *         "takenAt": "2026-11-27T00:00:00Z"
                      *       },
                      *       "staleAfterSeconds": 3600
                      *     }
@@ -7892,7 +8027,7 @@ export interface operations {
                      *           "annotations": {
                      *             "argocd.argoproj.io/sync-options": "Prune=confirm,ServerSideApply=true",
                      *             "cmapi.net/instance": "nonprod",
-                     *             "cmapi.net/request-id": "req-20261126-0001",
+                     *             "cmapi.net/request-id": "req-20261127-0001",
                      *             "cmapi.net/requested-by": "ola@ephico2real.com",
                      *             "cmapi.net/team-dl": "payments-team@ephico2real.com"
                      *           },
@@ -8205,11 +8340,11 @@ export interface operations {
                      *       "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:08.957546Z",
+                     *       "createdAt": "2026-11-27T00:02:12.784571Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:09.025795Z",
+                     *           "at": "2026-11-27T00:02:12.944498Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
@@ -8226,16 +8361,16 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": "Payments service dev namespace",
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0001/events",
-                     *         "self": "/api/v1/requests/req-20261126-0001"
+                     *         "events": "/api/v1/requests/req-20261127-0001/events",
+                     *         "self": "/api/v1/requests/req-20261127-0001"
                      *       },
                      *       "mergeSha": null,
                      *       "namespace": "payments-dev",
-                     *       "planHash": "05f11d47a3e765a127f8a5219e764c0f8f33cc0278c08556a9249bfdb49d3737",
+                     *       "planHash": "9fed510537c2c36b3dc18a5b461ebfac4c2f1b7dfc2a61a394afd47b96624c09",
                      *       "plugin": "namespaces",
                      *       "pr": null,
                      *       "reason": null,
-                     *       "requestId": "req-20261126-0001",
+                     *       "requestId": "req-20261127-0001",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -8253,7 +8388,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T21:29:08.891177Z"
+                     *       "updatedAt": "2026-11-27T00:02:12.803452Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -8422,19 +8557,19 @@ export interface operations {
                      *       "annotations": {
                      *         "argocd.argoproj.io/sync-options": "Prune=confirm,ServerSideApply=true",
                      *         "cmapi.net/instance": "nonprod",
-                     *         "cmapi.net/request-id": "req-20261126-0001",
+                     *         "cmapi.net/request-id": "req-20261127-0001",
                      *         "cmapi.net/requested-by": "ola@ephico2real.com",
                      *         "cmapi.net/team-dl": "payments-team@ephico2real.com"
                      *       },
                      *       "clusterId": "CRC",
                      *       "env": "dev",
-                     *       "etag": "f58b8be265a84def",
+                     *       "etag": "d71165fa38f59dd4",
                      *       "expiresAt": null,
                      *       "git": {
                      *         "annotations": {
                      *           "argocd.argoproj.io/sync-options": "Prune=confirm,ServerSideApply=true",
                      *           "cmapi.net/instance": "nonprod",
-                     *           "cmapi.net/request-id": "req-20261126-0001",
+                     *           "cmapi.net/request-id": "req-20261127-0001",
                      *           "cmapi.net/requested-by": "ola@ephico2real.com",
                      *           "cmapi.net/team-dl": "payments-team@ephico2real.com"
                      *         },
@@ -8506,7 +8641,21 @@ export interface operations {
                      *           "cmapi.net/requested-by-user": "ola",
                      *           "cmapi.net/team": "payments",
                      *           "cmapi.net/tier": "small"
-                     *         }
+                     *         },
+                     *         "missingKeys": [
+                     *           {
+                     *             "key": "cmapi.net/app",
+                     *             "kind": "label",
+                     *             "required": false,
+                     *             "value": null
+                     *           },
+                     *           {
+                     *             "key": "cmapi.net/rightsizing",
+                     *             "kind": "label",
+                     *             "required": false,
+                     *             "value": null
+                     *           }
+                     *         ]
                      *       },
                      *       "labels": {
                      *         "cmapi.net/cluster-id": "CRC",
@@ -8714,7 +8863,7 @@ export interface operations {
                      *         "clusters/CRC/namespaces/search-dev/resourcequota-search-dev-quota.yaml": "removed",
                      *         "clusters/CRC/namespaces/search-dev/token-issuer-rolebinding.yaml": "removed"
                      *       },
-                     *       "etag": "ee065493c1da46cf",
+                     *       "etag": "2482d135c8aae7da",
                      *       "files": {},
                      *       "findings": [],
                      *       "metadata": null,
@@ -8775,14 +8924,14 @@ export interface operations {
                      *         ],
                      *         "timeoutHours": 8
                      *       },
-                     *       "baseSha": "f2384f006831a8a6663be5efae93955878f7cae8",
+                     *       "baseSha": "479aab8dca85cfbd40e9c4c4b791535b8a69d428",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:27.340680Z",
+                     *       "createdAt": "2026-11-27T00:02:23.111763Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:27.361637Z",
+                     *           "at": "2026-11-27T00:02:23.122590Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -8799,8 +8948,8 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": null,
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0008/events",
-                     *         "self": "/api/v1/requests/req-20261126-0008"
+                     *         "events": "/api/v1/requests/req-20261127-0008/events",
+                     *         "self": "/api/v1/requests/req-20261127-0008"
                      *       },
                      *       "mergeSha": null,
                      *       "namespace": "search-dev",
@@ -8808,7 +8957,7 @@ export interface operations {
                      *       "plugin": "namespaces",
                      *       "pr": null,
                      *       "reason": null,
-                     *       "requestId": "req-20261126-0008",
+                     *       "requestId": "req-20261127-0008",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -8826,7 +8975,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-26T21:29:27.231566Z"
+                     *       "updatedAt": "2026-11-27T00:02:22.988976Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -9049,7 +9198,7 @@ export interface operations {
                      *         "clusters/CRC/namespaces/payments-dev/namespace.yaml": "changed",
                      *         "clusters/CRC/namespaces/payments-dev/resourcequota-payments-dev-quota.yaml": "changed"
                      *       },
-                     *       "etag": "f58b8be265a84def",
+                     *       "etag": "d71165fa38f59dd4",
                      *       "files": {
                      *         "clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-cpu.yaml": "apiVersion: v1\nkind: LimitRange\nmetadata:\n  name: payments-dev-limits-cpu\n  namespace: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: medium\n  annotations:\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/tier-hash: 44fd85f2d7cb\nspec:\n  limits:\n  - type: Container\n    defaultRequest:\n      cpu: 100m\n    default:\n      cpu: 500m\n    max:\n      cpu: '4'\n",
                      *         "clusters/CRC/namespaces/payments-dev/limitrange-payments-dev-limits-memory.yaml": "apiVersion: v1\nkind: LimitRange\nmetadata:\n  name: payments-dev-limits-memory\n  namespace: payments-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: medium\n  annotations:\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/tier-hash: 44fd85f2d7cb\nspec:\n  limits:\n  - type: Container\n    defaultRequest:\n      memory: 256Mi\n    default:\n      memory: 512Mi\n    max:\n      memory: 8Gi\n",
@@ -9074,7 +9223,7 @@ export interface operations {
                      *           }
                      *         }
                      *       },
-                     *       "planHash": "9a8898212a1e12a01c9565806230827decfb1e77a481c739c2671eb1e1235613",
+                     *       "planHash": "13472056b96785ab1172af6108e4ab3bda9d07c0663fd117bcb98fe6d7c3c4d8",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -9159,14 +9308,14 @@ export interface operations {
                      *         ],
                      *         "timeoutHours": 8
                      *       },
-                     *       "baseSha": "cb5c898bb9e87c673d2f8ea2db640d276b35b5a0",
+                     *       "baseSha": "80f4f1badad17a36a1e6c5d25834f76fef11435b",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:11.158795Z",
+                     *       "createdAt": "2026-11-27T00:02:14.938918Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:11.310506Z",
+                     *           "at": "2026-11-27T00:02:15.013565Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -9183,16 +9332,16 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": "Load test next sprint",
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0002/events",
-                     *         "self": "/api/v1/requests/req-20261126-0002"
+                     *         "events": "/api/v1/requests/req-20261127-0002/events",
+                     *         "self": "/api/v1/requests/req-20261127-0002"
                      *       },
                      *       "mergeSha": null,
                      *       "namespace": "payments-dev",
-                     *       "planHash": "11b771c07365e3c8936ddb4a02620ba79697364721fcd5cb36905404aabe4311",
+                     *       "planHash": "df5602a2038007a6de28e19adf060fd6b5f8fb3d5b86637f790b31efdc510039",
                      *       "plugin": "namespaces",
                      *       "pr": null,
                      *       "reason": null,
-                     *       "requestId": "req-20261126-0002",
+                     *       "requestId": "req-20261127-0002",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -9210,7 +9359,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-26T21:29:11.177782Z"
+                     *       "updatedAt": "2026-11-27T00:02:14.878284Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -9449,9 +9598,9 @@ export interface operations {
                      *       "changes": {
                      *         "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "changed"
                      *       },
-                     *       "etag": "2fb3790866b00ef5",
+                     *       "etag": "073bd8faea2248ce",
                      *       "files": {
-                     *         "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: sprint-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/expiry: managed\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: small\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/expires-at: '2026-12-30'\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n"
+                     *         "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: sprint-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/expiry: managed\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: small\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/expires-at: '2026-12-31'\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n"
                      *       },
                      *       "findings": [],
                      *       "metadata": null,
@@ -9459,7 +9608,7 @@ export interface operations {
                      *         "annotations": {},
                      *         "labels": {}
                      *       },
-                     *       "planHash": "bd37b8a2a01b507d9292bd3ad9b7cb5ae1526a72cf715293dd5fe40ad6d4b48d",
+                     *       "planHash": "45af0b7fd4a2f76619cf99f889c9d19edb65d059722e4e459866be1859ec697b",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -9504,14 +9653,14 @@ export interface operations {
                      *         "slots": [],
                      *         "timeoutHours": 8
                      *       },
-                     *       "baseSha": "22a35f4793b3c001e8c8f0e6264753ea45b75be6",
+                     *       "baseSha": "3e8ad5005d0b72c1869d34e49299f12f1b03b5b5",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:16.622636Z",
+                     *       "createdAt": "2026-11-27T00:02:17.687720Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:16.765615Z",
+                     *           "at": "2026-11-27T00:02:17.759113Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "none-required",
@@ -9528,16 +9677,16 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": "Another sprint",
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0004/events",
-                     *         "self": "/api/v1/requests/req-20261126-0004"
+                     *         "events": "/api/v1/requests/req-20261127-0004/events",
+                     *         "self": "/api/v1/requests/req-20261127-0004"
                      *       },
                      *       "mergeSha": null,
                      *       "namespace": "sprint-dev",
-                     *       "planHash": "9df90ce6833b4f3b8a7c4f47ca4aaac03c732687e99f0a767e00ba284651b9ab",
+                     *       "planHash": "fd55be2f5fa99dbc2d1abb18df09cb134f778a075ba88a80375fd4004efd3024",
                      *       "plugin": "namespaces",
                      *       "pr": null,
                      *       "reason": "expiration:extend",
-                     *       "requestId": "req-20261126-0004",
+                     *       "requestId": "req-20261127-0004",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -9555,7 +9704,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T21:29:16.632147Z"
+                     *       "updatedAt": "2026-11-27T00:02:17.624995Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -9805,7 +9954,7 @@ export interface operations {
                      *       "changes": {
                      *         "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "changed"
                      *       },
-                     *       "etag": "2fb3790866b00ef5",
+                     *       "etag": "073bd8faea2248ce",
                      *       "files": {
                      *         "clusters/CRC/namespaces/sprint-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: sprint-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: small\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n"
                      *       },
@@ -9815,7 +9964,7 @@ export interface operations {
                      *         "annotations": {},
                      *         "labels": {}
                      *       },
-                     *       "planHash": "003772433362b49df8ccca8091573a5709c23e384fda55d53e2e3c04619cf998",
+                     *       "planHash": "4e2f1ef26fab90b27dc41e0fd496b8e8006b2742bc192f09a8dea81ffefb031b",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -9872,14 +10021,14 @@ export interface operations {
                      *         ],
                      *         "timeoutHours": 8
                      *       },
-                     *       "baseSha": "a40cef6e6fff67dfaba8587d441c897bd3af523d",
+                     *       "baseSha": "ac1e81f58836d7f8a36ae1cdff67fe152c02fd02",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:37.204017Z",
+                     *       "createdAt": "2026-11-27T00:02:29.097637Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:37.293914Z",
+                     *           "at": "2026-11-27T00:02:29.169936Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
@@ -9896,16 +10045,16 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": "In production use",
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0013/events",
-                     *         "self": "/api/v1/requests/req-20261126-0013"
+                     *         "events": "/api/v1/requests/req-20261127-0013/events",
+                     *         "self": "/api/v1/requests/req-20261127-0013"
                      *       },
                      *       "mergeSha": null,
                      *       "namespace": "sprint-dev",
-                     *       "planHash": "6b73413a9b855c456f7c20454c9022db1ce2a0e4f0a4af5f3b262297054c0bb1",
+                     *       "planHash": "b2e28a66559008829930431df326dc1a91864514d67474024f7fae04298cdfd0",
                      *       "plugin": "namespaces",
                      *       "pr": null,
                      *       "reason": "expiration:makePermanent",
-                     *       "requestId": "req-20261126-0013",
+                     *       "requestId": "req-20261127-0013",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -9923,7 +10072,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-26T21:29:37.165519Z"
+                     *       "updatedAt": "2026-11-27T00:02:29.035639Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -10116,7 +10265,7 @@ export interface operations {
                 /**
                  * @example {
                  *       "justification": "A load test this sprint",
-                 *       "until": "2026-12-17"
+                 *       "until": "2026-12-18"
                  *     }
                  */
                 "application/json": components["schemas"]["SetBody"];
@@ -10162,9 +10311,9 @@ export interface operations {
                      *       "changes": {
                      *         "clusters/CRC/namespaces/notes-dev/namespace.yaml": "changed"
                      *       },
-                     *       "etag": "cea2a7394431421b",
+                     *       "etag": "2763b4eb2ce407b5",
                      *       "files": {
-                     *         "clusters/CRC/namespaces/notes-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: notes-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/expiry: managed\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: small\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/expires-at: '2026-12-17'\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n"
+                     *         "clusters/CRC/namespaces/notes-dev/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: notes-dev\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/expiry: managed\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: small\n    cmapi.net/cost-center: cc-4410\n    cmapi.net/team: payments\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/expires-at: '2026-12-18'\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    cmapi.net/team-dl: payments-team@ephico2real.com\n"
                      *       },
                      *       "findings": [],
                      *       "metadata": null,
@@ -10172,7 +10321,7 @@ export interface operations {
                      *         "annotations": {},
                      *         "labels": {}
                      *       },
-                     *       "planHash": "88c813d1902c603949465a37278a6d2dfb7a0bf231a805be2a987d625492591f",
+                     *       "planHash": "38d5d19ff384c206da94f3e9d1844ceeb7e15bedcd639467c71f7677117614a3",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -10217,14 +10366,14 @@ export interface operations {
                      *         "slots": [],
                      *         "timeoutHours": 8
                      *       },
-                     *       "baseSha": "f13f28fcafc43bb4f6cbc2d6a90c4972cc5d64c5",
+                     *       "baseSha": "2b2f51e093acbd69fb6b2fb05c5acbef76ecb749",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:35.980080Z",
+                     *       "createdAt": "2026-11-27T00:02:28.207501Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:36.079631Z",
+                     *           "at": "2026-11-27T00:02:28.276534Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "none-required",
@@ -10241,16 +10390,16 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": "A load test this sprint",
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0012/events",
-                     *         "self": "/api/v1/requests/req-20261126-0012"
+                     *         "events": "/api/v1/requests/req-20261127-0012/events",
+                     *         "self": "/api/v1/requests/req-20261127-0012"
                      *       },
                      *       "mergeSha": null,
                      *       "namespace": "notes-dev",
-                     *       "planHash": "003c86c680c76087dc054ff674759766b1a47df8384510b92d785f80c1c8d389",
+                     *       "planHash": "9b232cebe5e7f6c7322d8707f3ec6242b41b2249fb7589b4e77ef7413540258c",
                      *       "plugin": "namespaces",
                      *       "pr": null,
                      *       "reason": "expiration:set",
-                     *       "requestId": "req-20261126-0012",
+                     *       "requestId": "req-20261127-0012",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -10268,7 +10417,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T21:29:35.950662Z"
+                     *       "updatedAt": "2026-11-27T00:02:28.142884Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -10458,7 +10607,13 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "justification": "Bring abc-rnd under cmapi"
+                 *       "annotations": {
+                 *         "cmapi.net/team-dl": "abc-team@ephico2real.com"
+                 *       },
+                 *       "justification": "Bring abc-rnd under cmapi",
+                 *       "labels": {
+                 *         "cmapi.net/team": "abc"
+                 *       }
                  *     }
                  */
                 "application/json": components["schemas"]["AdoptBody"] | null;
@@ -10495,6 +10650,38 @@ export interface operations {
                      *           }
                      *         ],
                      *         "label": "cmapi.net/adopt",
+                     *         "missingKeys": [
+                     *           {
+                     *             "key": "cmapi.net/team",
+                     *             "kind": "label",
+                     *             "required": true,
+                     *             "value": null
+                     *           },
+                     *           {
+                     *             "key": "cmapi.net/team-dl",
+                     *             "kind": "annotation",
+                     *             "required": true,
+                     *             "value": null
+                     *           },
+                     *           {
+                     *             "key": "cmapi.net/cost-center",
+                     *             "kind": "label",
+                     *             "required": false,
+                     *             "value": null
+                     *           },
+                     *           {
+                     *             "key": "cmapi.net/app",
+                     *             "kind": "label",
+                     *             "required": false,
+                     *             "value": null
+                     *           },
+                     *           {
+                     *             "key": "cmapi.net/rightsizing",
+                     *             "kind": "label",
+                     *             "required": false,
+                     *             "value": null
+                     *           }
+                     *         ],
                      *         "notAdopted": {
                      *           "RoleBinding": 0,
                      *           "ServiceAccount": 0
@@ -10528,7 +10715,11 @@ export interface operations {
                      *         "recognised": [
                      *           "company.net/provisioner=cluster-configs"
                      *         ],
-                     *         "snapshotHash": "4faf2e011429cbd08f98b6a27fd293c9bb220471dc4084f383d8e48d4dcc9435"
+                     *         "snapshotHash": "4faf2e011429cbd08f98b6a27fd293c9bb220471dc4084f383d8e48d4dcc9435",
+                     *         "supplied": {
+                     *           "annotations": {},
+                     *           "labels": {}
+                     *         }
                      *       },
                      *       "approval": {
                      *         "approvals": [],
@@ -10589,7 +10780,7 @@ export interface operations {
                      *       "files": {
                      *         "clusters/CRC/namespaces/abc-rnd/limitrange-abc-rnd-limits-cpu.yaml": "apiVersion: v1\nkind: LimitRange\nmetadata:\n  name: abc-rnd-limits-cpu\n  namespace: abc-rnd\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: custom\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\nspec:\n  limits:\n  - type: Container\n    defaultRequest:\n      cpu: 100m\n    max:\n      cpu: '2'\n",
                      *         "clusters/CRC/namespaces/abc-rnd/limitrange-abc-rnd-limits-memory.yaml": "apiVersion: v1\nkind: LimitRange\nmetadata:\n  name: abc-rnd-limits-memory\n  namespace: abc-rnd\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: custom\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\nspec:\n  limits:\n  - type: Container\n    defaultRequest:\n      memory: 128Mi\n    max:\n      memory: 4Gi\n",
-                     *         "clusters/CRC/namespaces/abc-rnd/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: abc-rnd\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: opal\n    cmapi.net/tier: custom\n    company.net/provisioner: cluster-configs\n    cmapi.net/adopt: 'true'\n    company.net/app-environment: rnd\n    company.net/cl: '1'\n    company.net/lob: amgsst\n    company.net/mnemonic: abc\n    company.net/mnemonic-confluence: ''\n    company.net/mnemonic-group-contact: ''\n    name: aao-rnd\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: opal@ephico2real.com\n    company.net/app-environment: rnd\n",
+                     *         "clusters/CRC/namespaces/abc-rnd/namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: abc-rnd\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/env: dev\n    cmapi.net/managed: 'true'\n    cmapi.net/requested-by-user: ola\n    cmapi.net/tier: custom\n    company.net/provisioner: cluster-configs\n    cmapi.net/adopt: 'true'\n    company.net/app-environment: rnd\n    company.net/cl: '1'\n    company.net/lob: amgsst\n    company.net/mnemonic: abc\n    company.net/mnemonic-confluence: ''\n    company.net/mnemonic-group-contact: ''\n    name: aao-rnd\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm,ServerSideApply=true\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\n    cmapi.net/requested-by: ola@ephico2real.com\n    company.net/app-environment: rnd\n",
                      *         "clusters/CRC/namespaces/abc-rnd/resourcequota-abc-rnd-quota.yaml": "apiVersion: v1\nkind: ResourceQuota\nmetadata:\n  name: abc-rnd-quota\n  namespace: abc-rnd\n  labels:\n    cmapi.net/cluster-id: CRC\n    cmapi.net/managed: 'true'\n    cmapi.net/tier: custom\n  annotations:\n    argocd.argoproj.io/sync-options: Prune=confirm\n    cmapi.net/instance: nonprod\n    cmapi.net/request-id: (planned)\nspec:\n  hard:\n    requests.cpu: '40'\n    requests.memory: 64Gi\n    pods: '100'\n  scopes:\n  - NotTerminating\n"
                      *       },
                      *       "findings": [
@@ -10724,19 +10915,19 @@ export interface operations {
                      *       ],
                      *       "metadata": null,
                      *       "metadataDiff": null,
-                     *       "planHash": "2b7901cfa4d0ac4b22f7ef8ffae9ca74033d01008cca24d412d96e2e8c47abf1",
+                     *       "planHash": "f0e04fd12b310dc184cec1612861bc4fbf0a48c0f5e4f54f80e6cb144a954a2c",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
                      *           "clientId": "cmapi-portal",
-                     *           "email": "opal@ephico2real.com",
+                     *           "email": "ola@ephico2real.com",
                      *           "employeeId": "1001",
                      *           "familyName": "Doe",
-                     *           "givenName": "Opal",
+                     *           "givenName": "Ola",
                      *           "kind": "user",
                      *           "middleName": null,
-                     *           "sub": "sub-opal",
-                     *           "username": "opal"
+                     *           "sub": "sub-ola",
+                     *           "username": "ola"
                      *         },
                      *         "submittedBy": null,
                      *         "submittedByClient": null
@@ -10783,7 +10974,7 @@ export interface operations {
                      *         ],
                      *         "timeoutHours": 8
                      *       },
-                     *       "baseSha": "42f0f8d3f42ed2cc82afe4ecccd5e1a18910cf1c",
+                     *       "baseSha": "ca16e8cc000b1d1f2305f2259948a58c6035e62a",
                      *       "beyondTier": {
                      *         "approvals": [
                      *           {
@@ -10801,12 +10992,12 @@ export interface operations {
                      *         ]
                      *       },
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:43.082073Z",
+                     *       "createdAt": "2026-11-27T00:02:32.587981Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:43.107987Z",
-                     *           "by": "opal",
+                     *           "at": "2026-11-27T00:02:32.655158Z",
+                     *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 3)]",
                      *           "status": "pending_approval"
@@ -10821,34 +11012,34 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": "Bring abc-rnd under cmapi",
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0016/events",
-                     *         "self": "/api/v1/requests/req-20261126-0016"
+                     *         "events": "/api/v1/requests/req-20261127-0016/events",
+                     *         "self": "/api/v1/requests/req-20261127-0016"
                      *       },
                      *       "mergeSha": null,
                      *       "namespace": "abc-rnd",
-                     *       "planHash": "2731cccb7ab865896338f90b001d02c4cf317d9180249b9a7fed31f460a1952d",
+                     *       "planHash": "7630777637466bdb231a248db34b6e67aafe718082ab15403db130f4b28b73ee",
                      *       "plugin": "adoption",
                      *       "pr": null,
                      *       "reason": null,
-                     *       "requestId": "req-20261126-0016",
+                     *       "requestId": "req-20261127-0016",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
                      *           "clientId": "cmapi-portal",
-                     *           "email": "opal@ephico2real.com",
+                     *           "email": "ola@ephico2real.com",
                      *           "employeeId": "1001",
                      *           "familyName": "Doe",
-                     *           "givenName": "Opal",
+                     *           "givenName": "Ola",
                      *           "kind": "user",
                      *           "middleName": null,
-                     *           "sub": "sub-opal",
-                     *           "username": "opal"
+                     *           "sub": "sub-ola",
+                     *           "username": "ola"
                      *         },
                      *         "submittedBy": null,
                      *         "submittedByClient": null
                      *       },
                      *       "status": "pending_approval",
-                     *       "updatedAt": "2026-11-26T21:29:42.977996Z"
+                     *       "updatedAt": "2026-11-27T00:02:32.521161Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -10935,7 +11126,7 @@ export interface operations {
             /**
              * @description The request breaks a rule. `code` says which; a policy refusal lists each item in `errors`.
              *
-             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `policy-violation`.
+             *     Codes: `cluster-not-writable`, `environment-not-served`, `plugin-disabled`, `validation-failed`, `identity-incomplete`, `on-behalf-of-required`, `adoption-key-held`, `policy-violation`.
              */
             422: {
                 headers: {
@@ -11010,7 +11201,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "checkedAt": "2026-11-26T21:29:07.578004Z",
+                     *       "checkedAt": "2026-11-27T00:02:11.883335Z",
                      *       "clusterId": "CRC",
                      *       "environment": "dev",
                      *       "findingDetails": [],
@@ -11019,11 +11210,11 @@ export interface operations {
                      *       "labels": {
                      *         "region": "us-central"
                      *       },
-                     *       "lastProbeAt": "2026-11-26T21:29:07.578004Z",
+                     *       "lastProbeAt": "2026-11-27T00:02:11.883335Z",
                      *       "secretName": "cmapi-cluster-crc",
                      *       "serverVersion": "v1.35.6-fake",
                      *       "status": "connected",
-                     *       "statusSince": "2026-11-26T21:29:06.728312Z",
+                     *       "statusSince": "2026-11-27T00:02:11.387507Z",
                      *       "tokenExpiresAt": null,
                      *       "trust": {
                      *         "downgrade": false,
@@ -11400,11 +11591,11 @@ export interface operations {
                      *           ],
                      *           "app": null,
                      *           "clusterId": "CRC",
-                     *           "created": "2026-11-26",
+                     *           "created": "2026-11-27",
                      *           "daysLeft": 21,
                      *           "env": "dev",
-                     *           "expiresAt": "2026-12-17",
-                     *           "graceEnds": "2026-12-24",
+                     *           "expiresAt": "2026-12-18",
+                     *           "graceEnds": "2026-12-25",
                      *           "lifetimeDays": 21,
                      *           "name": "notes-dev",
                      *           "noticesSent": 0,
@@ -11419,15 +11610,15 @@ export interface operations {
                      *           ],
                      *           "app": null,
                      *           "clusterId": "CRC",
-                     *           "created": "2026-11-26",
+                     *           "created": "2026-11-27",
                      *           "daysLeft": 27,
                      *           "env": "dev",
-                     *           "expiresAt": "2026-12-23",
-                     *           "graceEnds": "2026-12-30",
+                     *           "expiresAt": "2026-12-24",
+                     *           "graceEnds": "2026-12-31",
                      *           "lifetimeDays": 27,
                      *           "name": "sprint-dev",
                      *           "noticesSent": 0,
-                     *           "openRequest": "req-20261126-0013",
+                     *           "openRequest": "req-20261127-0013",
                      *           "state": "active",
                      *           "team": "payments"
                      *         },
@@ -11437,7 +11628,7 @@ export interface operations {
                      *           ],
                      *           "app": null,
                      *           "clusterId": "CRC",
-                     *           "created": "2026-11-26",
+                     *           "created": "2026-11-27",
                      *           "daysLeft": null,
                      *           "env": "dev",
                      *           "expiresAt": null,
@@ -11445,7 +11636,7 @@ export interface operations {
                      *           "lifetimeDays": null,
                      *           "name": "payments-dev",
                      *           "noticesSent": 0,
-                     *           "openRequest": "req-20261126-0002",
+                     *           "openRequest": "req-20261127-0002",
                      *           "state": "permanent",
                      *           "team": "payments"
                      *         }
@@ -11475,7 +11666,7 @@ export interface operations {
                      *           ]
                      *         }
                      *       },
-                     *       "today": "2026-11-26"
+                     *       "today": "2026-11-27"
                      *     }
                      */
                     "application/json": components["schemas"]["ExpirationPage"];
@@ -12089,7 +12280,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "from": "2026-11-19T21:29:37.484885Z",
+                     *       "from": "2026-11-20T00:02:29.261467Z",
                      *       "items": [
                      *         {
                      *           "action": "create",
@@ -12108,9 +12299,9 @@ export interface operations {
                      *               "source": "cmapi"
                      *             }
                      *           ],
-                     *           "firstAt": "2026-11-26T21:29:33.525797Z",
+                     *           "firstAt": "2026-11-27T00:02:26.673241Z",
                      *           "id": "rej-2",
-                     *           "lastAt": "2026-11-26T21:29:33.525797Z",
+                     *           "lastAt": "2026-11-27T00:02:26.673241Z",
                      *           "namespace": "kube-tools",
                      *           "outcome": "refused",
                      *           "plugin": "namespaces",
@@ -12128,7 +12319,7 @@ export interface operations {
                      *           "findings": [
                      *             {
                      *               "kyvernoRule": null,
-                     *               "message": "the head moved from f2384f00 to ec4de521 after the pull request was opened",
+                     *               "message": "the head moved from 479aab8d to 9df23668 after the pull request was opened",
                      *               "path": null,
                      *               "policy": "cmapi-check",
                      *               "rule": null,
@@ -12136,14 +12327,14 @@ export interface operations {
                      *               "source": "cmapi"
                      *             }
                      *           ],
-                     *           "firstAt": "2026-11-26T21:29:22.698142Z",
+                     *           "firstAt": "2026-11-27T00:02:20.839942Z",
                      *           "id": "rej-1",
-                     *           "lastAt": "2026-11-26T21:29:22.698142Z",
+                     *           "lastAt": "2026-11-27T00:02:20.839942Z",
                      *           "namespace": "search-dev",
                      *           "outcome": "refused",
                      *           "plugin": "namespaces",
                      *           "problem": null,
-                     *           "requestId": "req-20261126-0007",
+                     *           "requestId": "req-20261127-0007",
                      *           "stage": "ci",
                      *           "username": "ola"
                      *         }
@@ -12287,7 +12478,7 @@ export interface operations {
                      * @example {
                      *       "clusters": [
                      *         {
-                     *           "asOf": "2026-11-26T21:29:37.316589Z",
+                     *           "asOf": "2026-11-27T00:02:29.143178Z",
                      *           "bundle": {
                      *             "actionsDiffer": [],
                      *             "actionsDifferTotal": 0,
@@ -13578,14 +13769,14 @@ export interface operations {
                      *             ],
                      *             "timeoutHours": 8
                      *           },
-                     *           "baseSha": "cb5c898bb9e87c673d2f8ea2db640d276b35b5a0",
+                     *           "baseSha": "80f4f1badad17a36a1e6c5d25834f76fef11435b",
                      *           "beyondTier": null,
                      *           "clusterId": "CRC",
-                     *           "createdAt": "2026-11-26T21:29:11.158795Z",
+                     *           "createdAt": "2026-11-27T00:02:14.938918Z",
                      *           "env": "dev",
                      *           "events": [
                      *             {
-                     *               "at": "2026-11-26T21:29:11.310506Z",
+                     *               "at": "2026-11-27T00:02:15.013565Z",
                      *               "by": "ola",
                      *               "event": "plan_needs_approval",
                      *               "note": "waiting for [('approver-platform', 1)]",
@@ -13602,16 +13793,16 @@ export interface operations {
                      *           "instance": "nonprod",
                      *           "justification": "Load test next sprint",
                      *           "links": {
-                     *             "events": "/api/v1/requests/req-20261126-0002/events",
-                     *             "self": "/api/v1/requests/req-20261126-0002"
+                     *             "events": "/api/v1/requests/req-20261127-0002/events",
+                     *             "self": "/api/v1/requests/req-20261127-0002"
                      *           },
                      *           "mergeSha": null,
                      *           "namespace": "payments-dev",
-                     *           "planHash": "11b771c07365e3c8936ddb4a02620ba79697364721fcd5cb36905404aabe4311",
+                     *           "planHash": "df5602a2038007a6de28e19adf060fd6b5f8fb3d5b86637f790b31efdc510039",
                      *           "plugin": "namespaces",
                      *           "pr": null,
                      *           "reason": null,
-                     *           "requestId": "req-20261126-0002",
+                     *           "requestId": "req-20261127-0002",
                      *           "requester": {
                      *             "automated": false,
                      *             "requester": {
@@ -13629,7 +13820,7 @@ export interface operations {
                      *             "submittedByClient": null
                      *           },
                      *           "status": "pending_approval",
-                     *           "updatedAt": "2026-11-26T21:29:11.177782Z"
+                     *           "updatedAt": "2026-11-27T00:02:14.878284Z"
                      *         }
                      *       ],
                      *       "letters": {
@@ -13770,67 +13961,67 @@ export interface operations {
                      *       "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:08.957546Z",
+                     *       "createdAt": "2026-11-27T00:02:12.784571Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:09.025795Z",
+                     *           "at": "2026-11-27T00:02:12.944498Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.160896Z",
+                     *           "at": "2026-11-27T00:02:13.579892Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
-                     *           "note": "cmapi/CRC/req-20261126-0001 at cb5c898b on aaaaaaaa (created)",
+                     *           "note": "cmapi/CRC/req-20261127-0001 at 80f4f1ba on aaaaaaaa (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.245134Z",
+                     *           "at": "2026-11-27T00:02:13.648884Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
-                     *           "note": "cmapi/CRC/req-20261126-0001 #1",
+                     *           "note": "cmapi/CRC/req-20261127-0001 #1",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.302793Z",
+                     *           "at": "2026-11-27T00:02:13.701110Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.422145Z",
+                     *           "at": "2026-11-27T00:02:13.813103Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "apply_started",
-                     *           "note": "applying cb5c898b before the merge",
+                     *           "note": "applying 80f4f1ba before the merge",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.488499Z",
+                     *           "at": "2026-11-27T00:02:13.863194Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "applied",
-                     *           "note": "5 objects from cmapi/CRC/req-20261126-0001 at cb5c898b, before the merge, confirmed by a read: quota matches the plan",
+                     *           "note": "5 objects from cmapi/CRC/req-20261127-0001 at 80f4f1ba, before the merge, confirmed by a read: quota matches the plan",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.564401Z",
+                     *           "at": "2026-11-27T00:02:13.922484Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
-                     *           "note": "merged cb5c898b; the folder at it is the plan's",
+                     *           "note": "merged 80f4f1ba; the folder at it is the plan's",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.584626Z",
+                     *           "at": "2026-11-27T00:02:13.936726Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
-                     *           "note": "merged cb5c898b",
+                     *           "note": "merged 80f4f1ba",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.613506Z",
+                     *           "at": "2026-11-27T00:02:13.954020Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "synced",
                      *           "note": "applied and confirmed by a read before the merge",
@@ -13847,22 +14038,22 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": "Payments service dev namespace",
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0001/events",
+                     *         "events": "/api/v1/requests/req-20261127-0001/events",
                      *         "pr": "https://git.test/pulls/1",
-                     *         "self": "/api/v1/requests/req-20261126-0001"
+                     *         "self": "/api/v1/requests/req-20261127-0001"
                      *       },
-                     *       "mergeSha": "cb5c898b",
+                     *       "mergeSha": "80f4f1ba",
                      *       "namespace": "payments-dev",
-                     *       "planHash": "05f11d47a3e765a127f8a5219e764c0f8f33cc0278c08556a9249bfdb49d3737",
+                     *       "planHash": "9fed510537c2c36b3dc18a5b461ebfac4c2f1b7dfc2a61a394afd47b96624c09",
                      *       "plugin": "namespaces",
                      *       "pr": {
-                     *         "branch": "cmapi/CRC/req-20261126-0001",
-                     *         "head": "cb5c898b",
+                     *         "branch": "cmapi/CRC/req-20261127-0001",
+                     *         "head": "80f4f1ba",
                      *         "number": 1,
                      *         "url": "https://git.test/pulls/1"
                      *       },
                      *       "reason": null,
-                     *       "requestId": "req-20261126-0001",
+                     *       "requestId": "req-20261127-0001",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -13880,7 +14071,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "synced",
-                     *       "updatedAt": "2026-11-26T21:29:09.478435Z"
+                     *       "updatedAt": "2026-11-27T00:02:13.816859Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -13991,8 +14182,8 @@ export interface operations {
                     /**
                      * @example {
                      *       "approved": true,
-                     *       "planHash": "05f11d47a3e765a127f8a5219e764c0f8f33cc0278c08556a9249bfdb49d3737",
-                     *       "requestId": "req-20261126-0001",
+                     *       "planHash": "9fed510537c2c36b3dc18a5b461ebfac4c2f1b7dfc2a61a394afd47b96624c09",
+                     *       "requestId": "req-20261127-0001",
                      *       "status": "synced"
                      *     }
                      */
@@ -14105,70 +14296,70 @@ export interface operations {
                      * @example {
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:09.025795Z",
+                     *           "at": "2026-11-27T00:02:12.944498Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.160896Z",
+                     *           "at": "2026-11-27T00:02:13.579892Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
-                     *           "note": "cmapi/CRC/req-20261126-0001 at cb5c898b on aaaaaaaa (created)",
+                     *           "note": "cmapi/CRC/req-20261127-0001 at 80f4f1ba on aaaaaaaa (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.245134Z",
+                     *           "at": "2026-11-27T00:02:13.648884Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
-                     *           "note": "cmapi/CRC/req-20261126-0001 #1",
+                     *           "note": "cmapi/CRC/req-20261127-0001 #1",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.302793Z",
+                     *           "at": "2026-11-27T00:02:13.701110Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.422145Z",
+                     *           "at": "2026-11-27T00:02:13.813103Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "apply_started",
-                     *           "note": "applying cb5c898b before the merge",
+                     *           "note": "applying 80f4f1ba before the merge",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.488499Z",
+                     *           "at": "2026-11-27T00:02:13.863194Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "applied",
-                     *           "note": "5 objects from cmapi/CRC/req-20261126-0001 at cb5c898b, before the merge, confirmed by a read: quota matches the plan",
+                     *           "note": "5 objects from cmapi/CRC/req-20261127-0001 at 80f4f1ba, before the merge, confirmed by a read: quota matches the plan",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.564401Z",
+                     *           "at": "2026-11-27T00:02:13.922484Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
-                     *           "note": "merged cb5c898b; the folder at it is the plan's",
+                     *           "note": "merged 80f4f1ba; the folder at it is the plan's",
                      *           "status": "applied"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.584626Z",
+                     *           "at": "2026-11-27T00:02:13.936726Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
-                     *           "note": "merged cb5c898b",
+                     *           "note": "merged 80f4f1ba",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:09.613506Z",
+                     *           "at": "2026-11-27T00:02:13.954020Z",
                      *           "by": "cmapi-deliverer",
                      *           "event": "synced",
                      *           "note": "applied and confirmed by a read before the merge",
                      *           "status": "synced"
                      *         }
                      *       ],
-                     *       "requestId": "req-20261126-0001",
+                     *       "requestId": "req-20261127-0001",
                      *       "status": "synced"
                      *     }
                      */
@@ -14292,7 +14483,7 @@ export interface operations {
                      *       "approval": {
                      *         "approvals": [
                      *           {
-                     *             "at": "2026-11-26T21:29:11.597444Z",
+                     *             "at": "2026-11-27T00:02:15.180026Z",
                      *             "comment": "sizing reviewed",
                      *             "relayedBy": null,
                      *             "sub": "sub-amy",
@@ -14317,28 +14508,28 @@ export interface operations {
                      *         ],
                      *         "timeoutHours": 8
                      *       },
-                     *       "baseSha": "cb5c898bb9e87c673d2f8ea2db640d276b35b5a0",
+                     *       "baseSha": "80f4f1badad17a36a1e6c5d25834f76fef11435b",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:11.158795Z",
+                     *       "createdAt": "2026-11-27T00:02:14.938918Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:11.310506Z",
+                     *           "at": "2026-11-27T00:02:15.013565Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:11.632823Z",
+                     *           "at": "2026-11-27T00:02:15.206073Z",
                      *           "by": "amy",
                      *           "event": "approval",
                      *           "note": "sizing reviewed",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:11.660991Z",
+                     *           "at": "2026-11-27T00:02:15.225699Z",
                      *           "by": "amy",
                      *           "event": "approved",
                      *           "note": "approval count met",
@@ -14355,16 +14546,16 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": "Load test next sprint",
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0002/events",
-                     *         "self": "/api/v1/requests/req-20261126-0002"
+                     *         "events": "/api/v1/requests/req-20261127-0002/events",
+                     *         "self": "/api/v1/requests/req-20261127-0002"
                      *       },
                      *       "mergeSha": null,
                      *       "namespace": "payments-dev",
-                     *       "planHash": "11b771c07365e3c8936ddb4a02620ba79697364721fcd5cb36905404aabe4311",
+                     *       "planHash": "df5602a2038007a6de28e19adf060fd6b5f8fb3d5b86637f790b31efdc510039",
                      *       "plugin": "namespaces",
                      *       "pr": null,
                      *       "reason": null,
-                     *       "requestId": "req-20261126-0002",
+                     *       "requestId": "req-20261127-0002",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -14382,7 +14573,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T21:29:11.525570Z"
+                     *       "updatedAt": "2026-11-27T00:02:15.088877Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -14556,21 +14747,21 @@ export interface operations {
                      *         ],
                      *         "timeoutHours": 8
                      *       },
-                     *       "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
+                     *       "baseSha": "a539f2ec28817c4438aff7fc406387f84840178e",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:19.060471Z",
+                     *       "createdAt": "2026-11-27T00:02:18.928881Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:19.111568Z",
+                     *           "at": "2026-11-27T00:02:18.956736Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:19.696015Z",
+                     *           "at": "2026-11-27T00:02:19.313872Z",
                      *           "by": "ola",
                      *           "event": "cancel",
                      *           "note": "",
@@ -14587,16 +14778,16 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": "Payments service dev namespace",
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0005/events",
-                     *         "self": "/api/v1/requests/req-20261126-0005"
+                     *         "events": "/api/v1/requests/req-20261127-0005/events",
+                     *         "self": "/api/v1/requests/req-20261127-0005"
                      *       },
                      *       "mergeSha": null,
                      *       "namespace": "ledger-dev",
-                     *       "planHash": "ce23c0cd48b7098de4a91804d23c91cd0e63dcdfdb7cc60f129d6ca6ab1e591c",
+                     *       "planHash": "872bc285608555d97234f8f6f440473a920a3da01e2e5509a176628b51d35ac3",
                      *       "plugin": "namespaces",
                      *       "pr": null,
                      *       "reason": null,
-                     *       "requestId": "req-20261126-0005",
+                     *       "requestId": "req-20261127-0005",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -14614,7 +14805,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "cancelled",
-                     *       "updatedAt": "2026-11-26T21:29:19.562380Z"
+                     *       "updatedAt": "2026-11-27T00:02:19.178494Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -14784,21 +14975,21 @@ export interface operations {
                      *         ],
                      *         "timeoutHours": 8
                      *       },
-                     *       "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
+                     *       "baseSha": "a539f2ec28817c4438aff7fc406387f84840178e",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:19.337036Z",
+                     *       "createdAt": "2026-11-27T00:02:19.072777Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:19.387942Z",
+                     *           "at": "2026-11-27T00:02:19.105879Z",
                      *           "by": "ola",
                      *           "event": "plan_needs_approval",
                      *           "note": "waiting for [('approver-platform', 1)]",
                      *           "status": "pending_approval"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:19.543765Z",
+                     *           "at": "2026-11-27T00:02:19.216698Z",
                      *           "by": "amy",
                      *           "event": "rejected",
                      *           "note": "Use the medium tier",
@@ -14815,16 +15006,16 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": "Payments service dev namespace",
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0006/events",
-                     *         "self": "/api/v1/requests/req-20261126-0006"
+                     *         "events": "/api/v1/requests/req-20261127-0006/events",
+                     *         "self": "/api/v1/requests/req-20261127-0006"
                      *       },
                      *       "mergeSha": null,
                      *       "namespace": "billing-dev",
-                     *       "planHash": "b77ec5289eb0b4282343645ac4440ee6fcdd533d0e1cbe3b2aed7e8509c4713a",
+                     *       "planHash": "83fbdd10e46eb59ab7a8469389ca3be081d6248b68e498bd28f9b5553b7d319b",
                      *       "plugin": "namespaces",
                      *       "pr": null,
                      *       "reason": null,
-                     *       "requestId": "req-20261126-0006",
+                     *       "requestId": "req-20261127-0006",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -14842,7 +15033,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "rejected",
-                     *       "updatedAt": "2026-11-26T21:29:19.409489Z"
+                     *       "updatedAt": "2026-11-27T00:02:19.078363Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -15006,70 +15197,70 @@ export interface operations {
                      *         "slots": [],
                      *         "timeoutHours": 8
                      *       },
-                     *       "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
+                     *       "baseSha": "a539f2ec28817c4438aff7fc406387f84840178e",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:22.047809Z",
+                     *       "createdAt": "2026-11-27T00:02:20.490456Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:22.098757Z",
+                     *           "at": "2026-11-27T00:02:20.517944Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:22.292124Z",
+                     *           "at": "2026-11-27T00:02:20.617055Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
-                     *           "note": "cmapi/CRC/req-20261126-0007 at f2384f00 on 89561eb2 (created)",
+                     *           "note": "cmapi/CRC/req-20261127-0007 at 479aab8d on a539f2ec (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:22.452921Z",
+                     *           "at": "2026-11-27T00:02:20.703700Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
-                     *           "note": "cmapi/CRC/req-20261126-0007 #5",
+                     *           "note": "cmapi/CRC/req-20261127-0007 #5",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:22.712574Z",
+                     *           "at": "2026-11-27T00:02:20.847607Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: fail",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:22.744943Z",
+                     *           "at": "2026-11-27T00:02:20.868574Z",
                      *           "by": "ci",
                      *           "event": "head_moved",
-                     *           "note": "PR head moved from f2384f00 to ec4de521 after approval",
+                     *           "note": "PR head moved from 479aab8d to 9df23668 after approval",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:22.777710Z",
+                     *           "at": "2026-11-27T00:02:20.884588Z",
                      *           "by": "ci",
                      *           "event": "pr_failed",
                      *           "note": "checks failed",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:22.777799Z",
+                     *           "at": "2026-11-27T00:02:20.884650Z",
                      *           "by": "worker",
                      *           "event": "pr_closed",
                      *           "note": "#5: its checks failed; the request is failed and may be retried",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:22.959694Z",
+                     *           "at": "2026-11-27T00:02:20.967745Z",
                      *           "by": "worker",
                      *           "event": "branch_deleted",
-                     *           "note": "cmapi/CRC/req-20261126-0007 at ec4de521",
+                     *           "note": "cmapi/CRC/req-20261127-0007 at 9df23668",
                      *           "status": "failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:24.739104Z",
+                     *           "at": "2026-11-27T00:02:21.847398Z",
                      *           "by": "opal",
                      *           "event": "retry",
                      *           "note": "retry requested",
@@ -15086,22 +15277,22 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": "Payments service dev namespace",
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0007/events",
+                     *         "events": "/api/v1/requests/req-20261127-0007/events",
                      *         "pr": "https://git.test/pulls/5",
-                     *         "self": "/api/v1/requests/req-20261126-0007"
+                     *         "self": "/api/v1/requests/req-20261127-0007"
                      *       },
                      *       "mergeSha": null,
                      *       "namespace": "search-dev",
-                     *       "planHash": "fecc27fbe1a49f538841aaebbe834a08ceabc498b2909ad001ff6da71c5adcd6",
+                     *       "planHash": "2cbf58b2fd56a364d34143e4ad6349cd2aeda2faa6214d9720de95dce8966f81",
                      *       "plugin": "namespaces",
                      *       "pr": {
-                     *         "branch": "cmapi/CRC/req-20261126-0007",
-                     *         "head": "f2384f00",
+                     *         "branch": "cmapi/CRC/req-20261127-0007",
+                     *         "head": "479aab8d",
                      *         "number": 5,
                      *         "url": "https://git.test/pulls/5"
                      *       },
                      *       "reason": null,
-                     *       "requestId": "req-20261126-0007",
+                     *       "requestId": "req-20261127-0007",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -15119,7 +15310,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "approved",
-                     *       "updatedAt": "2026-11-26T21:29:24.609786Z"
+                     *       "updatedAt": "2026-11-27T00:02:21.713199Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];
@@ -15270,63 +15461,63 @@ export interface operations {
                      *         "slots": [],
                      *         "timeoutHours": 8
                      *       },
-                     *       "baseSha": "89561eb2e7666c1c6bed1799a90032085b13f57b",
+                     *       "baseSha": "a539f2ec28817c4438aff7fc406387f84840178e",
                      *       "beyondTier": null,
                      *       "clusterId": "CRC",
-                     *       "createdAt": "2026-11-26T21:29:31.329822Z",
+                     *       "createdAt": "2026-11-27T00:02:25.301942Z",
                      *       "env": "dev",
                      *       "events": [
                      *         {
-                     *           "at": "2026-11-26T21:29:31.379458Z",
+                     *           "at": "2026-11-27T00:02:25.332478Z",
                      *           "by": "ola",
                      *           "event": "plan_auto_approved",
                      *           "note": "auto:baseline-rnd-namespace",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:31.563139Z",
+                     *           "at": "2026-11-27T00:02:25.426494Z",
                      *           "by": "cmapi-bot",
                      *           "event": "branch_pushed",
-                     *           "note": "cmapi/CRC/req-20261126-0009 at 88a27e68 on 89561eb2 (created)",
+                     *           "note": "cmapi/CRC/req-20261127-0009 at f4851764 on a539f2ec (created)",
                      *           "status": "approved"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:31.639120Z",
+                     *           "at": "2026-11-27T00:02:25.471874Z",
                      *           "by": "cmapi-bot",
                      *           "event": "pr_opened",
-                     *           "note": "cmapi/CRC/req-20261126-0009 #8",
+                     *           "note": "cmapi/CRC/req-20261127-0009 #8",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:31.720184Z",
+                     *           "at": "2026-11-27T00:02:25.517188Z",
                      *           "by": "ci",
                      *           "event": "ci",
                      *           "note": "kubeconform: pass; kyverno: pass; cmapi check: pass",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:31.792680Z",
+                     *           "at": "2026-11-27T00:02:25.559553Z",
                      *           "by": "worker",
                      *           "event": "merge_verified",
-                     *           "note": "merged 88a27e68; the folder at it is the plan's",
+                     *           "note": "merged f4851764; the folder at it is the plan's",
                      *           "status": "pr_open"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:31.810758Z",
+                     *           "at": "2026-11-27T00:02:25.570307Z",
                      *           "by": "cmapi-bot",
                      *           "event": "merged",
-                     *           "note": "merged 88a27e68",
+                     *           "note": "merged f4851764",
                      *           "status": "merged"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:31.907313Z",
+                     *           "at": "2026-11-27T00:02:25.619802Z",
                      *           "by": "worker",
                      *           "event": "sync_timeout",
                      *           "note": "orders-dev exists on the cluster and cmapi does not manage it; nothing applied",
                      *           "status": "sync_failed"
                      *         },
                      *         {
-                     *           "at": "2026-11-26T21:29:32.154505Z",
+                     *           "at": "2026-11-27T00:02:25.784837Z",
                      *           "by": "opal",
                      *           "event": "revert_requested",
                      *           "note": "",
@@ -15343,22 +15534,22 @@ export interface operations {
                      *       "instance": "nonprod",
                      *       "justification": "Payments service dev namespace",
                      *       "links": {
-                     *         "events": "/api/v1/requests/req-20261126-0009/events",
+                     *         "events": "/api/v1/requests/req-20261127-0009/events",
                      *         "pr": "https://git.test/pulls/8",
-                     *         "self": "/api/v1/requests/req-20261126-0009"
+                     *         "self": "/api/v1/requests/req-20261127-0009"
                      *       },
-                     *       "mergeSha": "88a27e68",
+                     *       "mergeSha": "f4851764",
                      *       "namespace": "orders-dev",
-                     *       "planHash": "03fd76c8f693465e06c256e948056f08e1e7d1d3cfdec5f4ce4d3c5cd081c85d",
+                     *       "planHash": "2b55cc5cb3a1687f1a10e7038a5ce91dfb672e864e45f9479f2a4ca2b85ddcdc",
                      *       "plugin": "namespaces",
                      *       "pr": {
-                     *         "branch": "cmapi/CRC/req-20261126-0009",
-                     *         "head": "88a27e68",
+                     *         "branch": "cmapi/CRC/req-20261127-0009",
+                     *         "head": "f4851764",
                      *         "number": 8,
                      *         "url": "https://git.test/pulls/8"
                      *       },
                      *       "reason": null,
-                     *       "requestId": "req-20261126-0009",
+                     *       "requestId": "req-20261127-0009",
                      *       "requester": {
                      *         "automated": false,
                      *         "requester": {
@@ -15376,7 +15567,7 @@ export interface operations {
                      *         "submittedByClient": null
                      *       },
                      *       "status": "sync_failed",
-                     *       "updatedAt": "2026-11-26T21:29:32.021570Z"
+                     *       "updatedAt": "2026-11-27T00:02:25.648869Z"
                      *     }
                      */
                     "application/json": components["schemas"]["ChangeRequest"];

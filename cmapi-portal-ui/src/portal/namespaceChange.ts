@@ -6,6 +6,7 @@
 //
 // Pure functions, no React and no local imports but types, so Node runs this file as it is in the direct tests.
 import type { ExtraRow, Kind, KeyEdit, MetaField, MetaForm } from "./metadataForm";
+import type { Missing } from "./missingKeys";
 
 /** A namespace's labels and annotations, by kind: what Git holds or what the cluster has. */
 export type Maps = Record<Kind, Record<string, string>>;
@@ -14,9 +15,10 @@ export type Maps = Record<Kind, Record<string, string>>;
  * What the person may do with a row (design section 3): type in a declared key's own input (field), type a value with no
  * declared rule (value: an additional key, or an operator-only key for a caller with namespaces:protect), only remove it
  * (remove: a key that no rule admits, #492 M2), or nothing (locked). A drifted key that has no other row is shown and never
- * changed here (live).
+ * changed here (live). A key that cmapi fills in or that starts the name, which Git lacks, takes only the one value that the
+ * read's missingKeys gives (fill, #732, #739): it is added with that value or not at all.
  */
-export type Access = "field" | "value" | "remove" | "locked" | "live";
+export type Access = "field" | "value" | "remove" | "locked" | "live" | "fill";
 
 /** x-cmapi-edit of Git's undeclared and operator-only keys, with the cluster environment in the reason (#528, #532). */
 export type GitEdits = Record<"labels" | "annotations", Record<string, KeyEdit & { removable?: boolean }>>;
@@ -37,6 +39,8 @@ export interface KeyRow {
   extra: boolean;
   git: string | null;
   live: string | null;
+  /** The one value a change may add (access "fill"); null otherwise. */
+  fill: string | null;
 }
 
 /** The person's change: each key that they set (a value) or remove (null), relative to what Git holds. */
@@ -51,7 +55,7 @@ const split = (id: string): [Kind, string] => {
 };
 
 /** The mockup's order within a kind: what cmapi fills in, the other locked keys, then the required and the optional ones. */
-const rank = (r: KeyRow): number => (r.access === "locked" ? (r.edit.mode === "automatic" ? 0 : 1) : r.edit.mode === "required" ? 2 : 3);
+const rank = (r: KeyRow): number => (r.access === "locked" || r.access === "fill" ? (r.edit.mode === "automatic" ? 0 : 1) : r.edit.mode === "required" ? 2 : 3);
 
 /**
  * The rows of one namespace, each kind in the mockup's order: the locked keys, the required ones, the optional ones, then the
@@ -61,20 +65,23 @@ const rank = (r: KeyRow): number => (r.access === "locked" ? (r.edit.mode === "a
  * row 4). Of the undeclared keys of Git (`edits`, the read's x-cmapi-edit of each), an additional key (optional) is a value
  * to type, a key that no rule admits (removable) can only be removed, and cmapi's own and the platform's keys are locked with the read's reason.
  * A key of `drifted` (the read's sync.driftedKeys) that has none of these rows gets one, so the strip's count is the number of
- * marked rows (design T3).
+ * marked rows (design T3). A locked declared key that Git lacks and `missing` (the read's git.missingKeys) gives a value for is
+ * unlocked as "fill": a change may add it with exactly that value (#732, #739).
  */
 export function rowsOf(form: MetaForm, git: Maps, live: Maps, edits: GitEdits, operator: boolean,
-  drifted: ReadonlyArray<{ kind: Kind; key: string }> = []): KeyRow[] {
+  drifted: ReadonlyArray<{ kind: Kind; key: string }> = [], missing: readonly Missing[] = []): KeyRow[] {
   const rows: KeyRow[] = [];
-  const row = (kind: Kind, key: string, title: string, edit: KeyEdit, access: Access, field: MetaField | null = null, extra = false): KeyRow =>
-    ({ id: `${kind}:${key}`, kind, key, title, edit, access, field, extra, git: git[kind][key] ?? null, live: live[kind][key] ?? null });
+  const row = (kind: Kind, key: string, title: string, edit: KeyEdit, access: Access, field: MetaField | null = null, extra = false, fill: string | null = null): KeyRow =>
+    ({ id: `${kind}:${key}`, kind, key, title, edit, access, field, extra, git: git[kind][key] ?? null, live: live[kind][key] ?? null, fill });
   for (const kind of ["label", "annotation"] as const) {
     const mine: KeyRow[] = [];
     for (const f of form.fields.filter((x) => x.kind === kind)) {
       const edit = form.edits[`${kind}:${f.key}`];
       if (!edit) continue;
       const locked = f.derivedFrom !== null || edit.mode === "fixed" || edit.mode === "automatic";
-      mine.push(row(kind, f.key, f.title ?? f.key, edit, locked ? "locked" : "field", locked ? null : f));
+      const fill = locked && !(f.key in git[kind]) ? missing.find((m) => m.kind === kind && m.key === f.key)?.value ?? null : null;
+      if (fill !== null) mine.push(row(kind, f.key, f.title ?? f.key, edit, "fill", f, false, fill));
+      else mine.push(row(kind, f.key, f.title ?? f.key, edit, locked ? "locked" : "field", locked ? null : f));
     }
     for (const key of form.operatorOnly[kind]) {
       const edit = edits[kind === "label" ? "labels" : "annotations"][key] ?? form.edits[`${kind}:${key}`];

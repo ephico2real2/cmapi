@@ -57,6 +57,8 @@ export type PlacementRanked = components["schemas"]["PlacementRanked"];
 export type PlacementExcluded = components["schemas"]["PlacementExcluded"];
 export type AdoptionList = components["schemas"]["AdoptionList"];
 export type AdoptionStanding = components["schemas"]["AdoptionStanding"];
+export type AdoptBody = components["schemas"]["AdoptBody"];
+export type MissingKey = components["schemas"]["MissingKey"];
 
 /** What a section shows for one read. A 401 is not here: the client signs in again and the section never sees it. */
 export type Result<T> =
@@ -533,12 +535,24 @@ export function useAdoptionList(clusterId: string, which: "candidates" | "skippe
   return { ...resultOf(query), reload: () => void query.refetch() };
 }
 
-/** One adoption as the person asked for it: the cluster, the namespace and the justification. */
+/**
+ * One adoption as the person asked for it: the cluster, the namespace, the justification, and the labels and annotations
+ * that it adds, which the namespace lacks (#739).
+ */
 export interface PlannedAdoption {
   clusterId: string;
   ns: string;
   justification: string;
+  labels: Record<string, string>;
+  annotations: Record<string, string>;
 }
+
+/** The body of :adopt: the maps only when they add a key, so an adoption that adds none is the one the API had before #739. */
+const adoptBody = ({ justification, labels, annotations }: PlannedAdoption): AdoptBody => ({
+  justification,
+  ...(Object.keys(labels).length ? { labels } : {}),
+  ...(Object.keys(annotations).length ? { annotations } : {})
+});
 
 /**
  * POST .../namespaces/{ns}:adopt?dryRun=true: the plan of an adoption. Each Check asks the server again: the namespace, its
@@ -552,9 +566,9 @@ export function useAdoptPlan(adoption: PlannedAdoption | null): Outcome<Plan> & 
     gcTime: 0,
     enabled: adoption !== null,
     queryFn: async ({ signal }) => {
-      const { clusterId, ns, justification } = adoption!;
+      const { clusterId, ns } = adoption!;
       const { data, error, response } = await api.POST("/api/v1/clusters/{cluster_id}/namespaces/{ns}:adopt", {
-        params: { path: { cluster_id: clusterId, ns }, query: { dryRun: true } }, body: { justification }, signal
+        params: { path: { cluster_id: clusterId, ns }, query: { dryRun: true } }, body: adoptBody(adoption!), signal
       });
       if (!data) throw problemOf(response, error);
       if (response.status !== 200) throw new ApiProblem({ status: 500, code: "not-a-plan", detail: `The dry run answered ${response.status}, not 200.` });
@@ -572,9 +586,9 @@ export function useSubmitAdoption(): Outcome<ChangeRequest> & { submit: (adoptio
   const client = useQueryClient();
   const mutation = useMutation({
     mutationFn: async ({ adoption, key }: { adoption: PlannedAdoption; key: string }) => {
-      const { clusterId, ns, justification } = adoption;
+      const { clusterId, ns } = adoption;
       const { data, error, response } = await api.POST("/api/v1/clusters/{cluster_id}/namespaces/{ns}:adopt", {
-        params: { path: { cluster_id: clusterId, ns }, header: { "Idempotency-Key": key } }, body: { justification }
+        params: { path: { cluster_id: clusterId, ns }, header: { "Idempotency-Key": key } }, body: adoptBody(adoption)
       });
       if (!data) throw problemOf(response, error);
       return data as ChangeRequest;

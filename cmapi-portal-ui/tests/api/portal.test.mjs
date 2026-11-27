@@ -10,7 +10,7 @@ import { isDeepStrictEqual } from "node:util";
 import { AxeBuilder } from "@axe-core/playwright";
 import { chromium } from "playwright";
 import { checkComboBoxLifecycle } from "../combobox.mjs";
-import { capacityFleet, capacityGroups, COMPANY_KEYS, expirationsFrom, KEYS_479, heldPageRows, namespacesOfMockup, policyCluster, policyFleet, policyFleetWith, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest,
+import { capacityFleet, capacityGroups, COMPANY_KEYS, expirationsFrom, KEYS_479, heldPageRows, namespaceRecord, namespacesOfMockup, policyCluster, policyFleet, policyFleetWith, policyRowsFrom, quotaCsv, quotaQueryOf, quotasFrom, quotaSuggest,
   recordEtag, REFERENCE_KEYS, rejectionsFrom, requestsFrom, requestWith, SAMPLES, servePortal, startApi, startIssuer, syncRecord, USERS } from "./standin.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -4693,7 +4693,8 @@ try {
       assert.deepEqual(api.state.seen.filter((c) => c.path === "/api/v1/clusters/CRC/namespaces").slice(1).map((c) => c.query), [{ q: "pay", mnemonic: "abc", limit: "10" }],
         "one call for the text when the typing stopped: the first word is abc's chip, the rest is q");
       assert.deepEqual(await chips(page, "Mnemonic").then((c) => c.length), 4);
-      assert.equal(await panel(page).locator(".pf-v6-c-toggle-group__button.pf-m-selected").innerText(), "abc 4", "abc's chip turned on by itself");
+      // The Mnemonic chips' own group: a requester also sees the Managed | Adopt choice, a toggle group too (#739, self-service).
+      assert.equal(await panel(page).getByRole("group", { name: "Mnemonic" }).locator(".pf-v6-c-toggle-group__button.pf-m-selected").innerText(), "abc 4", "abc's chip turned on by itself");
       assert.deepEqual((await nsOptions(page).allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()),
         ["abc-paylater-dev team billing · pending req-20261120-0011", "abc-payments-dev team payments · unknown"], "team and state; the list reads no Git, so a state is pending or unknown");
       await page.getByText("2 of 2 in CRC · Mnemonic abc · ↑↓ Enter").waitFor();
@@ -5366,8 +5367,8 @@ try {
     await context.close();
   });
 
-  await check("26-P without adoption:write there is no Adopt view, and its address shows the managed namespaces", async () => {
-    const { context, page, errors } = await fresh({ user: "requester", clusters: NS_CLUSTERS, metadataKeys: KEYS_479, namespaces: namespacesOfMockup() });
+  await check("26-P without namespaces:write there is no Adopt view (#739: a requester adopts), and its address shows the managed namespaces", async () => {
+    const { context, page, errors } = await fresh({ user: "viewer", clusters: NS_CLUSTERS, metadataKeys: KEYS_479, namespaces: namespacesOfMockup() });
     await open(page, "#namespaces?view=adopt&cluster=CRC");
     await panel(page).getByLabel("Namespace", { exact: true }).waitFor();
     assert.equal(await panel(page).getByRole("button", { name: "Adopt" }).count(), 0);
@@ -5422,6 +5423,169 @@ try {
             assert.equal(mine.x > plan.x, width >= 768, `${state} ${width}: the adoption box is ${width >= 768 ? "beside" : "below"} the plan`);
           }
           await page.screenshot({ path: join(width === 820 ? out : adoptShots, `26-${state}-${width}-${theme}.png`), fullPage: true });
+          if (width !== 820) {
+            const scan = await new AxeBuilder({ page }).analyze();
+            scans++;
+            assert.deepEqual(scan.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.html}`), [], `axe on ${state} at ${width} ${theme}`);
+          }
+        }
+        assert.deepEqual(errors, []);
+        await context.close();
+      }
+      console.log(`  ${state}: 3 widths, 2 themes, ${scans} axe scans`);
+    });
+  }
+
+  // #739: self-service adoption, and the missing metadata asked for in the Adopt form and later in the Namespaces tab. The
+  // candidates sample names what abc-rnd lacks (missingKeys): Team and Team DL required, three optional keys behind "More".
+  const TEAM_DL = "abc-team@ephico2real.com";
+  async function adoptWithMetadata(page) {
+    await open(page, "#namespaces?view=adopt&cluster=CRC");
+    await panel(page).getByRole("button", { name: "Adopt abc-rnd" }).click();
+    await panel(page).getByLabel("Team (required)", { exact: true }).fill("abc");
+    await panel(page).getByLabel("Team DL (required)", { exact: true }).fill(TEAM_DL);
+    await page.getByLabel("Justification (required)").fill("Bring abc-rnd under cmapi");
+    await adoptCheck(page).click();
+    await panel(page).locator("#adopt-status").getByText("The check passed (dry run, 200). Nothing is written yet.").waitFor();
+  }
+  /** An adopted namespace whose Git and cluster lack the derived name, the mnemonic that starts it, and the line of business. */
+  const adoptedRecord = () => {
+    const rec = namespaceRecord({ name: "abc-legacy-dev", prefix: "abc", team: "legacy" });
+    for (const key of ["name", "company.net/mnemonic", "company.net/lob"]) { delete rec.git.labels[key]; delete rec.live.labels[key]; }
+    return rec;
+  };
+  async function openMissing(page) {
+    await open(page, "#namespaces?cluster=CRC&ns=abc-legacy-dev");
+    await panel(page).getByText("abc-legacy-dev lacks 3 required keys").waitFor();
+    await panel(page).getByRole("button", { name: "Add missing metadata" }).click();
+    await panel(page).getByRole("heading", { name: "Missing metadata" }).waitFor();
+  }
+
+  await check("739-A a requester adopts abc-rnd and adds its missing metadata in the same form: the fields, the dry run and the request carry it", async () => {
+    const { context, page, errors } = await fresh({ user: "requester", clusters: NS_CLUSTERS });
+    await open(page, "#namespaces?view=adopt&cluster=CRC");
+    await panel(page).getByRole("button", { name: "Adopt abc-rnd" }).click();
+    await panel(page).getByRole("heading", { name: "Missing metadata" }).waitFor();
+    await panel(page).getByText("Still missing after this adoption: Team, Team DL.").waitFor();
+    await panel(page).getByRole("button", { name: "More: 3 optional keys" }).waitFor();
+    await adoptWithMetadata(page);
+    const [dry] = adoptPosts();
+    assert.deepEqual(dry.body, { justification: "Bring abc-rnd under cmapi", labels: { "cmapi.net/team": "abc" }, annotations: { "cmapi.net/team-dl": TEAM_DL } });
+    assert.match(await adoptStatus(page), /2 keys added/);
+    const added = panel(page).getByRole("list", { name: "Keys this adoption adds" });
+    assert.deepEqual(await added.locator("li").allInnerTexts(), ["label cmapi.net/team: abc", `annotation cmapi.net/team-dl: ${TEAM_DL}`]);
+    assert.equal(await panel(page).getByRole("list", { name: "Findings" }).getByText("missing-required-key").count(), 0, "a key added is no longer a finding");
+    assert.equal(await panel(page).getByText(/Still missing after this adoption/).count(), 0);
+    await adoptSubmit(page).click();
+    await panel(page).getByText(/Request req-\d{8}-8\d{3} submitted \(202\)\./).waitFor();
+    const writes = adoptPosts().filter((c) => !c.query.dryRun);
+    assert.equal(writes.length, 1);
+    assert.deepEqual(writes[0].body, dry.body, "Submit sends the body that was checked");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("739-B a value that breaks its rule stops Check under its field, and an empty field adds nothing", async () => {
+    const { context, page, errors } = await fresh({ user: "requester", clusters: NS_CLUSTERS });
+    await open(page, "#namespaces?view=adopt&cluster=CRC");
+    await panel(page).getByRole("button", { name: "Adopt abc-rnd" }).click();
+    await panel(page).getByLabel("Team (required)", { exact: true }).fill("Not A Team");
+    await page.getByLabel("Justification (required)").fill("Bring abc-rnd under cmapi");
+    await adoptCheck(page).click();
+    await panel(page).getByText(/^Missing metadata: Team: /).waitFor();
+    assert.equal(adoptPosts().length, 0, "nothing is sent while a field is refused");
+    await panel(page).getByLabel("Team (required)", { exact: true }).fill("");
+    await adoptCheck(page).click();
+    await panel(page).locator("#adopt-status").getByText("The check passed (dry run, 200). Nothing is written yet.").waitFor();
+    assert.deepEqual(adoptPosts()[0].body, { justification: "Bring abc-rnd under cmapi" }, "with no field filled, the adoption of #26 is sent");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("739-H the API's adoption-key-held refusal is shown, and nothing is submitted", async () => {
+    const { context, page, errors } = await fresh({ user: "requester", clusters: NS_CLUSTERS });
+    expectedStatus = [422];
+    // The stand-in holds every key that the candidate does not lack; the portal offers only the keys it lacks, so this is
+    // what a namespace that gained the key since the list was read answers.
+    api.state.answers = [{ route: "POST /api/v1/clusters/CRC/namespaces/abc-rnd:adopt", status: 422, body: SAMPLES.problems["adoption-key-held"].response.body }];
+    await open(page, "#namespaces?view=adopt&cluster=CRC&adopt=abc-rnd");
+    await panel(page).getByLabel("Team (required)", { exact: true }).fill("abc");
+    await page.getByLabel("Justification (required)").fill("Bring abc-rnd under cmapi");
+    await adoptCheck(page).click();
+    await panel(page).getByText("The check failed: adoption-key-held").waitFor();
+    assert.equal(await adoptSubmit(page).getAttribute("aria-disabled"), "true");
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("739-N Add missing metadata: an adopted namespace offers the same fields as a change, its derived and prefix keys with their one value", async () => {
+    const { context, page, errors } = await fresh({ user: "requester", clusters: NS_CLUSTERS, metadataKeys: KEYS_479, namespaces: [adoptedRecord(), ...namespacesOfMockup()] });
+    await openMissing(page);
+    const name = panel(page).getByLabel("Name (required)", { exact: true });
+    const mnemonic = panel(page).getByLabel("Mnemonic (required)", { exact: true });
+    assert.equal(await name.inputValue(), "abc-legacy-dev");
+    assert.equal(await mnemonic.inputValue(), "abc");
+    assert.equal(await name.getAttribute("readonly"), "", "a derived key is read-only");
+    assert.equal(await mnemonic.getAttribute("readonly"), "", "the key that starts the name is read-only");
+    const lob = panel(page).getByLabel("Line of business (required)", { exact: true });
+    await lob.waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), await lob.getAttribute("id"), "the first field to type has the focus");
+    await lob.fill("amgsst");
+    await page.locator("#nsx-why").fill("The metadata the adoption lacked");
+    await panel(page).getByRole("button", { name: "Check (dry run)" }).click();
+    await panel(page).locator("#nsx-status").getByText("The check passed (dry run, 200). Nothing is written yet.").waitFor();
+    const patches = () => api.state.seen.filter((c) => c.method === "PATCH" && c.path === "/api/v1/clusters/CRC/namespaces/abc-legacy-dev");
+    assert.deepEqual(patches()[0].body.labels, { name: "abc-legacy-dev", "company.net/mnemonic": "abc", "company.net/lob": "amgsst" });
+    // The owner's decision 2 on #26: a key is added only when someone chooses to. Clearing Add leaves it out, and a finding.
+    await panel(page).getByRole("checkbox", { name: "Add Mnemonic" }).uncheck();
+    await panel(page).getByRole("button", { name: "Check (dry run)" }).click();
+    await panel(page).locator("#nsx-status").getByText("The check passed (dry run, 200). Nothing is written yet.").waitFor();
+    assert.deepEqual(patches()[1].body.labels, { name: "abc-legacy-dev", "company.net/lob": "amgsst" });
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  await check("739-F a missing derived or prefix key is unlocked in the table too: Add gives its one value, Undo takes it back", async () => {
+    const { context, page, errors } = await fresh({ user: "requester", clusters: NS_CLUSTERS, metadataKeys: KEYS_479, namespaces: [adoptedRecord(), ...namespacesOfMockup()] });
+    await open(page, "#namespaces?cluster=CRC&ns=abc-legacy-dev");
+    await panel(page).getByRole("button", { name: "Add Mnemonic as abc" }).click();
+    await panel(page).getByText("company.net/mnemonic   (new) → abc").waitFor();
+    await panel(page).getByRole("button", { name: "Do not add Mnemonic" }).click();
+    await panel(page).getByRole("button", { name: "Add Mnemonic as abc" }).waitFor();
+    assert.deepEqual(errors, []);
+    await context.close();
+    // A namespace that lacks nothing offers nothing.
+    const other = await fresh({ user: "requester", clusters: NS_CLUSTERS, metadataKeys: KEYS_479, namespaces: namespacesOfMockup() });
+    await open(other.page, "#namespaces?cluster=CRC&ns=abc-ledger-dev");
+    await panel(other.page).locator("table[aria-label='Labels and annotations of abc-ledger-dev']").waitFor();
+    assert.equal(await panel(other.page).getByText("Add missing metadata").count(), 0);
+    assert.deepEqual(other.errors, []);
+    await other.context.close();
+  });
+
+  // The two #739 screens at 390, 820 and 1440 px in each theme, axe at phone and desktop width; the screenshots at 390 and 1440
+  // are the pull request's evidence (UPDATE_COMMITTED_SCREENSHOTS=1 writes them to screenshots/739-missing-metadata).
+  const missingShots = process.env.UPDATE_COMMITTED_SCREENSHOTS === "1" ? join(app, "screenshots", "739-missing-metadata") : join(out, "739-missing-metadata");
+  mkdirSync(missingShots, { recursive: true });
+  for (const [state, options, reach] of [["adopt-metadata", {}, adoptWithMetadata],
+    ["add-missing", { metadataKeys: KEYS_479, namespaces: [adoptedRecord()] }, openMissing]]) {
+    await check(`739-L ${state} at 390, 820 and 1440 px in each theme, and axe at phone and desktop width`, async () => {
+      let scans = 0;
+      for (const width of [390, 820, 1440]) {
+        const { context, page, errors } = await fresh({ user: "requester", clusters: NS_CLUSTERS, width, ...options });
+        await reach(page);
+        const height = await page.evaluate(() => Math.max(...[...document.querySelectorAll("*")].map((el) => el.scrollHeight)));
+        await page.setViewportSize({ width, height: height + 200 });
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((dark) => document.documentElement.classList.toggle("pf-v6-theme-dark", dark), theme === "dark");
+          await settle(page);
+          const layout = await page.evaluate(() => {
+            const main = document.querySelector(".pf-v6-c-page__main-container") ?? document.documentElement;
+            return { doc: document.documentElement.scrollWidth - document.documentElement.clientWidth, main: main.scrollWidth - main.clientWidth, text: document.body.innerText };
+          });
+          assert.ok(layout.doc <= 0 && layout.main <= 0, `${state} ${width} ${theme}: no sideways scroll (${layout.doc}, ${layout.main})`);
+          assert.doesNotMatch(layout.text, /\{\{|undefined|NaN|\[object|null/, `${state} ${width} ${theme}: no leftover placeholder`);
+          await page.screenshot({ path: join(width === 820 ? out : missingShots, `739-${state}-${width}-${theme}.png`), fullPage: true });
           if (width !== 820) {
             const scan = await new AxeBuilder({ page }).analyze();
             scans++;

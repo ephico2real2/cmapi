@@ -140,7 +140,8 @@ show Git and the cluster side by side:
     "edits": {
       "labels":      { "cmapi.net/managed": { "mode": "fixed", "reason": "Managed by cmapi.", "sensitive": false, "removable": false } },
       "annotations": { }
-    }
+    },
+    "missingKeys": [ ]
   },
   "sync": {
     "state": "drift",
@@ -163,6 +164,10 @@ show Git and the cluster side by side:
 reserved, adoption, operator-only or `allowOther` key, or a key that no rule admits. `GET /api/v1/metadata-keys` gives
 the rules of the other keys (§4.3). The example shows one entry of `git.edits`. `removable: true` marks a key that no
 rule admits. A change may remove that key (`null`). A change cannot set it or change its value (#528).
+
+`git.missingKeys` (added by #739) lists each declared key that Git lacks and a change can add, required ones first, with
+the one value of a key that cmapi fills in or that starts the name. The read always gives it, empty when Git
+lacks none, as in the example.
 
 The comparison leaves out the keys that only the cluster or its controllers write. The stanza `liveOnlyKeys` of
 `metadata-keys.yaml` lists them, as case-sensitive `fnmatch` globs. Without the stanza, the list is

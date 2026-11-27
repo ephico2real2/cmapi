@@ -75,7 +75,7 @@ def test_in_sync_is_the_drift_row_turned_around(design):
 def test_row5_read_example_validates_against_namespace_view(design):
     block = re.search(r"```json\n(.*?)```", _section(design, "### 4.2 The read"), re.S).group(1)
     example = json.loads(block)
-    assert set(example["git"]) == {"labels", "annotations", "edits"}
+    assert set(example["git"]) == {"labels", "annotations", "edits", "missingKeys"}
     # The example shows the fields that the read adds; the other fields of the view take their usual values.
     padded = {"clusterId": "CRC", "env": "dev", "team": "payments", "tier": "small", "managed": True,
               "expiresAt": None, "openRequest": None, "mnemonic": "abc", **example}

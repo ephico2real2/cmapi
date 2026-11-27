@@ -176,11 +176,12 @@ def test_a_repeated_dry_run_is_refused_and_plans_nothing(world):
     assert validator.calls == 0 and git.prs == {}
 
 
-def test_only_adoption_write_may_adopt(world):
+def test_a_requester_may_adopt(world):
+    """#739: self-service, namespaces:write in the environment; tests/service/test_self_service_adoption_739.py covers more."""
     client, ctx, git, kube, validator, keys = world
     owner_sample(kube)
     r = adopt(client, keys, who="ola", role=OLA)
-    assert r.status_code == 403, r.text
+    assert r.status_code == 202, r.text
 
 
 def test_candidates_and_skipped_list_each_namespace_with_its_rule(world):
@@ -198,7 +199,8 @@ def test_candidates_and_skipped_list_each_namespace_with_its_rule(world):
     skipped = {i["name"]: i for i in client.get("/api/v1/clusters/CRC/adoption/skipped", headers=h).json()["items"]}
     assert skipped["kube-x"]["rule"] == "excluded" and skipped["theirs"]["rule"] == "tracked-elsewhere"
     assert skipped["theirs"]["application"] == "team-apps" and "plain" not in skipped
-    assert client.get("/api/v1/clusters/CRC/adoption/candidates", headers=auth(keys, "ola", **OLA)).status_code == 403
+    viewer = auth(keys, "ola", roles=["cmapi-viewer"], groups=[])
+    assert client.get("/api/v1/clusters/CRC/adoption/candidates", headers=viewer).status_code == 403
 
 
 # --------------------------------------------------------------------------- the request, through GitOps

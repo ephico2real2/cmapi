@@ -1199,6 +1199,41 @@ class MetadataKeys:
             return "a request can add it with the start of the namespace name"
         return "a change cannot add it: it is part of the namespace's fixed name"
 
+    def exact_value(self, kind: str, key: str, sources: Mapping[str, str]) -> str | None:
+        """The value that a form offers for a missing key that cmapi fills in or that starts the name (#739), or None when
+        no request can add it. A derived value must be a valid value of its key, as at create. For the namespacePrefix key
+        it is the shortest start of the name ("<value>-") that keeps the key's own rule: _addition accepts any such start."""
+        rule = self.rules[kind][key]
+        if rule.derived:
+            expected = sources.get(rule.derived)
+            return expected if expected and not self._syntax(key, expected, kind) else None
+        namespace = sources.get("namespace") or ""
+        if rule.namespace_prefix:
+            starts = [namespace[:i] for i, c in enumerate(namespace) if c == "-" and i > 0]
+            return next((s for s in starts if not self._breaks_own_rule(key, s, kind, sources)), None)
+        return None
+
+    def missing_keys(self, labels: Mapping[str, str], annotations: Mapping[str, str],
+                     sources: Mapping[str, str]) -> list[dict[str, Any]]:
+        """Each declared key that a namespace lacks and that a request may add (#739): the required ones first, then the
+        optional ones, each kind in the file's order. `value` is the value of a key that cmapi fills in or that starts the
+        name (exact_value), and null for a key whose value the requester chooses. A key that the namespace holds, also empty,
+        is not listed (a change keeps it, #732), nor one that ends the name or has no valid derived value."""
+        maps = {"label": labels, "annotation": annotations}
+        out: list[dict[str, Any]] = []
+        for kind in KINDS:
+            for key, rule in self.rules[kind].items():
+                # A key that ends the name is never offered (D20), also one that cmapi fills in (CRC's app-environment).
+                if key in maps[kind] or rule.namespace_suffix or self.classify(key, kind) != "governed":
+                    continue
+                value = None
+                if rule.derived or rule.namespace_prefix:
+                    value = self.exact_value(kind, key, sources)
+                    if value is None:
+                        continue
+                out.append({"kind": kind, "key": key, "required": rule.required, "value": value})
+        return sorted(out, key=lambda m: not m["required"])
+
     def _check_prefix(self, sent: Mapping[str, Mapping[str, str | None]], current: Mapping[str, Mapping[str, str]],
                       sources: Mapping[str, str]) -> list[dict[str, Any]]:
         """Step 3: the namespace name starts with "<value>-" of the namespacePrefix key, when the request sends it."""

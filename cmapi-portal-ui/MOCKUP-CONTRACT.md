@@ -191,12 +191,14 @@ by step, heads `src/portal/AdoptView.tsx`. Its calls are `GET .../adoption/candi
 
 | Difference | Why |
 |---|---|
-| The Managed | Adopt choice is a `ToggleGroup`, shown only to a person whose `/me` `access.permissions` holds `adoption:write`; the address is `#namespaces?view=adopt&cluster=CRC&adopt=abc-rnd` | The API checks the permission in each cluster's environment (403 outside it); the page does not guess a role |
+| The Managed | Adopt choice is a `ToggleGroup`, shown only to a person whose `/me` `access.permissions` holds the permission of `:adopt` (`namespaces:write` since #739, self-service); the address is `#namespaces?view=adopt&cluster=CRC&adopt=abc-rnd` | The API checks the permission in each cluster's environment (403 outside it); the page does not guess a role |
 | The candidates, the skipped list, the objects read, the findings and the files are the API's answer, not the mockup's sample rows | The mockup's rows stand in for the API (`26-6` compares the headings, labels and buttons; `26-A` the rows of the stand-in) |
 | The findings are one list of `code` and message, as the plan gives them; the mockup shows five of the owner's sample | The plan lists every finding with the design's codes (D6, D17, `policy-ratcheted`) |
 | Each file is a closed `ExpandableSection` with a `CodeBlock` | A plan has four files or more, and the mockup shows one open |
 | "Write why, then press Check (dry run)." before the first check, and "Changed since the last check. Press Check (dry run) again." after an edit | The mockup shows the states after a check only |
 | "Open at current step" after a submit opens the Workflow tab on the request | As the Namespaces tab's change does |
+| A "Missing metadata" panel below the plan, which the mockup does not have: one field for each required key that the candidate lacks (its `missingKeys`), the optional ones behind "More", and the keys that cmapi fills in or that start the name read-only with the API's value | The owner's decision of 2026-11-26 on #26 (#739): the team supplies the required metadata in the same form. Fields left empty add nothing, and each key stays a finding (decision 2). The same panel opens from the Namespaces tab's "Add missing metadata" alert as a change. Checks 739-A, 739-B, 739-H, 739-N, 739-F and 739-L |
+| "Keys this adoption adds" above the findings, from the plan's `metadataDiff` | The approver reads what the request adds beside what it keeps |
 
 ### Where the portal's Approvals tab differs from the mockup
 
