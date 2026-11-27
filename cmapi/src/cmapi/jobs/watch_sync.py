@@ -61,6 +61,10 @@ def _managed(obj: dict | None) -> bool:
 ACTOR = {"apply": "cmapi-deliverer", "argocd": "argocd", "gitops": "gitops"}
 
 
+# The kinds the reader may list in a namespace but not get (deploy/manifests/environments/crc/reader, #748).
+_LISTED = ("ServiceAccount", "RoleBinding")
+
+
 def _live(cache):
     """read_plan's Getter on a watch cache: the cached object, else a direct read of the reader. A read of one object that
     fails is Unreadable, never an absence; a cluster that cannot be read raises ClusterUnreachable, a wait (#751, D2)."""
@@ -69,6 +73,10 @@ def _live(cache):
         if hit is not None:
             return hit
         try:
+            if kind in _LISTED:
+                # One list of the namespace, unpaged: without `limit` the API server answers in one response.
+                return next((o for o in cache.client.list(kind, namespace=ns)["items"]
+                             if (o.get("metadata") or {}).get("name") == name), None)
             return cache.client.get_object(kind, ns, name)
         except (KubeError, BadResponse, KeyError) as exc:       # KeyError: a kind the reader has no path for (RESOURCES)
             raise Unreadable(str(exc) or type(exc).__name__) from exc
@@ -231,21 +239,30 @@ def _await_prune(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: Jo
     if exc.signal:
         note += f" ({exc.signal})"
     log.warning("prune_waiting", job=job.job_id, request_id=row.request_id, reason=note[:200])
-    repo.move(row, E.PRUNE_PENDING, "gitops", note[:500])
+    repo.move(row, E.PRUNE_PENDING, "gitops", note)      # whole: the operator acts on every name (request_events.note is text)
     jobs.done(job)
     jobs.enqueue("prune", request_id=row.request_id, cluster_id=row.cluster_id, delay=ctx.delivery.poll_seconds)
 
 
 def _prune_change(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow) -> None:
     """A gitops change in awaiting_prune (D5): synced once the full-plan read matches, which is when each removed object is
-    gone. Until then the operator's wait, unbounded, with the reason on the request once (CmapiPruneStuck after a day); a
-    cluster that cannot be read is bounded by syncTimeout, as for a delete (_cannot_read)."""
+    gone. While only removed objects are left, the operator's wait, unbounded, with the reason on the request once
+    (CmapiPruneStuck after a day). Anything else, a cluster or an object that cannot be read or a difference that is no
+    removal, is bounded by syncTimeout, as for a delete (_cannot_read): awaiting_prune has no :retry or :revert of its own.
+    Git main is read first, as watch_sync does (D3 step 1): the deliverer applies main, not this plan."""
     files = {p: t for p, t in row.plan["files"].items() if t is not None}
     try:
+        if not as_plan(lambda: ctx.git.read_folder(folder(row.cluster_id, row.namespace))[0] == files):
+            repo.move(row, E.SYNC_TIMEOUT, "worker", "Git main's folder differs from the approved plan")
+            jobs.done(job)
+            return
         cache = _reader_cache(ctx, row.cluster_id)
         found = read_plan(_live(cache), row.namespace, files, row.plan.get("prev") or {}, **_rules(ctx))
-    except (_NotYet, ClusterUnreachable) as exc:
+    except (_NotYet, ClusterUnreachable, GitUnavailable) as exc:
         _cannot_read(ctx, repo, jobs, row, job, f"{type(exc).__name__}: {exc}")
+        return
+    if not found.ok and not found.only_removals:
+        _cannot_read(ctx, repo, jobs, row, job, found.summary(), failing="the plan did not match in more than removals")
         return
     if (job.payload or {}).get("unreachable_since"):
         job.payload = {k: v for k, v in job.payload.items() if k != "unreachable_since"}
@@ -266,7 +283,8 @@ def _prune_wait(repo: RequestRepo, jobs: JobRepo, row, job: JobRow, poll: int, w
     job.attempts = 0
 
 
-def _cannot_read(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow, why: str) -> None:
+def _cannot_read(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: JobRow, why: str,
+                 failing: str = "the cluster could not be read") -> None:
     """A cluster that cannot be read, unreachable or its reader not connected (never connecting included), is a wait
     bounded by time, not by attempts: one clock from the first failed read, running for the design's syncTimeout, the
     bound watch_sync gives the same failure. The registry's relist, up to five minutes away, never decides the outcome.
@@ -281,7 +299,7 @@ def _cannot_read(ctx: AppContext, repo: RequestRepo, jobs: JobRepo, row, job: Jo
     if waited < ctx.delivery.sync_timeout_seconds:
         _prune_wait(repo, jobs, row, job, ctx.delivery.poll_seconds, why)
         return
-    note = f"the cluster could not be read for {int(waited)} s: {why[:160]}"
+    note = f"{failing} for {int(waited)} s: {why[:160]}"
     if row.status == S.AWAITING_PRUNE.value:
         repo.move(row, E.SYNC_TIMEOUT, "worker", note)
     else:

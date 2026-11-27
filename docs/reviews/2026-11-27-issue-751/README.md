@@ -64,12 +64,22 @@ It replaces `confirmed_by_read`'s check of the Namespace and its quota hard valu
 | The Namespace | It exists. Each label and annotation the plan writes has the same value live. Each label and annotation that the previous folder's Namespace held, and the plan drops, is absent live | Keys that match `liveOnlyKeys` (`metadata-keys.yaml`), and keys under a skip prefix of `adoption.yaml` (D3's `skip.keyPrefixes`). A live key that neither the plan nor the previous folder holds is not the plan's: the drift view (#481) covers it |
 | Every ResourceQuota of the plan | It exists. `spec.hard` equal in both directions, by value (`qty`: `5120Mi` equals `5Gi`). `spec.scopes` and `spec.scopeSelector` equal | Labels and annotations of the quota |
 | Every LimitRange of the plan | It exists. `spec.limits` item by item: the same `type`, and `max`, `min`, `default`, `defaultRequest` and `maxLimitRequestRatio` equal in both directions, by value, after the plan's Container items get the API server's three defaults (section 1) | Labels and annotations |
+| Every ServiceAccount and RoleBinding of the plan (added in review, below) | It exists. A RoleBinding's `roleRef` and `subjects`, the subjects in any order | Labels and annotations |
 | Each object the plan removes | Absent. An object is removed when the previous folder holds its kind, namespace and name and the plan does not: a file rename that keeps the object is not a removal | |
 
 - The read goes to the watch cache first, then to the reader directly, as before. A removed object counts as absent only
   when the cache does not hold it and a direct read finds nothing. A read that fails is never absence.
 - A cluster that cannot be read (`ClusterUnreachable`) is a wait, as before. Any other failed read of one object is a
   difference that names the object and the error.
+- **Changed in review (reviewer 2, PR #752).** D2 first compared three kinds. The renderer also writes the token issuer's
+  RoleBinding on every create, and the requested ServiceAccounts and grants, so a deliverer that left the binding out
+  confirmed. Every kind the renderer writes is now read. The reader's grant on ServiceAccounts and RoleBindings is `list`
+  only (`deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml`), so those two are read by a list of the namespace.
+  `argocd.argoproj.io/sync-options`, which cmapi renders, is compared though `liveOnlyKeys` holds `argocd.argoproj.io/*`.
+  A planned object with `metadata.deletionTimestamp` is a difference ("the Kubernetes API marks the object for deletion by
+  populating `.metadata.deletionTimestamp`", Kubernetes, "Finalizers"). Quantities compare after the API server's milli
+  rounding ("val.RoundUp(milliScale)", `SetDefaults_ResourceList`, kubernetes v1.31.0 `pkg/apis/core/v1/defaults.go`), and a
+  quota's `scopeSelector` by its requirements, with an empty `values` equal to none.
 - Each difference names the object, the field, the plan's value and the live value:
   `LimitRange/payments-dev-cpu spec.limits[0].max.cpu: plan '4', live '2'`.
 - **Why the extra checks cannot fail on their own.** In `apply` mode cmapi writes every key the plan holds and deletes what
@@ -120,6 +130,10 @@ would end every such request in `sync_failed`, which is wrong: everything else w
 - The `prune` job then reads the full plan every poll, without a time limit, as it waits for a namespace today. When it
   matches, the request is `synced` (`prune_confirmed`). A cluster that cannot be read for `syncTimeout` moves it to
   `sync_failed` (`_cannot_read`, as for a delete).
+- Changed in review (PR #752): the `prune` job first reads Git main, as D3 step 1 does, and a changed folder moves the
+  request to `sync_failed`. Only removed objects wait without a limit; any other difference (drift, an object that cannot be
+  read) is bounded by `syncTimeout` from its first poll, then `sync_failed`, since `awaiting_prune` has no `:retry` or
+  `:revert` of its own. The notice is kept whole, so the action and every name reach the operator.
 - `:retry` of a `sync_failed` change goes back to `watch_sync`. One new transition, `sync_failed` to `awaiting_prune` on
   `prune_pending`, lets a retried change that ends with only removals left wait there too.
 - `argocd` and `apply` keep their behaviour: `argocd` waits for its own confirmation, and `apply` removes the objects itself.
@@ -197,3 +211,46 @@ renames, a failed read is never absence).
 
 `argocd` and `apply` keep their existing tests unchanged: `test_second_pass.py`, `test_watch_sync_client_once_402.py`,
 `test_review_d_delivery.py`, `test_review_h_tools_migrate.py`, `test_review_255_apply.py`, `test_flow.py`.
+
+## Review and the coordinator's rulings (2026-11-27)
+
+**Reviewers:**
+- **Reviewer 1:** Codex gpt-6.2-astra xhigh (`review/reviewer-1-codex.md`), with 5 High and 5 Medium findings.
+- **Reviewer 2:** Opus 5.5 high, on PostgreSQL (`review/reviewer-2-opus.md`).
+
+Two false `synced` reproduce on head:
+- a create with the token-issuer RoleBinding missing;
+- a change confirmed after Git main changed during `awaiting_prune`.
+
+**Fixed (reviewer 2's narrowed patch):**
+- The read covers all five rendered kinds. ServiceAccounts and RoleBindings are fetched by `list`, because the CRC reader may only `list` them (M1). Without that, any removal ended `sync_failed`, even in `apply` mode.
+- The Argo CD sync-options (`Prune=confirm`) annotation is compared, though an `argocd.argoproj.io/*` skip would have hidden it.
+- An object being deleted (`deletionTimestamp`) is a difference.
+- Quantities are rounded to milli, as the API server rounds them.
+- Quota scope requirements are compared, with an empty values array equal to an omitted one.
+- Name templates are checked at start.
+- The prune notice is kept whole.
+- `awaiting_prune` rechecks Git main, and ends at `syncTimeout` when a difference other than a removal stays.
+
+**The namespace lock, verified on PostgreSQL:** 409 `change-pending` in `merged`, `awaiting_prune` and `sync_failed`, so case 2 stays retracted.
+
+**Cut from reviewer 1's patch:**
+- removing the watch cache;
+- the identity and namespace-in-plan checks;
+- response-side LimitRange defaulting, which is refuted because defaults apply on GET;
+- the `>=` timeout change;
+- the chart rewrite;
+- the prune patch that failed a request on one transient read error, measured on reviewer 1's tree.
+
+**Backlog**, with the fixes and tests in reviewer 2's backlog patch (kept at `workbench/cmapi/backlog-752.diff`):
+- **B1, Medium.** CRC `apply` leaves an object live when it is removed from a file that stays. It predates this PR, and is next.
+- **B2.** Chart guards: a string acknowledgement passes and an invalid name is accepted, both predating the PR. Per-cluster overrides are not guarded.
+- **B3.** An adoption skip prefix can cover `cmapi.net/`.
+- **B4, owner's call.** A stale watch-cache hit can confirm. D2 reads the cache first, as base did.
+
+**Runs:**
+- service tests, 8 touched files: head 134 passed, fix 140 passed;
+- the new tests on head: 9 fail with an honest fake;
+- `tests/core`: 996 passed;
+- render and CRC scripts: 0 failed;
+- a fresh export with `patch -p1 -F0`: 17 core and 32 service tests passed.

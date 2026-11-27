@@ -7,11 +7,12 @@ docs/reviews/2026-11-27-issue-751/README.md, D2.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import ROUND_UP, Decimal, localcontext
 from fnmatch import fnmatchcase
 from typing import Any, Callable, Iterable, Iterator, Mapping
 
 from cmapi.core import kube_yaml
-from cmapi.core.adoption import DEFAULT_SKIP_PREFIXES
+from cmapi.core.adoption import DEFAULT_SKIP_PREFIXES, SYNC_OPTIONS_ANNOTATION
 from cmapi.core.metadata import DEFAULT_LIVE_ONLY_KEYS
 from cmapi.core.tiers import qty
 
@@ -25,8 +26,9 @@ class Unreadable(Exception):
     absence."""
 
 
-# Planned objects in this order, the Namespace first; other kinds (ServiceAccounts, RoleBindings) are not compared (D2).
-_ORDER = {"Namespace": 0, "ResourceQuota": 1, "LimitRange": 2}
+# Planned objects in this order, the Namespace first: every kind the renderer writes (core/render/manifests.py). A missing
+# RoleBinding is a grant the request approved and the cluster lacks, so it is compared too (PR #752 review).
+_ORDER = {"Namespace": 0, "ResourceQuota": 1, "LimitRange": 2, "ServiceAccount": 3, "RoleBinding": 4}
 _LIMIT_MAPS = ("max", "min", "default", "defaultRequest", "maxLimitRequestRatio")
 
 
@@ -95,12 +97,26 @@ def _identity(doc: Mapping[str, Any], namespace: str) -> tuple[str, str | None, 
     return doc["kind"], meta.get("namespace") or namespace, meta["name"]
 
 
+_MILLI = Decimal("0.001")
+
+
+def _stored(value: Any) -> Decimal:
+    """A quantity of a ResourceList as the API server stores it: SetDefaults_ResourceList rounds each value up to milli scale
+    ("val.RoundUp(milliScale)", kubernetes v1.31.0 pkg/apis/core/v1/defaults.go), for a quota's spec.hard and each map of a
+    LimitRange item. So a planned 100u reads back as 1m."""
+    amount = qty(value)
+    with localcontext() as exact:
+        exact.prec = max(28, amount.adjusted() + 10)
+        return amount.quantize(_MILLI, rounding=ROUND_UP)
+
+
 def _same(a: Any, b: Any) -> bool:
-    """One amount: quantities by value (the API server canonicalises 5120Mi to 5Gi), anything else by its text."""
+    """One amount: quantities by stored value (the API server canonicalises 5120Mi to 5Gi and rounds to milli), anything
+    else by its text."""
     if a is None or b is None:
         return a is None and b is None
     try:
-        return qty(a) == qty(b)
+        return _stored(a) == _stored(b)
     except ValueError:
         return str(a) == str(b)
 
@@ -130,12 +146,19 @@ def defaulted_limit(item: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _scope_requirements(spec: Mapping[str, Any]) -> list[tuple[str, str, list[str]]]:
+    """A quota's scopeSelector as its requirements, in any order: the API server leaves out an empty `values` (omitempty,
+    kubernetes/api v0.31.0 core/v1/types.go), so `values: []` and no values are one requirement."""
+    expressions = (spec.get("scopeSelector") or {}).get("matchExpressions") or []
+    return sorted((e.get("scopeName"), e.get("operator"), sorted(e.get("values") or [])) for e in expressions)
+
+
 def _quota_differences(obj: str, plan: Mapping[str, Any], live: Mapping[str, Any]) -> list[Difference]:
     ps, ls = plan.get("spec") or {}, live.get("spec") or {}
     out = _map_differences(obj, "spec.hard", ps.get("hard"), ls.get("hard"))
     if sorted(ps.get("scopes") or []) != sorted(ls.get("scopes") or []):
         out.append(Difference(obj, "spec.scopes", ps.get("scopes"), ls.get("scopes")))
-    if (ps.get("scopeSelector") or None) != (ls.get("scopeSelector") or None):
+    if _scope_requirements(ps) != _scope_requirements(ls):
         out.append(Difference(obj, "spec.scopeSelector", ps.get("scopeSelector"), ls.get("scopeSelector")))
     return out
 
@@ -156,6 +179,12 @@ def _limit_differences(obj: str, plan: Mapping[str, Any], live: Mapping[str, Any
         for k in _LIMIT_MAPS:
             out += _map_differences(obj, f"{at}.{k}", want[n][k], have[n][k])
     return out
+
+
+def _grant(binding: Mapping[str, Any]) -> tuple[Any, list[list[tuple[str, Any]]]]:
+    """A RoleBinding's grant: its roleRef, and its subjects in any order. The renderer writes ServiceAccount subjects, whose
+    apiGroup the API server leaves empty (SetDefaults_Subject, kubernetes v1.31.0 pkg/apis/rbac/v1/defaults.go)."""
+    return binding.get("roleRef"), sorted(sorted(s.items()) for s in binding.get("subjects") or [])
 
 
 def _namespace_differences(obj: str, plan: Mapping[str, Any], previous: Mapping[str, Any] | None, live: Mapping[str, Any],
@@ -186,9 +215,11 @@ def read_plan(get: Getter, namespace: str, files: Mapping[str, str | None], prev
 
     - The Namespace: each label and annotation of the plan, and the absence of each one the plan drops from the previous
       folder. A key that matches liveOnlyKeys (`live_only`, fnmatch) or starts with a skip prefix of adoption.yaml
-      (`skip_prefixes`) is the cluster's, and left out.
+      (`skip_prefixes`) is the cluster's, and left out; argocd.argoproj.io/sync-options, cmapi's prune policy, is not.
     - Each ResourceQuota: spec.hard in both directions by value, spec.scopes and spec.scopeSelector.
     - Each LimitRange: spec.limits item by item, after the API server's defaults (defaulted_limit).
+    - Each ServiceAccount: present. Each RoleBinding: its roleRef and subjects.
+    - A planned object marked for deletion (metadata.deletionTimestamp) is a difference, not a match.
     - Each object the previous folder holds and the plan does not, by kind, namespace and name: absent. A file rename that
       keeps the object is no removal.
 
@@ -199,6 +230,9 @@ def read_plan(get: Getter, namespace: str, files: Mapping[str, str | None], prev
     live_only, prefixes = tuple(live_only), tuple(skip_prefixes)
 
     def skipped(key: str) -> bool:
+        # The prune policy is cmapi's own key under Argo CD's prefix, which liveOnlyKeys leaves out for its tracking keys.
+        if key == SYNC_OPTIONS_ANNOTATION:
+            return False
         return any(fnmatchcase(key, g) for g in live_only) or any(key.startswith(p) for p in prefixes)
 
     def read(ident: tuple[str, str | None, str]) -> tuple[dict[str, Any] | None, Difference | None]:
@@ -226,12 +260,18 @@ def read_plan(get: Getter, namespace: str, files: Mapping[str, str | None], prev
             out.append(failed)
         elif live is None:
             out.append(Difference(obj, "", "present", None))
+        elif (live.get("metadata") or {}).get("deletionTimestamp"):
+            # Marked for deletion, a finalizer away from gone (Kubernetes, "Finalizers"): not the object the plan keeps.
+            out.append(Difference(obj, "metadata.deletionTimestamp", None, live["metadata"]["deletionTimestamp"]))
         elif kind == "Namespace":
             out += _namespace_differences(obj, doc, before.get(ident), live, skipped)
         elif kind == "ResourceQuota":
             out += _quota_differences(obj, doc, live)
-        else:
+        elif kind == "LimitRange":
             out += _limit_differences(obj, doc, live)
+        elif kind == "RoleBinding" and _grant(doc) != _grant(live):
+            out.append(Difference(obj, "roleRef and subjects", {k: doc.get(k) for k in ("roleRef", "subjects")},
+                                  {k: live.get(k) for k in ("roleRef", "subjects")}))
     removed = [i for i in before if i not in idents and i[0] != "Namespace"]
     for ident in removed:
         live, failed = read(ident)
@@ -242,6 +282,9 @@ def read_plan(get: Getter, namespace: str, files: Mapping[str, str | None], prev
     parts = [_count(counts["Namespace"], "Namespace"), _count(counts["ResourceQuota"], "ResourceQuota"),
              _count(counts["LimitRange"], "LimitRange")]
     compared = ", ".join(parts[:-1]) + f" and {parts[-1]} match the plan"
+    grants = [_count(counts[k], k) for k in ("ServiceAccount", "RoleBinding") if counts[k]]
+    if grants:
+        compared += f", as do {' and '.join(grants)}"
     if removed:
         compared += f", and {_count(len(removed), 'removed object')} absent"
     return PlanRead(tuple(out), compared)

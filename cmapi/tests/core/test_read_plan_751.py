@@ -71,7 +71,7 @@ def test_a_folder_applied_as_written_matches_whatever_the_server_added():
     files = folder(NAMESPACE, QUOTA, CPU, BINDING)
     found = read_plan(served(NAMESPACE, QUOTA, CPU, BINDING).get, NS, files)
     assert found.ok, [str(d) for d in found.differences]
-    assert found.summary() == "1 Namespace, 1 ResourceQuota and 1 LimitRange match the plan"
+    assert found.summary() == "1 Namespace, 1 ResourceQuota and 1 LimitRange match the plan, as do 1 RoleBinding"
 
 
 def test_nothing_applied_names_each_object():
@@ -168,3 +168,70 @@ def test_a_cluster_that_cannot_be_read_is_the_callers_wait():
         raise Down("unreachable")
     with pytest.raises(Down):
         read_plan(get, NS, folder(NAMESPACE))
+
+
+# --------------------------------------------------------------------------- PR #752 review (reviewer 2)
+
+TOKEN_ISSUER = {**BINDING, "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "cmapi-token-issuer"},
+                "subjects": [{"kind": "ServiceAccount", "name": "cmapi-token-issuer", "namespace": "cmapi-system"}]}
+BOT = {"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": "ci-bot", "namespace": NS}}
+
+
+def test_a_missing_rolebinding_or_serviceaccount_is_named_and_a_binding_must_grant_what_the_plan_grants():
+    """The renderer writes a token-issuer RoleBinding on every create, and the requested ServiceAccounts and grants: a
+    delivery that left one out has not delivered the plan."""
+    files = folder(NAMESPACE, QUOTA, BOT, TOKEN_ISSUER)
+    live = served(NAMESPACE, QUOTA)
+    assert [str(d) for d in read_plan(live.get, NS, files).differences] == [
+        "ServiceAccount/ci-bot: plan 'present', live absent", "RoleBinding/cmapi-token-issuer: plan 'present', live absent"]
+    live.put(copy.deepcopy(BOT))
+    live.put(copy.deepcopy(TOKEN_ISSUER))
+    found = read_plan(live.get, NS, files)
+    assert found.ok and found.summary().endswith("as do 1 ServiceAccount and 1 RoleBinding"), found.summary()
+    live.put({**copy.deepcopy(TOKEN_ISSUER), "subjects": [{"kind": "ServiceAccount", "name": "someone", "namespace": NS}]})
+    assert [d.field for d in read_plan(live.get, NS, files).differences] == ["roleRef and subjects"]
+
+
+def test_the_prune_policy_is_compared_though_argo_cds_tracking_keys_are_left_out():
+    """liveOnlyKeys holds argocd.argoproj.io/* for Argo CD's tracking id, and cmapi renders its own Prune=confirm under it."""
+    live = served(NAMESPACE)
+    assert read_plan(live.get, NS, folder(NAMESPACE)).ok
+    del live.get("Namespace", None, NS)["metadata"]["annotations"]["argocd.argoproj.io/sync-options"]
+    assert [d.field for d in read_plan(live.get, NS, folder(NAMESPACE)).differences] == [
+        "annotation argocd.argoproj.io/sync-options"]
+
+
+def test_a_planned_object_marked_for_deletion_is_not_the_plans():
+    live = served(NAMESPACE, QUOTA)
+    live.get("Namespace", None, NS)["metadata"]["deletionTimestamp"] = "2026-11-27T10:00:00Z"
+    assert [str(d) for d in read_plan(live.get, NS, folder(NAMESPACE, QUOTA)).differences] == [
+        "Namespace/payments-dev metadata.deletionTimestamp: plan absent, live '2026-11-27T10:00:00Z'"]
+
+
+@pytest.mark.parametrize("doc", [QUOTA, CPU])
+def test_a_sub_milli_amount_matches_the_api_servers_rounding_and_no_other(doc):
+    """SetDefaults_ResourceList rounds each ResourceList value up to milli scale: a planned 100u is stored as 1m."""
+    plan = copy.deepcopy(doc)
+    amounts = plan["spec"]["hard"] if doc["kind"] == "ResourceQuota" else plan["spec"]["limits"][0]["max"]
+    amounts["cpu"] = "100u"
+    files = folder(NAMESPACE, plan)
+    live = served(NAMESPACE, plan)
+    stored = live.get(doc["kind"], NS, doc["metadata"]["name"])
+    stored_amounts = stored["spec"]["hard"] if doc["kind"] == "ResourceQuota" else stored["spec"]["limits"][0]["max"]
+    stored_amounts["cpu"] = "1m"
+    if doc["kind"] == "LimitRange":
+        stored["spec"]["limits"][0]["default"]["cpu"] = stored["spec"]["limits"][0]["defaultRequest"]["cpu"] = "1m"
+    assert read_plan(live.get, NS, files).ok, [str(d) for d in read_plan(live.get, NS, files).differences]
+    stored_amounts["cpu"] = "2m"
+    assert not read_plan(live.get, NS, files).ok
+
+
+def test_a_scope_selector_matches_the_form_the_api_server_returns_and_no_other():
+    """The API server leaves out an empty values array (omitempty): Exists with values [] reads back without them."""
+    plan = copy.deepcopy(QUOTA)
+    plan["spec"]["scopeSelector"] = {"matchExpressions": [{"scopeName": "PriorityClass", "operator": "Exists", "values": []}]}
+    live = served(NAMESPACE, plan)
+    del live.get("ResourceQuota", NS, f"{NS}-quota")["spec"]["scopeSelector"]["matchExpressions"][0]["values"]
+    assert read_plan(live.get, NS, folder(NAMESPACE, plan)).ok
+    live.get("ResourceQuota", NS, f"{NS}-quota")["spec"]["scopeSelector"]["matchExpressions"][0]["operator"] = "DoesNotExist"
+    assert [d.field for d in read_plan(live.get, NS, folder(NAMESPACE, plan)).differences] == ["spec.scopeSelector"]

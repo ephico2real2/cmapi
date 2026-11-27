@@ -2519,8 +2519,13 @@ drops from the previous folder; each ResourceQuota's `spec.hard` in both directi
 (`SetDefaults_LimitRangeItem`); and the absence of each object the previous folder held and the plan does not. A key that
 matches `liveOnlyKeys` or an adoption skip prefix is the cluster's and left out, and a live key that neither the plan nor
 the previous folder holds is the drift view's (#481), not the plan's. A read of one object that fails is a difference that
-names it, never an absence; a cluster that cannot be read is a wait. ServiceAccounts and RoleBindings that the plan writes
-are not compared.
+names it, never an absence; a cluster that cannot be read is a wait. Each ServiceAccount the plan writes must be there,
+and each RoleBinding with its `roleRef` and `subjects` (the token issuer's binding is on every create). `argocd.argoproj.io/sync-options`,
+cmapi's own prune policy, is compared although `liveOnlyKeys` leaves out the rest of `argocd.argoproj.io/*`. A planned
+object marked for deletion is a difference. Quantities compare as the API server stores them: by value, rounded up to milli
+scale (`SetDefaults_ResourceList`). The reader may list ServiceAccounts and RoleBindings but not get them, so the read lists
+them in the namespace. In gitops mode, `awaiting_prune` reads Git main as `watch_sync` does, and a difference that is not a
+removal ends it at `syncTimeout` in `sync_failed` (review of PR #752).
 
 **The deliverer's status, as signal** (`delivery.signal`, gitops only): `argocd` reads the Application of
 `delivery.argocd`; `flux` reads the Kustomization of `delivery.flux` (`kustomize.toolkit.fluxcd.io/v1`: its `Ready`

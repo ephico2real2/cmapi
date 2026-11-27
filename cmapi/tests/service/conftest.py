@@ -376,6 +376,9 @@ class FakeKube(KubeClient):
                 "metadata": {"resourceVersion": str(self.rv), **({"continue": str(start + limit)} if more else {})}}
 
     def get_object(self, kind, namespace, name):
+        if kind in ("ServiceAccount", "RoleBinding"):
+            # The reader's grant: list, not get (deploy/manifests/environments/crc/reader/00-cmapi-reader.yaml, #748).
+            raise KubeError(403, f"get {kind}", "forbidden: the reader may list ServiceAccounts and RoleBindings, not get them")
         return self.objects.get(self._k(kind, namespace, name))
 
     def watch(self, kind, resource_version, timeout_seconds=300):

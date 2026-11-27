@@ -53,6 +53,14 @@ class DeliveryConfig:
             raise ValueError(f"integrations.yaml: delivery.mode must be one of {', '.join(MODES)}, not {self.mode!r}")
         if self.signal not in SIGNALS:
             raise ValueError(f"integrations.yaml: delivery.signal must be one of {', '.join(SIGNALS)}, not {self.signal!r}")
+        # A name template that cannot be filled would raise in the middle of a sync poll, past every handler there.
+        for key, template in (("argocd.rootApplication", self.argocd_root_application),
+                              ("flux.kustomization", self.flux_kustomization)):
+            try:
+                application_name(template, "CLUSTER", "namespace")
+            except (KeyError, IndexError, ValueError, AttributeError) as exc:
+                raise ValueError(f"integrations.yaml: delivery.{key} {template!r} takes only {{clusterId}} and "
+                                 f"{{namespace}}: {type(exc).__name__} {exc}") from None
 
     @classmethod
     def from_integrations(cls, raw: Mapping[str, Any] | None) -> "DeliveryConfig":

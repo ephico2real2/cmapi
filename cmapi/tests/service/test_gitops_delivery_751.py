@@ -84,7 +84,7 @@ def test_gitops_nothing_applied_waits_then_fails_naming_the_namespace(world):
     found = detail(ctx, rid, "sync_differences")
     assert {d["object"] for d in found["differences"]} == {
         "Namespace/payments-dev", "ResourceQuota/payments-dev-quota", "LimitRange/payments-dev-limits-cpu",
-        "LimitRange/payments-dev-limits-memory"}, found
+        "LimitRange/payments-dev-limits-memory", "RoleBinding/cmapi-token-issuer"}, found
 
 
 def test_gitops_a_missing_label_stays_unconfirmed_then_fails_naming_it(world):
@@ -172,6 +172,98 @@ def test_gitops_a_leftover_removed_object_waits_in_awaiting_prune_then_synced_wh
     v = status(client, keys, rid)
     assert v["status"] == "synced", notes(v)[-2:]
     assert next(e for e in v["events"] if e["event"] == "prune_confirmed")["by"] == "gitops"
+
+
+def _in_awaiting_prune(client, ctx, git, kube, keys, removed=(LEGACY,)) -> str:
+    """A delivered create whose plan removes objects that the deliverer left: awaiting_prune, the clock set back long."""
+    rid = merged(client, ctx, keys)
+    with ctx.db.session() as s:
+        prev = {PATH + f"serviceaccount-{d['metadata']['name']}.yaml": yaml.safe_dump(d) for d in removed}
+        s.execute(text("update change_requests set plan = jsonb_set(plan, '{prev}', cast(:prev as jsonb)) where request_id = :r"),
+                  {"prev": __import__("json").dumps(prev), "r": rid})
+    for d in removed:
+        kube.apply(dict(d))
+    deliver(git, kube)
+    gitops(ctx, timeout=0)
+    run_jobs(ctx, limit=2)
+    assert status(client, keys, rid)["status"] == "awaiting_prune", notes(status(client, keys, rid))[-2:]
+    gitops(ctx, timeout=1800)
+    return rid
+
+
+def test_gitops_a_missing_rolebinding_is_not_synced(world):
+    """PR #752 review: the renderer writes the token issuer's RoleBinding on every create. A deliverer that applied the rest
+    and not the binding (a deliverer without `bind` on the ClusterRole, say) has not delivered the plan."""
+    client, ctx, git, kube, validator, keys = world
+    rid = merged(client, ctx, keys)
+    deliver(git, kube)
+    del kube.objects[("RoleBinding", "payments-dev", "cmapi-token-issuer")]
+    run_jobs(ctx, limit=3)
+    v = status(client, keys, rid)
+    want = "RoleBinding/cmapi-token-issuer: plan 'present', live absent"
+    assert v["status"] == "merged" and want in notes(v, "sync_wait")[-1], notes(v)[-2:]
+    deliver(git, kube)
+    run_jobs(ctx)
+    v = status(client, keys, rid)
+    assert v["status"] == "synced" and "as do 1 RoleBinding" in notes(v, "synced")[-1], notes(v)[-2:]
+
+
+def test_gitops_a_change_waiting_for_a_prune_still_holds_the_namespace(world):
+    """Case 2 (D7) on PostgreSQL: awaiting_prune holds the lock as merged and sync_failed do."""
+    client, ctx, git, kube, validator, keys = world
+    rid = _in_awaiting_prune(client, ctx, git, kube, keys)
+    h = auth(keys, "ola", **OLA)
+    etag = client.get("/api/v1/clusters/CRC/namespaces/payments-dev", headers=h).json()["etag"]
+    r = client.patch("/api/v1/clusters/CRC/namespaces/payments-dev", json={"tier": "medium"}, headers={**h, "If-Match": etag})
+    assert r.status_code == 409 and r.json()["code"] == "change-pending" and r.json()["requestId"] == rid, r.text
+    with ctx.db.session() as s:
+        index = s.execute(text("select indexdef from pg_indexes where indexname = 'uq_cr_open_namespace'")).scalar()
+    assert all(f"'{state}'" in index for state in ("merged", "awaiting_prune", "sync_failed")), index
+
+
+def test_gitops_main_changed_while_waiting_for_a_prune_is_never_synced(world):
+    """D3 step 1 holds in awaiting_prune too: the deliverer applies main, so a later change of the folder ends the wait."""
+    client, ctx, git, kube, validator, keys = world
+    rid = _in_awaiting_prune(client, ctx, git, kube, keys)
+    git.tamper("main", PATH + "resourcequota-payments-dev-quota.yaml", "kind: ResourceQuota\nedited: true\n")
+    kube.delete("ServiceAccount", "payments-dev", "legacy-bot")
+    run_jobs(ctx)
+    v = status(client, keys, rid)
+    assert v["status"] == "sync_failed" and "Git main's folder differs from the approved plan" in notes(v, "sync_timeout")[-1], \
+        notes(v)[-2:]
+
+
+def test_gitops_a_difference_other_than_a_removal_ends_a_prune_wait_at_sync_timeout(world):
+    """awaiting_prune has no :retry or :revert of its own: drift that appears while it waits is bounded by syncTimeout, then
+    sync_failed, which offers both. Within the bound it waits, so a passing error does not fail the request."""
+    client, ctx, git, kube, validator, keys = world
+    rid = _in_awaiting_prune(client, ctx, git, kube, keys)
+    del ns_labels(kube)["cmapi.net/team"]
+    run_jobs(ctx, limit=2)
+    v = status(client, keys, rid)
+    assert v["status"] == "awaiting_prune" and "label cmapi.net/team" in notes(v, "prune_waiting")[-1], notes(v)[-2:]
+    gitops(ctx, timeout=0)
+    run_jobs(ctx)
+    v = status(client, keys, rid)
+    note = notes(v, "sync_timeout")[-1]
+    assert v["status"] == "sync_failed" and "the plan did not match in more than removals" in note, notes(v)[-2:]
+
+
+def test_gitops_the_prune_notice_keeps_every_name_and_the_operators_action(world):
+    client, ctx, git, kube, validator, keys = world
+    bots = [{**LEGACY, "metadata": {**LEGACY["metadata"], "name": f"legacy-bot-with-a-long-name-{i:02d}"}} for i in range(30)]
+    rid = _in_awaiting_prune(client, ctx, git, kube, keys, removed=bots)
+    notice = notes(status(client, keys, rid), "prune_pending")[-1]
+    assert "Remove them, or prune in the deliverer" in notice, notice
+    assert all(f"ServiceAccount/{b['metadata']['name']}" in notice for b in bots), notice
+
+
+def test_an_unfillable_deliverer_name_template_stops_the_start():
+    """It would raise in the middle of a sync poll, past every handler there (PR #752 review)."""
+    from cmapi.core.sync import DeliveryConfig
+    for block in ({"flux": {"kustomization": "{cluster}"}}, {"argocd": {"rootApplication": "apps-{0}"}}):
+        with pytest.raises(ValueError, match="takes only {clusterId} and {namespace}"):
+            DeliveryConfig.from_integrations({"delivery": {"mode": "gitops", "signal": "flux", **block}})
 
 
 def test_gitops_a_leftover_beside_another_difference_is_sync_failed(world):
