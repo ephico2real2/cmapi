@@ -78,8 +78,8 @@ NOT YET PROVEN LIVE: CRC run 45 (since #726 and #734 merged, nothing has run on 
 ## Why it is allowed
 
 The baseline, `examples/baseline/cmapi-reader-rbac.yaml`, gives the reader three grants in `openshift-monitoring`, and in no
-other namespace. Each is cmapi's own: cmapi does not rely on another project's binding. On CRC, `openshift-coo`'s chart
-binds `cluster-monitoring-view` to every authenticated user, and the import check ignores it by design (below).
+other namespace. Each is cmapi's own: cmapi does not rely on any other binding. A grant to every authenticated user, which a cluster
+may have, does not count: the import check leaves `system:authenticated` out by design (below).
 
 | Grant | What it allows | Used by |
 |---|---|---|
