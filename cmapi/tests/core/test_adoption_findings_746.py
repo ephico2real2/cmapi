@@ -37,22 +37,28 @@ CATALOG = TierCatalog.load(EX / "config/tiers.yaml", ALL_ENVS)
 # --------------------------------------------------------------------------- #746 (a): the opt-in label and the policies
 
 
-def _allowed_keys(bundle: dict[str, str], env: str, kind: str) -> list[str]:
-    """The literal list of keys that the `<kind>Outside` variable of the other-keys prefix policy allows by name."""
-    doc = next(d for d in yaml.safe_load_all(bundle[f"env/{env}/cmapi-metadata-{env}.yaml"])
-               if d["metadata"]["name"] == f"cmapi-metadata-{env}-{kind}-other-keys-prefix")
-    expr = next(v["expression"] for v in doc["spec"]["variables"] if v["name"] == f"{kind}Outside")
-    match = re.search(r"k in (\[[^\]]*\])", expr)
-    assert match, expr
-    return json.loads(match.group(1))
+def _variable(bundle: dict[str, str], kind: str, rule: str, variable: str) -> str:
+    """The CEL of one variable of the other-keys `prefix` or `max` policy of dev."""
+    doc = next(d for d in yaml.safe_load_all(bundle["env/dev/cmapi-metadata-dev.yaml"])
+               if d["metadata"]["name"] == f"cmapi-metadata-dev-{kind}-other-keys-{rule}")
+    return next(v["expression"] for v in doc["spec"]["variables"] if v["name"] == variable)
+
+
+def _check_selector(bundle: dict[str, str], key: str, value: str) -> None:
+    """Both label policies allow the opt-in label with its value only (#750's review), and not by its key alone; the annotation
+    policies do not name it."""
+    for rule, suffix in [("prefix", "Outside"), ("max", "Other")]:
+        expr = _variable(bundle, "label", rule, "label" + suffix)
+        fixed = re.search(r"k in (\[[^\]]*\])", expr)
+        assert fixed and key not in json.loads(fixed[1])
+        assert f'k == "{key}" && (has(object.metadata.labels) ? object.metadata.labels : {{}})[k] == "{value}"' in expr
+        assert key not in _variable(bundle, "annotation", rule, "annotation" + suffix)
 
 
 @pytest.mark.parametrize("keys", [REFERENCE, COMPANY], ids=["reference", "company"])
 def test_the_prefix_policy_allows_the_opt_in_label_as_the_adoption_check_skips_it(keys):
     bundle = render_bundle(CATALOG, keys, PolicySettings(), {"dev"}, "nonprod")
-    assert "cmapi.net/adopt" in _allowed_keys(bundle, "dev", "label")
-    # The opt-in label is a label: the annotations' policy is unchanged.
-    assert "cmapi.net/adopt" not in _allowed_keys(bundle, "dev", "annotation")
+    _check_selector(bundle, "cmapi.net/adopt", "true")
     # cmapi's own check agrees: the adoption finds nothing on the label it ignores, and would report it otherwise.
     labels, sources = {"cmapi.net/adopt": "true"}, {"namespace": "x-dev", "environment": "dev"}
     assert [f for f in keys.adoption_findings(labels, {}, sources, ignore=frozenset({"cmapi.net/adopt"}))
@@ -65,12 +71,27 @@ def test_a_site_that_names_another_opt_in_label_has_that_one_allowed(tmp_path):
     config = crc_config_dir(tmp_path)
     (config / "adoption.yaml").write_text('selector: {label: example.org/adopt-me, value: "yes"}\n')
     rendered, _ = _render(config, config / "metadata-keys.yaml")
-    allowed = _allowed_keys(rendered, "dev", "label")
-    assert "example.org/adopt-me" in allowed and "cmapi.net/adopt" not in allowed
+    _check_selector(rendered, "example.org/adopt-me", "yes")
+    assert "cmapi.net/adopt" not in _variable(rendered, "label", "prefix", "labelOutside")
 
 
 from cmapi.core.validate import CliValidator  # noqa: E402
 from test_policygen import kyverno  # noqa: E402,F401  (the fixture: skips without the pinned CLI, fails with CMAPI_REQUIRE_KYVERNO=1)
+
+
+def test_only_the_opt_in_label_with_its_value_passes_the_prefix_policy(kyverno, tmp_path):
+    """The same key with another value, and a longer key with the value, keep the ordinary verdict: outside the prefixes."""
+    from test_policygen import apply, resources, write
+    label = "opt.example/take"
+    rendered = render_bundle(CATALOG, REFERENCE, PolicySettings(), {"dev"}, "nonprod", label, "yes")
+    policies = write(tmp_path / "bundle", rendered) / "env/dev"
+    prefix = "cmapi-metadata-dev-label-other-keys-prefix"
+    for key, value, allowed in [(label, "yes", True), (label, "true", False), (label + "-more", "yes", False)]:
+        obj = {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": "abc-dev",
+               "labels": {"cmapi.net/managed": "true", "cmapi.net/env": "dev", key: value}}}
+        results = apply(kyverno, policies, resources(tmp_path, {"ns.yaml": obj}))
+        expected = "pass" if allowed else "fail"
+        assert prefix in dict(results.get(expected, [])), (key, value, results)
 
 
 def test_an_adoption_plan_has_no_policy_finding_on_the_opt_in_label(tmp_path, kyverno):
@@ -160,6 +181,29 @@ def test_a_key_that_kubectl_create_wrote_is_left_out_with_a_reason_that_is_true_
     assert (c.kept, c.why) == (False, d.why)
     [k] = skipped_keys(_namespace({"kubectl-client-side-apply": ["pod-security.kubernetes.io/enforce"]}), AdoptionSettings())
     assert k.kept
+
+
+def test_a_key_that_only_a_delivery_applied_is_kept_and_no_other_is():
+    """#750's review: a key that only argocd-controller or cmapi-deliverer owns through Apply goes on that manager's next
+    apply if Git leaves it out, so it is kept. The same managers' Update, another manager beside them, or no owner at all
+    leave a manager that keeps the key, so it is left out."""
+    key = "pod-security.kubernetes.io/enforce"
+
+    def decide(*entries: tuple[str, str]) -> tuple[bool, str]:
+        ns = {"metadata": {"name": "n", "labels": {key: "restricted", "kubernetes.io/metadata.name": "n"}, "managedFields": [
+            {"manager": m, "operation": op, "fieldsV1": {"f:metadata": {"f:labels": {f"f:{key}": {}}}}} for m, op in entries]
+            + [{"manager": "kubectl-create", "operation": "Update",
+                "fieldsV1": {"f:metadata": {"f:labels": {"f:kubernetes.io/metadata.name": {}}}}}]}}
+        [d] = [d for d in skipped_keys(ns, AdoptionSettings()) if d.key == key]
+        return d.kept, d.why
+
+    for manager in ("argocd-controller", "cmapi-deliverer"):
+        kept, why = decide((manager, "Apply"))
+        assert kept and "would remove it" in why, why
+    assert decide(("argocd-controller", "Apply"), ("cmapi-deliverer", "Apply"))[0]
+    assert not decide(("argocd-controller", "Update"))[0]
+    assert not decide(("argocd-controller", "Apply"), ("pod-security-admission-label-synchronization-controller", "Update"))[0]
+    assert decide() == (False, "no field manager owns it")
 
 
 # --------------------------------------------------------------------------- D2 and #748: what stays unmanaged

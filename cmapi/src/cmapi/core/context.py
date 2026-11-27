@@ -111,7 +111,8 @@ def build_context(settings: Settings, *, start_registry: bool = True, import_sou
 
     # The Kyverno bundle from this instance's own configuration (#212), so plan time always checks what it configures, and
     # the Policies tab reads each cluster's reports against the same policies (#302).
-    bundle = render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name, cfg.adoption.label)
+    bundle = render_bundle(cfg.tiers, cfg.metadata, cfg.policy, cfg.allowed_environments, cfg.name, cfg.adoption.label,
+                           cfg.adoption.value)
     policy_bundle = PolicyBundle(bundle, policies_dir=settings.policies_dir)
 
     def reports_for(st: ClusterState, client: KubeClient) -> ReportCache | None:

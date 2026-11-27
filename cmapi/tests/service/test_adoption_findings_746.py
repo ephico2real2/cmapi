@@ -135,6 +135,76 @@ def test_a_policy_failure_the_snapshot_holds_still_adds_the_findings_approver(wo
     assert needed(p) == 2
 
 
+# --------------------------------------------------------------------------- #750's review: what still adds the approver
+
+
+def test_a_validator_finding_counts_whatever_its_policy_is_named(world):
+    """The rule of a validator finding is its policy's name, which a site's hand-written policy chooses (`policies_dir`). An
+    audit warning of a policy named like an informational code is still a policy's verdict, which a person judges."""
+    from cmapi.core.ports import Finding
+    client, ctx, git, kube, validator, keys = world
+    run46_namespace(kube)
+    validator.findings = [Finding("kyverno", "skipped-key", f"clusters/CRC/namespaces/{NS}/namespace.yaml",
+                                  "a site policy's audit warning", "warning")]
+    p = plan(client, keys, **SUPPLIED)
+    assert sorted(f["rule"] for f in p["findings"]).count("skipped-key") == 9
+    assert needed(p) == 2
+
+
+@pytest.mark.parametrize("manager", ["argocd-controller", "cmapi-deliverer"])
+def test_a_key_that_only_a_delivery_applies_stays_in_git_and_adds_the_approver(world, manager):
+    """D3a: a skip-prefix key that only argocd-controller or cmapi-deliverer owns through Apply would go on that manager's
+    next apply if Git left it out ("If the field is not owned by any other field managers, it is either deleted from the
+    live object or reset to its default value", Kubernetes, "Server-Side Apply"). So it stays in Git, as skipped-key-kept."""
+    client, ctx, git, kube, validator, keys = world
+    run46_namespace(kube)
+    key = "pod-security.kubernetes.io/enforce"
+    meta = kube.objects[("Namespace", "", NS)]["metadata"]
+    meta["labels"][key] = "restricted"
+    meta["managedFields"].append({"manager": manager, "operation": "Apply", "fieldsV1": _fields([key])})
+    p = plan(client, keys, **SUPPLIED)
+    kept = [f for f in p["findings"] if f["rule"] == "skipped-key-kept"]
+    assert len(kept) == 1 and key in kept[0]["message"] and "stays on the cluster" not in kept[0]["message"], kept
+    namespace = yaml.safe_load(p["files"][f"clusters/CRC/namespaces/{NS}/namespace.yaml"])
+    assert namespace["metadata"]["labels"][key] == "restricted"
+    assert needed(p) == 2
+
+
+def test_the_delivery_managers_are_the_ones_cmapi_applies_with():
+    from cmapi.core.adoption import DELIVERY_APPLY_MANAGERS
+    from cmapi.core.clients.kube import APPLY_FIELD_MANAGER
+    assert DELIVERY_APPLY_MANAGERS == {"argocd-controller", APPLY_FIELD_MANAGER}
+
+
+@pytest.fixture
+def bounded_world(test_config, fresh_db, keys, monkeypatch, tmp_path):
+    """The test instance, with a quota key that cmapi does not interpret made overridable and bounded (tiers.yaml)."""
+    import shutil
+    from conftest import build_world
+    d = tmp_path / "config"
+    shutil.copytree(test_config, d)
+    tiers = yaml.safe_load((d / "tiers.yaml").read_text())
+    tiers["overridable"].append("count/configmaps")
+    tiers["custom"]["max"]["count/configmaps"] = "10"
+    (d / "tiers.yaml").write_text(yaml.safe_dump(tiers))
+    with build_world(d, keys, monkeypatch) as w:
+        yield w
+
+
+@pytest.mark.parametrize("value, needs", [("11", 3), ("10", 1)])
+def test_a_raw_quota_key_is_checked_against_the_bound_the_site_gives_it(bounded_world, value, needs):
+    """D5: "Each value outside the custom tier's bounds ... is a finding beyond-custom-bounds". A raw key that tiers.yaml
+    bounds is checked as any other; within its bound it stays informational (uninterpreted-key)."""
+    client, ctx, git, kube, validator, keys = bounded_world
+    run46_namespace(kube)
+    kube.objects[("ResourceQuota", NS, f"{NS}-quota")]["spec"]["hard"]["count/configmaps"] = value
+    p = plan(client, keys, **SUPPLIED)
+    beyond = [f["message"] for f in p["findings"] if f["rule"] == "beyond-custom-bounds"]
+    assert "uninterpreted-key" in {f["rule"] for f in p["findings"]}
+    assert len(beyond) == (1 if needs == 3 else 0), beyond
+    assert needed(p) == needs, p["approval"]
+
+
 # --------------------------------------------------------------------------- #748: the reader's grant
 
 

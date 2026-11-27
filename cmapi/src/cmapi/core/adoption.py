@@ -30,7 +30,7 @@ from cmapi.core.tiers import LIMIT_KINDS, TierCatalog, flatten_limits, qty
 # Self-service (#739): the permission of every change of a namespace, declared by the three routes and checked in the
 # cluster's environment by the plan. The approval rules gate an adoption (D10).
 ADOPT_PERMISSION = "namespaces:write"
-ADOPT_LABEL = "cmapi.net/adopt"
+ADOPT_LABEL, ADOPT_VALUE = "cmapi.net/adopt", "true"     # adoption.yaml's default selector: the opt-in label and its value
 TRACKING_ANNOTATION = "argocd.argoproj.io/tracking-id"
 INSTANCE_LABEL = "app.kubernetes.io/instance"
 SYNC_OPTIONS_ANNOTATION = "argocd.argoproj.io/sync-options"
@@ -63,6 +63,12 @@ DEFAULT_SKIP_PREFIXES = ("openshift.io/sa.scc.", "kubectl.kubernetes.io/", "kube
 # D3a: the manager that kubectl's client-side apply writes ("--field-manager ... Default: kubectl-client-side-apply", kubectl
 # apply reference), which Argo CD's client-side apply migration takes over by default (Argo CD, "Sync Options").
 CLIENT_SIDE_APPLY_MANAGER = "kubectl-client-side-apply"
+# D3a: the managers whose server-side apply delivers cmapi's folder: Argo CD's ("Argo CD's server-side apply manager
+# (`argocd-controller`)", Argo CD, "Sync Options") and the apply delivery's (clients.kube.APPLY_FIELD_MANAGER; not imported,
+# so this module stays free of the HTTP client). A key that they alone own through Apply is removed by their next apply if
+# Git leaves it out ("If the field is not owned by any other field managers, it is either deleted from the live object or
+# reset to its default value", Kubernetes, "Server-Side Apply").
+DELIVERY_APPLY_MANAGERS = frozenset({"argocd-controller", "cmapi-deliverer"})
 # D17: the quota keys whose meaning cmapi reads; a short name is its long one ("Same as requests.cpu", Resource Quotas).
 INTERPRETED = {"cpu": "requests.cpu", "requests.cpu": "requests.cpu", "memory": "requests.memory",
                "requests.memory": "requests.memory", "pods": "pods", "persistentvolumeclaims": "persistentvolumeclaims",
@@ -107,7 +113,7 @@ def _selects(selector: str, labels: Mapping[str, str]) -> bool:
 class AdoptionSettings:
     """adoption.yaml (docs/02, "Adoption plugin", Configuration). The file is optional: without it the defaults below hold."""
     label: str = ADOPT_LABEL
-    value: str = "true"
+    value: str = ADOPT_VALUE
     exclude: Exclusions = Exclusions()
     environments: Mapping[str, Exclusions] = field(default_factory=dict)
     clusters: Mapping[str, Exclusions] = field(default_factory=dict)
@@ -127,7 +133,7 @@ class AdoptionSettings:
         known = {"selector", "exclude", "environments", "clusters", "skip", "argocd"}
         problems += [f"unknown key {k!r}: the keys are {sorted(known)}" for k in raw if k not in known]
         selector = raw.get("selector") or {}
-        label, value = selector.get("label", ADOPT_LABEL), selector.get("value", "true")
+        label, value = selector.get("label", ADOPT_LABEL), selector.get("value", ADOPT_VALUE)
         if not isinstance(label, str) or not label or not isinstance(value, str):
             problems.append("selector: label and value are strings (a label value is a string: quote \"true\")")
         exclude = cls._exclusions(raw.get("exclude"), "exclude", problems)
@@ -295,8 +301,8 @@ class KeyDecision:
 
 def skipped_keys(obj: Mapping[str, Any], settings: AdoptionSettings) -> list[KeyDecision]:
     """D3a: each label and annotation under a skip prefix, and whether it stays in Git. It is left out only when its managers
-    are known and none is the client-side apply manager that Argo CD's migration takes over: then leaving it out changes
-    nothing on the cluster. A key that such a manager wrote, or whose managers the read did not give, stays as it is."""
+    are known, none is the client-side apply manager that Argo CD's migration takes over, and not only a delivery's
+    server-side apply owns it: then leaving it out changes nothing on the cluster. Any other key stays as it is."""
     meta = obj.get("metadata") or {}
     owners = key_managers(obj)
     known = bool(meta.get("managedFields"))
@@ -313,6 +319,11 @@ def skipped_keys(obj: Mapping[str, Any], settings: AdoptionSettings) -> list[Key
                 out.append(KeyDecision(kind, key, True, managers, f"{settings.migration_manager} wrote it, and Argo CD's "
                                                                    "client-side apply migration would remove it if Git left "
                                                                    "it out"))
+            elif (managers and set(managers) <= DELIVERY_APPLY_MANAGERS
+                  and any(o["operation"] == "Apply" for o in owners[kind, key])):
+                out.append(KeyDecision(kind, key, True, managers, "only a server-side apply that delivers cmapi's folder "
+                                                                   "owns it, and that manager's next apply would remove it "
+                                                                   "if Git left it out"))
             elif managers:
                 # Any other manager keeps its share of the key when Argo CD's apply leaves it out ("Server-Side Apply"):
                 # server components, and also a client's Update such as kubectl create's or kubectl label's (#747).
@@ -503,6 +514,8 @@ def object_findings(snap: Snapshot, *, cluster_id: str, environment: str, tiers:
             if meaning is None:
                 out.append(AdoptionFinding("uninterpreted-key", path, f"{name} holds {key}: kept as it is, shown raw, and left "
                                                                       "out of cmapi's capacity and quota figures", key))
+                # D5: a site can still bound the raw key in tiers.yaml (an overridable key, #746).
+                _bound(out, beyond, bounds, key, str(value), path, name)
                 continue
             # D5: each value is checked against the custom bounds, a scoped quota's too; D17 keeps it out of the figures.
             _bound(out, beyond, bounds, meaning, str(value), path, name)

@@ -787,6 +787,8 @@ class Pipeline:
                                            [{"code": f.rule, "source": f.source, "path": f.path, "detail": f.message,
                                              "kyvernoRule": f.kyverno_rule} for f in errors],
                                            findings=[f.view() for f in [*findings, *validated] if f.severity != "error"])
+        # D10, #746: every validator finding counts, as its rule is a policy's name and may equal an informational code.
+        actionable = actionable_count(f.rule for f in findings) + len(validated) + len(held)
         findings += validated
         findings += [Finding("cmapi", "policy-ratcheted", h.path, f"{h.rule}: {h.message}", "warning", kyverno_rule=h.kyverno_rule)
                      for h in held]
@@ -797,10 +799,8 @@ class Pipeline:
                  "team": adopted_meta["label"].get("cmapi.net/team"), "tier": tier, "capacity": "fits", "capacityFresh": True,
                  "automated": requester.automated, "requesterClient": who.client_id if who.kind == "service" else None,
                  "clusterLabels": dict(st.policy.labels), "warnings": [f.message for f in findings], "reason": None,
-                 # findingCount: every finding the plan lists; actionableFindingCount: those a person should judge, which
-                 # the shipped rule's extra approver reads (D10, #746).
                  "findings": dict(sorted(counts.items())), "findingCount": len(findings),
-                 "actionableFindingCount": actionable_count(f.rule for f in findings), "beyondTier": bool(beyond),
+                 "actionableFindingCount": actionable, "beyondTier": bool(beyond),
                  "beyondTierKeys": sorted(beyond), "networkExposure": False, "trackedElsewhere": False}
         requirement = self._decide(facts)
         beyond_view = self.beyond_view(facts, {k: {"tier": v["bound"], "requested": v["requested"]} for k, v in beyond.items()})

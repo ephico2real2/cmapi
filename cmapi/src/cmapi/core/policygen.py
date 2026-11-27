@@ -1,6 +1,6 @@
 """The Kyverno bundle, rendered from cmapi's own configuration (#212; docs/reviews/2026-11-14-issue-212/).
 
-    render_bundle(catalog, keys, policy, environments, instance, adoption_label=...) -> {relative path: YAML or JSON text}
+    render_bundle(catalog, keys, policy, environments, instance, adoption_label=..., adoption_value=...) -> {path: text}
 
     env/<env>/cmapi-metadata.yaml     Namespace: the required and declared keys of metadata-keys.yaml (#215), and the keys that
                                       no stanza declares: their prefixes, count and bytes (allowOther, #333)
@@ -31,10 +31,10 @@ The keys that no stanza declares (#333): for labels and for annotations, one pol
 disallowed, one the count of other keys over allowOther.max, and for annotations two the bytes over maxValueBytes and
 maxBytesTotal. They read classify()'s own lists and its globs as metadata's regexes (`_glob_regex`), and they allow the
 keys that cmapi's renderer writes on every namespace, which a request never sends. They allow adoption.yaml's opt-in label
-too (`cmapi.net/adopt` by default, #746): the adoption keeps it on the namespace (the adoption design's §1 item 6), and cmapi's
-own check of an adoption skips it (`MetadataKeys.adoption_findings(ignore=...)`), so the two agree. Who sent a system,
-operator-only, reserved or opt-in key is not on the object: those keys are allowed there, and refusing them to a requester
-stays cmapi's check.
+too, with its value only (`cmapi.net/adopt: "true"` by default, #746): the adoption keeps it on the namespace (the adoption
+design's §1 item 6), and cmapi's own check of an adoption skips it (`MetadataKeys.adoption_findings(ignore=...)`), so the two
+agree. Who sent a system, operator-only, reserved or opt-in key is not on the object: those keys are allowed there, and
+refusing them to a requester stays cmapi's check.
 A disallowed key whose value the object already held is kept, as a declared key is (#497): cmapi keeps it on a change
 (#492). At admission the policy does not count a key that oldObject holds, so it runs at admission only (#345). At plan
 time cmapi reads the keys that a failure names from its message (outside_keys) and drops it when Git holds each one.
@@ -51,7 +51,7 @@ from typing import Any, Iterable, Mapping
 import yaml
 
 from cmapi.core import kube_yaml
-from cmapi.core.adoption import ADOPT_LABEL
+from cmapi.core.adoption import ADOPT_LABEL, ADOPT_VALUE
 from cmapi.core.metadata import KINDS, KeyRule, MetadataKeys, _glob_regex, _KEY, value_regex
 from cmapi.core.policy import PolicySettings
 from cmapi.core.render.manifests import ManifestRenderer, NamespaceSpec, objects_of
@@ -320,24 +320,28 @@ def outside_keys(message: str | None, kind: str) -> list[str] | None:
     return keys
 
 
-def _other_key_checks(keys: MetadataKeys, kind: str, written: set[str]) -> list[Check]:
+def _other_key_checks(keys: MetadataKeys, kind: str, written: set[str], opt_in: tuple[str, str]) -> list[Check]:
     """The keys of one kind that no stanza declares (#333), as validate() reads them on the result of a request: a key
-    that classify() calls disallowed, more other keys than allowOther.max, and an annotation's bytes."""
+    that classify() calls disallowed, more other keys than allowOther.max, and an annotation's bytes. `opt_in`: adoption.yaml's
+    selector label and value, allowed as that exact pair on a label (#746)."""
     other = keys.allow_other[kind]
     stanza = "extraLabels" if kind == "label" else "extraAnnotations"
     m = _meta(kind)
     # classify()'s order: system, a reserved prefix, operatorOnly, an adoption label, a declared key; then allowOther.
     fixed = cel(sorted({*keys.system, *keys.operator_only, *(keys.adoption_labels if kind == "label" else ()),
                         *keys.rules[kind], *written}))
+    exempt = f"k in {fixed}"
+    if kind == "label":
+        exempt += f" || (k == {cel(opt_in[0])} && {m}[k] == {cel(opt_in[1])})"
     no_prefix = "(!k.contains('/') || k.startsWith('/'))" if "" in other.prefixes else None
     shown = ", ".join(json.dumps(p + "/" if p else "") for p in other.prefixes) or "none"
     # Allowed: a wider reserved and allowOther match only admit more keys.
-    allowed = " || ".join(x for x in (f"k in {fixed}", _under(keys.reserved_prefixes, exact=False),
+    allowed = " || ".join(x for x in (exempt, _under(keys.reserved_prefixes, exact=False),
                                        _under(other.prefixes, exact=False), no_prefix) if x)
     # Counted: allowOther exact or narrower and reserved wider, so the policy never counts a key that validate() does not.
     team = " || ".join(x for x in (_under(other.prefixes, exact=True), no_prefix) if x) or "false"
     reserved = _under(keys.reserved_prefixes, exact=False)
-    counted = f"!(k in {fixed}){f' && !{reserved}' if reserved else ''} && ({team})"
+    counted = f"!({exempt}){f' && !{reserved}' if reserved else ''} && ({team})"
     v = f"variables.{kind}Other"
     checks = [Check(kind, None, "prefix", f"size(variables.{kind}Outside) == 0",
                     f"{cel(OUTSIDE_LEAD.format(kind=kind))} + variables.{kind}Outside.sort().join(', ') + "
@@ -466,12 +470,11 @@ def family_descriptions(env: str) -> dict[str, str]:
 
 
 def _env_files(catalog: TierCatalog, keys: MetadataKeys, env: str, instance: str, actions: list[str],
-               adoption_label: str) -> dict[str, str]:
+               opt_in: tuple[str, str]) -> dict[str, str]:
     _check_offered(catalog, env)
     written = _written(catalog, keys, env, instance)
-    # The opt-in label stays on an adopted namespace, and the adoption's own check skips it (#746): allowed, never counted.
-    written["label"].add(adoption_label)
-    metadata = _metadata_checks(keys, env, instance) + [c for kind in KINDS for c in _other_key_checks(keys, kind, written[kind])]
+    metadata = _metadata_checks(keys, env, instance) + [c for kind in KINDS
+                                                        for c in _other_key_checks(keys, kind, written[kind], opt_in)]
     descriptions = family_descriptions(env)
     families = [
         (f"cmapi-metadata-{env}", "namespaces", metadata, _MANAGED_NS,
@@ -509,15 +512,16 @@ def _env_files(catalog: TierCatalog, keys: MetadataKeys, env: str, instance: str
 
 
 def render_bundle(catalog: TierCatalog, keys: MetadataKeys, policy: PolicySettings, environments: Iterable[str],
-                  instance: str, adoption_label: str = ADOPT_LABEL) -> dict[str, str]:
+                  instance: str, adoption_label: str = ADOPT_LABEL, adoption_value: str = ADOPT_VALUE) -> dict[str, str]:
     """The bundle of one instance: the files of each environment whose mode is not off, by relative path.
-    `adoption_label`: adoption.yaml's `selector.label` (`InstanceConfig.adoption.label`), which the policies allow (#746)."""
+    `adoption_label`, `adoption_value`: adoption.yaml's `selector` (`InstanceConfig.adoption`), the one label and value that
+    the policies allow as the opt-in label (#746)."""
     out: dict[str, str] = {}
     for env in sorted(environments):
         mode = policy.mode_for(env)
         if mode == "off":
             continue
-        out.update(_env_files(catalog, keys, env, instance, ACTIONS[mode], adoption_label))
+        out.update(_env_files(catalog, keys, env, instance, ACTIONS[mode], (adoption_label, adoption_value)))
     return out
 
 
